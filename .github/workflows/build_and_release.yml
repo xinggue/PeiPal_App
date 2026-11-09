@@ -94,7 +94,7 @@ jobs:
           retention-days: 7
 
   # -------------------------------------------------------------
-  # 3. Windows Portable ZIP Build
+  # 3. Windows Application Build (Installer EXE & Portable ZIP)
   # -------------------------------------------------------------
   build-windows:
     name: Build Windows Application
@@ -118,16 +118,32 @@ jobs:
       - name: Build Windows Executable
         run: flutter build windows --release
 
-      - name: Compress Release Folder to ZIP
+      - name: Compress Release Folder to Portable ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "PeiPal-windows-x64.zip"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "PeiPal-Windows-x64-Portable.zip"
 
-      - name: Upload Windows Artifact
+      - name: Build Windows Setup Installer with Inno Setup
+        shell: pwsh
+        run: |
+          if (!(Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress
+            $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
+          }
+          iscc windows/packaging/installer.iss
+
+      - name: Upload Windows Setup Installer
         uses: actions/upload-artifact@v4
         with:
-          name: PeiPal-windows-x64
-          path: PeiPal-windows-x64.zip
+          name: PeiPal-Windows-x64-Setup
+          path: PeiPal-Windows-x64-Setup.exe
+          retention-days: 7
+
+      - name: Upload Windows Portable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: PeiPal-Windows-x64-Portable
+          path: PeiPal-Windows-x64-Portable.zip
           retention-days: 7
 
   # -------------------------------------------------------------
@@ -154,10 +170,16 @@ jobs:
           name: PeiPal-macOS
           path: release-assets
 
-      - name: Download Windows Artifact
+      - name: Download Windows Setup Installer
         uses: actions/download-artifact@v4
         with:
-          name: PeiPal-windows-x64
+          name: PeiPal-Windows-x64-Setup
+          path: release-assets
+
+      - name: Download Windows Portable Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: PeiPal-Windows-x64-Portable
           path: release-assets
 
       - name: Determine Tag
