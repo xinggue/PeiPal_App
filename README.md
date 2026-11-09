@@ -1,4 +1,4 @@
-# medhistory_app
+# PeiPal App (小培同学)
 
 Chat-first **structured-document collection & generation workstation** with dual-channel output (BLE HID keyboard emulation & multi-packet 2D barcode scanner). Medical records are the primary and most mature use case, but the template/slot/pipeline/catalog/review/output system is domain-agnostic and also fits any structured document or form-entry workflow.
 
