@@ -7,6 +7,7 @@ import '../../../domain/models/content_template.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/tutorial_provider.dart';
 import 'generation_fields_and_requirements.dart';
 
 /// 一体化病历生成向导返回结果
@@ -214,9 +215,16 @@ class _RecordGenerationWizardSheetState
 
             // 主体内容区（根据当前 step 展示）
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _buildStepContent(theme),
+              child: Column(
+                children: [
+                  _buildTutorialHint(theme),
+                  Expanded(
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildStepContent(theme),
+                  ),
+                ],
+              ),
             ),
 
             const Divider(height: 1),
@@ -400,6 +408,40 @@ class _RecordGenerationWizardSheetState
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 新手引导期间，在向导内同步提示当前这一步的用途。
+  Widget _buildTutorialHint(ThemeData theme) {
+    final state = ref.watch(tutorialProvider);
+    if (!state.isActive ||
+        state.activeTutorial != TutorialType.basicFlow ||
+        state.currentStep != 4) {
+      return const SizedBox.shrink();
+    }
+    const hints = [
+      '① 文书类型：选择这次要生成的记录/文书类型。',
+      '② 内容模板：可选已配置的范文与写作指导，没有也可以直接下一步。',
+      '③ 素材范围：使用全部材料，或仅使用上次生成后的新增内容。',
+      '④ 字段与要求：勾选要生成的字段，还能补充额外要求。',
+    ];
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        hints[_currentStep],
+        style: TextStyle(
+          fontSize: 12.5,
+          height: 1.4,
+          color: theme.colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

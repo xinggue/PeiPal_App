@@ -26,6 +26,7 @@ class ChatInputBar extends StatefulWidget {
   final VoidCallback? onAutofillSessionInfo;
   final bool isDryRunEnabled;
   final VoidCallback? onDryRunTest;
+  final GlobalKey? generateButtonKey;
 
   const ChatInputBar({
     super.key,
@@ -42,6 +43,7 @@ class ChatInputBar extends StatefulWidget {
     this.onAutofillSessionInfo,
     this.isDryRunEnabled = false,
     this.onDryRunTest,
+    this.generateButtonKey,
   });
 
   @override
@@ -491,6 +493,7 @@ class ChatInputBarState extends State<ChatInputBar> {
 
                 // 3. 生成文书专属星星按钮
                 IconButton(
+                  key: widget.generateButtonKey,
                   icon: const Icon(Icons.auto_awesome, color: Colors.amber, size: 23),
                   tooltip: '生成文书',
                   onPressed: widget.onGenerateRecord,

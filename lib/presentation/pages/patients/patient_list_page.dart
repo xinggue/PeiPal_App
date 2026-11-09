@@ -6,9 +6,13 @@ import 'package:go_router/go_router.dart';
 import '../../../domain/models/patient.dart';
 import '../../../domain/models/message.dart';
 import '../../../data/services/media/media_storage.dart';
+import '../../../data/services/sample_data_service.dart';
 import '../../../data/services/task/task_center.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/tutorial_provider.dart';
 import '../../widgets/ble/ble_connect_manual_sheet.dart';
+import '../../widgets/common/app_toast.dart';
+import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
 
 enum PatientFilter { all, active, discharged }
 
@@ -44,6 +48,8 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
   PatientSortField _sortField = PatientSortField.recentActivity;
   bool _sortAscending = false; // 默认 false: 降序 (最新优先)
   final Set<SlidableController> _openSlidables = {};
+  final GlobalKey _sampleCardKey = GlobalKey();
+  final GlobalKey _fabKey = GlobalKey();
 
   void _closeAllOpenSlidables() {
     if (_openSlidables.isEmpty) return;
@@ -62,7 +68,7 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
     final activeTaskCount =
         ref.watch(taskCenterProvider.select((tc) => tc.activeTasks.length));
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: Badge(
@@ -241,11 +247,82 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/patients/new'),
+        key: _fabKey,
+        onPressed: () {
+          final tutorialState = ref.read(tutorialProvider);
+          if (tutorialState.isActive &&
+              tutorialState.activeTutorial == TutorialType.basicFlow &&
+              tutorialState.currentStep <= 2) {
+            showAppToast(context, '教程中暂不新建，请先进入「示例会话」体验完整流程～');
+            return;
+          }
+          context.push('/patients/new');
+        },
         icon: const Icon(Icons.add_comment_outlined),
         label: const Text('新建会话'),
       ),
     );
+
+    final tutorialState = ref.watch(tutorialProvider);
+    if (!tutorialState.isActive ||
+        tutorialState.activeTutorial != TutorialType.basicFlow ||
+        tutorialState.currentStep > 2) {
+      return scaffold;
+    }
+
+    final patientList = patients.valueOrNull ?? const [];
+    return Stack(
+      children: [
+        scaffold,
+        _buildTutorialOverlay(context, ref, tutorialState, patientList),
+      ],
+    );
+  }
+
+  Widget _buildTutorialOverlay(
+    BuildContext context,
+    WidgetRef ref,
+    TutorialState state,
+    List<Patient> patients,
+  ) {
+    final samplePatient = patients
+            .where((p) => p.id == SampleDataService.samplePatientId)
+            .firstOrNull ??
+        patients.firstOrNull ??
+        Patient(name: '示例会话', status: PatientStatus.active);
+
+    void enterSample() {
+      ref.read(tutorialProvider.notifier).goToStep(3);
+      context.push('/patients/${samplePatient.id}/chat');
+    }
+
+    if (state.currentStep == 1) {
+      return TutorialSpotlightOverlay(
+        targetKey: _fabKey,
+        stepTag: '新手指引 · 1/5',
+        title: '从这里新建一个会话',
+        description: '需要整理新的内容时，点这里新建独立会话。\n教程期间先不新建，点「下一步」看看已有的示例会话。',
+        nextButtonLabel: '下一步',
+        borderRadius: 28,
+        onNext: () => ref.read(tutorialProvider.notifier).nextStep(),
+        onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+        onTargetTap: () {
+          showAppToast(context, '教程中暂不新建，请点「下一步」继续～');
+        },
+      );
+    } else if (state.currentStep == 2) {
+      return TutorialSpotlightOverlay(
+        targetKey: _sampleCardKey,
+        stepTag: '新手指引 · 2/5',
+        title: '这是一个已有的示例会话',
+        description: '里面放了几段普通的信息和对话材料。点下方按钮进入，看看材料如何整理。',
+        nextButtonLabel: '进入示例会话',
+        onNext: enterSample,
+        onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+        onTargetTap: enterSample,
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _buildPatientList(
@@ -316,8 +393,12 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
               );
             }
             final p = sorted[index - 1];
+            final isSampleCard = p.id == SampleDataService.samplePatientId ||
+                (index == 1 &&
+                    !sorted.any((item) =>
+                        item.id == SampleDataService.samplePatientId));
             return _PatientCardItem(
-              key: ValueKey(p.id),
+              key: isSampleCard ? _sampleCardKey : ValueKey(p.id),
               patient: p,
               onEdit: () => _editPatient(context, p),
               onToggleStatus: () => _toggleStatus(ref, p),

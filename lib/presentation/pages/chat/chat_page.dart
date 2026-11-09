@@ -26,6 +26,8 @@ import 'llm_dry_run_preview_page.dart';
 import 'generation_run_page.dart';
 import '../../../data/services/task/task_center.dart';
 import '../../../domain/generation/generation_plan.dart';
+import '../../../providers/tutorial_provider.dart';
+import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   final String patientId;
@@ -45,6 +47,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   final _scrollController = ScrollController();
   MessageRepository get _msgRepo => ref.read(messageRepositoryProvider);
   final _inputKey = GlobalKey<ChatInputBarState>();
+  final _generateBtnKey = GlobalKey();
 
   RecordingPhase _recPhase = RecordingPhase.holding;
   TouchTarget _touchTarget = TouchTarget.normal;
@@ -270,60 +273,57 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _onGenerateRecord({bool forceManual = false}) async {
-    final llmConfig = ref.read(llmConfigProvider);
-    bool useManual = forceManual;
-
-    if (!llmConfig.isConfigured && !useManual) {
-      if (!mounted) return;
-      final choice = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.psychology_outlined, color: Colors.amber),
-              SizedBox(width: 8),
-              Text('未配置 AI 接口密钥', style: TextStyle(fontSize: 16)),
-            ],
-          ),
-          content: const Text(
-            '尚未在「设置」中配置大模型的 API Key。\n\n'
-            '您可以选择「手动模式」：系统将为您把会话材料和文书要求一键整理为通俗的对话内容，您只需复制发送给豆包、Deepseek或网页版 AI，把 AI 的回答复制贴回即可自动生成文书。',
-            style: TextStyle(fontSize: 13.5, height: 1.45),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, 'cancel'),
-              child: const Text('取消'),
-            ),
-            OutlinedButton(
-              onPressed: () {
-                Navigator.pop(ctx, 'settings');
-                context.push('/settings');
-              },
-              child: const Text('去设置密钥'),
-            ),
-            FilledButton.icon(
-              icon: const Icon(Icons.copy_all_rounded, size: 16),
-              label: const Text('手动把内容复制到其他App'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.amber.shade800,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () => Navigator.pop(ctx, 'manual'),
-            ),
-          ],
-        ),
-      );
-
-      if (choice == 'manual') {
-        useManual = true;
-      } else {
-        return;
-      }
-    }
-
     final inputs = await _collectGenerationInputs(isDryRun: false);
     if (inputs == null || !mounted) return;
+
+    bool useManual = forceManual;
+    final llmConfig = ref.read(llmConfigProvider);
+
+    // 教程最后一步、或未配置密钥时，在「确认开始生成」弹出方式选择。
+    final tutorial = ref.read(tutorialProvider);
+    final isTutorialConfirm = tutorial.isActive &&
+        tutorial.activeTutorial == TutorialType.basicFlow &&
+        tutorial.currentStep == 4;
+
+    final needChoice =
+        !useManual && (!llmConfig.isConfigured || isTutorialConfirm);
+
+    if (needChoice) {
+      if (isTutorialConfirm) {
+        ref.read(tutorialProvider.notifier).goToStep(5);
+      }
+      if (!mounted) return;
+      final choice = await _showGenerationModeDialog(
+        isTutorial: isTutorialConfirm,
+        aiConfigured: llmConfig.isConfigured,
+      );
+      if (choice == null) {
+        if (isTutorialConfirm) {
+          ref.read(tutorialProvider.notifier).goToStep(4);
+        }
+        return;
+      }
+      if (choice == 'manual') {
+        useManual = true;
+      } else if (choice == 'ai') {
+        if (!llmConfig.isConfigured) {
+          if (isTutorialConfirm) {
+            await ref.read(tutorialProvider.notifier).completeTutorial();
+          }
+          if (mounted) {
+            context.push('/settings/llm-providers');
+            showAppToast(context, '填入 API Key 后即可自动生成');
+          }
+          return;
+        }
+        // 已配置 AI：选择后继续正常生成
+      }
+      if (isTutorialConfirm) {
+        await ref.read(tutorialProvider.notifier).completeTutorial();
+      }
+    } else if (isTutorialConfirm) {
+      await ref.read(tutorialProvider.notifier).completeTutorial();
+    }
 
     if (useManual) {
       final taskId = ref.read(taskCenterProvider).startManualGenerationTask(
@@ -347,6 +347,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     // 打开全屏等待与故障恢复界面
+    if (!mounted) return;
     final savedMsgId = await Navigator.push<String?>(
       context,
       MaterialPageRoute(
@@ -363,6 +364,184 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (savedMsgId != null && mounted) {
       context.push('/patients/${widget.patientId}/records/$savedMsgId/review');
     }
+  }
+
+  Future<String?> _showGenerationModeDialog({
+    required bool isTutorial,
+    required bool aiConfigured,
+  }) async {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isTutorial)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '新手指引 · 5/5',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+              const Row(
+                children: [
+                  Icon(Icons.play_circle_outline_rounded, color: Colors.amber, size: 22),
+                  SizedBox(width: 8),
+                  Text(
+                    '最后一步：确认开始生成',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                aiConfigured
+                    ? '选择本次的生成方式：'
+                    : '还没有配置 AI 密钥，请选择生成方式：',
+                style: TextStyle(fontSize: 13.5, color: Colors.grey.shade700, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              // 选项 A：应用内 AI 生成（未配置时引导去配置）
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(ctx, 'ai'),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: scheme.primary.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        aiConfigured ? Icons.auto_awesome : Icons.key_rounded,
+                        color: scheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  aiConfigured ? '使用 AI 直接生成' : '配置 AI，直接生成',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: scheme.primary,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text('推荐',
+                                      style: TextStyle(
+                                          fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              aiConfigured
+                                  ? '在应用内自动整理并生成结果。'
+                                  : '填写一次 API Key，之后都能在应用内自动生成。',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 选项 B：复制到外部 AI 手动生成
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(ctx, 'manual'),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.shade400),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.copy_all_rounded, color: Colors.amber.shade900, size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text('复制到外部 AI 生成',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Colors.amber.shade900)),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade800,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text('免配置',
+                                      style: TextStyle(
+                                          fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '自动整理好内容并复制，粘贴到任意 AI 生成后再贴回。',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _onDryRunTest() async {
@@ -517,7 +696,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
 
     return patient.when(
-      data: (p) => Scaffold(
+      data: (p) => Stack(
+        children: [
+          Scaffold(
         appBar: AppBar(
           title: InkWell(
             borderRadius: BorderRadius.circular(8),
@@ -859,6 +1040,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               ),
             ChatInputBar(
               key: _inputKey,
+              generateButtonKey: _generateBtnKey,
               onSendText: _onSendText,
               onSendPhotos: _onSendPhotos,
               onSendDocuments: _onSendDocuments,
@@ -954,6 +1136,43 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ],
     ),
   ),
+        Consumer(
+          builder: (context, ref, _) {
+            final tutorialState = ref.watch(tutorialProvider);
+            if (!tutorialState.isActive ||
+                tutorialState.activeTutorial != TutorialType.basicFlow ||
+                (tutorialState.currentStep != 3 &&
+                    tutorialState.currentStep != 4)) {
+              return const SizedBox.shrink();
+            }
+            if (tutorialState.currentStep == 3) {
+              return TutorialSpotlightOverlay(
+                highlightLowerHalf: true,
+                pinTooltip: true,
+                borderRadius: 18,
+                stepTag: '新手指引 · 3/5',
+                title: '像微信一样录入材料',
+                description: '上方是聊天记录，下方输入框可以打字、按住说话；点「+」展开后还能拍照或发送图片文件。\n语音和图片会自动转成文字。',
+                nextButtonLabel: '下一步',
+                onNext: () => ref.read(tutorialProvider.notifier).nextStep(),
+                onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+              );
+            } else {
+              return TutorialSpotlightOverlay(
+                targetKey: _generateBtnKey,
+                pinTooltip: true,
+                stepTag: '新手指引 · 4/5',
+                title: '最后一步：整理生成',
+                description: '点击这个按钮会打开文书生成指引，一步步选择：文书类型 → 内容模板 → 素材范围 → 字段与要求，最后确认开始生成。',
+                nextButtonLabel: '开始生成',
+                onNext: () => _onGenerateRecord(),
+                onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+              );
+            }
+          },
+        ),
+      ],
+    ),
       loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       ),

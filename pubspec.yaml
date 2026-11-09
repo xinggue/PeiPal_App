@@ -54,6 +54,7 @@ dependencies:
   syncfusion_flutter_pdf: ^35.1.40+1
   archive: ^4.5.2
   pdfx: ^2.11.0
+  permission_handler: ^12.0.1
 
 dev_dependencies:
   flutter_test:
@@ -73,3 +74,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/data/icd_knowledge.db
+    - assets/icons/app_icon.png

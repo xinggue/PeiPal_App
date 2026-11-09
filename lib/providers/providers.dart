@@ -26,6 +26,7 @@ import '../data/services/task/task_center.dart';
 import '../data/services/processing_service.dart';
 import '../data/services/generation_engine.dart';
 import '../data/services/content_template_extractor.dart';
+import '../data/services/sample_data_service.dart';
 import '../domain/models/patient.dart';
 import '../domain/models/message.dart';
 import '../domain/models/template.dart';
@@ -481,9 +482,23 @@ final bleConfigProvider =
   );
 });
 
+// ---- Sample Data ----
+
+final sampleDataServiceProvider = Provider<SampleDataService>((ref) {
+  return SampleDataService(
+    patientRepo: ref.read(patientRepositoryProvider),
+    messageRepo: ref.read(messageRepositoryProvider),
+    templateRepo: ref.read(templateRepositoryProvider),
+    contentTemplateRepo: ref.read(contentTemplateRepositoryProvider),
+    settingsRepo: ref.read(settingsRepositoryProvider),
+  );
+});
+
 // ---- Patients ----
 
 final patientsProvider = StreamProvider<List<Patient>>((ref) async* {
+  final sampleService = ref.read(sampleDataServiceProvider);
+  await sampleService.ensureSampleData();
   final repo = ref.read(patientRepositoryProvider);
   yield await repo.getAll();
 });

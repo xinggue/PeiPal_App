@@ -2,17 +2,20 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/services/ble/character_sanitizer.dart';
 import 'data/services/media/ocr_image_optimizer.dart';
+import 'presentation/pages/onboarding/onboarding_flow.dart';
 import 'presentation/widgets/ble/draggable_typing_overlay.dart';
 import 'providers/asr_providers_provider.dart';
 import 'providers/llm_providers_provider.dart';
 import 'providers/ocr_providers_provider.dart';
 import 'providers/providers.dart';
+import 'providers/tutorial_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,6 +53,36 @@ class DocMasterPeiApp extends ConsumerWidget {
     ref.read(charReplacementRulesProvider);
     ref.read(floatingOverlayEnabledProvider);
     ref.read(activeTimingControllerProvider);
+
+    final onboardingDone = ref.watch(onboardingCompletedProvider);
+
+    return onboardingDone.when(
+      loading: () => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        locale: const Locale('zh', 'CN'),
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      ),
+      error: (_, _) => _buildMainApp(router, fontScale),
+      data: (done) => done
+          ? _buildMainApp(router, fontScale)
+          : MaterialApp(
+              title: '小培同学',
+              debugShowCheckedModeBanner: false,
+              themeMode: ThemeMode.light,
+              theme: AppTheme.lightTheme,
+              locale: const Locale('zh', 'CN'),
+              home: const OnboardingFlow(),
+            ),
+    );
+  }
+
+  Widget _buildMainApp(
+    GoRouter router,
+    double fontScale,
+  ) {
     return MaterialApp.router(
       title: '小培同学',
       debugShowCheckedModeBanner: false,
