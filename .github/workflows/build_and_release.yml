@@ -59,7 +59,7 @@ jobs:
   # -------------------------------------------------------------
   build-macos:
     name: Build macOS DMG
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
