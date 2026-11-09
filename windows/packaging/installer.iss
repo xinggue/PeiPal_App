@@ -20,13 +20,13 @@ DefaultDirName={autopf}\{#MyAppEnglishName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 SourceDir=..\..
-OutputDir=..\..
+OutputDir=.
 OutputBaseFilename=PeiPal-Windows-x64-Setup
 SetupIconFile=windows\runner\resources\app_icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
