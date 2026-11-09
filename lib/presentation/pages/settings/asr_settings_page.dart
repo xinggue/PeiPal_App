@@ -724,14 +724,6 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (p.description.isNotEmpty) ...[
-                    Text(
-                      p.description,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
                   // 1. 接口地址 Base URL
                   TextField(
                     controller: _getUrlCtrl(p),

@@ -791,14 +791,6 @@ class _OcrSettingsPageState extends ConsumerState<OcrSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (p.description.isNotEmpty) ...[
-                    Text(
-                      p.description,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
                   if (p.isLocal || p.isNoAuthCloud) ...[
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
