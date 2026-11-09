@@ -18,6 +18,8 @@ class TutorialSpotlightOverlay extends StatefulWidget {
   final Widget? extraContent;
   /// 为 true 时不再依赖 targetKey，而是高亮整个屏幕下半部分。
   final bool highlightLowerHalf;
+  /// 高亮下半区从屏幕高度的哪个比例开始（0~1）。
+  final double lowerHalfStart;
   /// 为 true 时引导卡片固定在顶部，不随高亮目标移动。
   final bool pinTooltip;
 
@@ -36,6 +38,7 @@ class TutorialSpotlightOverlay extends StatefulWidget {
     this.customAction,
     this.extraContent,
     this.highlightLowerHalf = false,
+    this.lowerHalfStart = 0.5,
     this.pinTooltip = false,
   });
 
@@ -114,9 +117,9 @@ class _TutorialSpotlightOverlayState extends State<TutorialSpotlightOverlay>
       final screenSize = MediaQuery.sizeOf(context);
       newRect = Rect.fromLTWH(
         0,
-        screenSize.height * 0.5,
+        screenSize.height * widget.lowerHalfStart,
         screenSize.width,
-        screenSize.height * 0.5,
+        screenSize.height * (1 - widget.lowerHalfStart),
       );
     } else {
       final targetContext = widget.targetKey?.currentContext;
@@ -152,7 +155,7 @@ class _TutorialSpotlightOverlayState extends State<TutorialSpotlightOverlay>
     final double? tooltipTop;
     final double? tooltipBottom;
     if (widget.pinTooltip) {
-      tooltipTop = safePadding.top + kToolbarHeight + 12;
+      tooltipTop = safePadding.top + kToolbarHeight - 8;
       tooltipBottom = null;
     } else if (isUpperHalf) {
       tooltipTop =

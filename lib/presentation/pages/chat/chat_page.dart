@@ -1148,6 +1148,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             if (tutorialState.currentStep == 3) {
               return TutorialSpotlightOverlay(
                 highlightLowerHalf: true,
+                lowerHalfStart: 0.3,
                 pinTooltip: true,
                 borderRadius: 18,
                 stepTag: '新手指引 · 3/5',
@@ -1160,6 +1161,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             } else {
               return TutorialSpotlightOverlay(
                 targetKey: _generateBtnKey,
+                targetPadding: 16,
                 pinTooltip: true,
                 stepTag: '新手指引 · 4/5',
                 title: '最后一步：整理生成',

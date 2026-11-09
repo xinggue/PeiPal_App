@@ -161,6 +161,7 @@ class Message {
 
   Message copyWith({
     List<String>? filePaths,
+    List<int>? fileSizes,
     String? transcribedText,
     bool clearTranscribedText = false,
     String? extractedText,
@@ -177,7 +178,7 @@ class Message {
         type: type,
         content: content,
         filePaths: filePaths ?? this.filePaths,
-        fileSizes: fileSizes,
+        fileSizes: fileSizes ?? this.fileSizes,
         durationMs: durationMs,
         pageCount: pageCount,
         transcribedText: clearTranscribedText

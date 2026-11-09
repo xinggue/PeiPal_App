@@ -205,7 +205,7 @@ void main() {
   });
 
   group('SampleDataService Tests', () {
-    test('Seeds template, patient, and 3 messages correctly', () async {
+    test('Seeds template, patient, and 4 messages correctly', () async {
       final patientRepo = MockPatientRepo();
       final messageRepo = MockMessageRepo();
       final templateRepo = MockTemplateRepo();
@@ -218,6 +218,7 @@ void main() {
         templateRepo: templateRepo,
         contentTemplateRepo: contentTemplateRepo,
         settingsRepo: settingsRepo,
+        seedMedia: false,
       );
 
       await service.ensureSampleData();
@@ -228,15 +229,24 @@ void main() {
       expect(patients.first.name, '示例会话');
 
       final messages = await messageRepo.getAllChronological(SampleDataService.samplePatientId);
-      expect(messages.length, 3);
-      expect(messages.any((m) => m.type == MessageType.text), isTrue);
-      expect(messages.any((m) => m.type == MessageType.voice), isTrue);
-      expect(messages.any((m) => m.type == MessageType.photo), isTrue);
+      expect(messages.length, 4);
+      expect(messages.where((m) => m.type == MessageType.text).length, 2);
+      expect(messages.where((m) => m.type == MessageType.photo).length, 2);
+      expect(messages.any((m) => m.type == MessageType.voice), isFalse);
       expect(messages.any((m) => m.type == MessageType.generatedRecord), isFalse);
 
       final templates = await templateRepo.getAll();
       expect(templates.length, 1);
       expect(templates.first.id, SampleDataService.sampleTemplateId);
+      expect(templates.first.name, '示例病史');
+      expect(templates.first.slots.length, 8);
+      expect(templates.first.slots.first.key, '主诉');
+
+      final contentTemplates = await contentTemplateRepo.getAll();
+      expect(contentTemplates.length, 1);
+      expect(contentTemplates.first.name, '通用模板');
+      expect(contentTemplates.first.slots['主诉']?.guidance, isNotEmpty);
+      expect(contentTemplates.first.slots['查体']?.examples, isNotEmpty);
 
       expect(settingsRepo.data[SampleDataService.keySampleSeeded], 'true');
     });
@@ -254,6 +264,7 @@ void main() {
         templateRepo: templateRepo,
         contentTemplateRepo: contentTemplateRepo,
         settingsRepo: settingsRepo,
+        seedMedia: false,
       );
 
       await service.ensureSampleData();
@@ -262,7 +273,7 @@ void main() {
       final patients = await patientRepo.getAll();
       expect(patients.length, 1);
       final messages = await messageRepo.getAllChronological(SampleDataService.samplePatientId);
-      expect(messages.length, 3);
+      expect(messages.length, 4);
     });
   });
 }

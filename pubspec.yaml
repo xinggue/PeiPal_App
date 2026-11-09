@@ -75,3 +75,4 @@ flutter:
   assets:
     - assets/data/icd_knowledge.db
     - assets/icons/app_icon.png
+    - assets/sample/
