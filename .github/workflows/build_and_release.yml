@@ -192,6 +192,12 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Generate Release Manifest
+        env:
+          ASSET_DIR: release-assets
+          RELEASE_TAG: ${{ steps.tag_info.outputs.tag }}
+        run: python3 .github/scripts/gen_manifest.py
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
