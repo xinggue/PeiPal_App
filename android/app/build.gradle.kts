@@ -21,6 +21,14 @@ val hasReleaseSigning = keystorePropertiesFile.exists() &&
         (keystoreProperties[it] as? String)?.isNotBlank() == true
     }
 
+// Opt-in: sign the *debug* build type with the release keystore (for
+// upgrade-compatible test builds). Enable with
+//   -PsignDebugWithRelease=true
+// or env ORG_GRADLE_PROJECT_signDebugWithRelease=true
+// Never distribute such (debuggable) builds to end users.
+val signDebugWithRelease =
+    (project.findProperty("signDebugWithRelease") as String?)?.toBoolean() ?: false
+
 android {
     namespace = "com.medhistorygen.medhistory_app"
     compileSdk = flutter.compileSdkVersion
@@ -67,6 +75,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = if (signDebugWithRelease && hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
         release {
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
