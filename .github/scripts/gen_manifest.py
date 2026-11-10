@@ -17,6 +17,7 @@ Environment variables:
 import glob
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 
 PLATFORM_RULES = (
@@ -35,14 +36,31 @@ def classify(name):
     return None
 
 
+def commit_utc_timestamp():
+    """Deterministic fallback: the current commit's committer time (UTC)."""
+    try:
+        out = subprocess.run(
+            ["git", "show", "-s", "--format=%ct"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        epoch = int(out.stdout.strip())
+        return datetime.fromtimestamp(epoch, timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+    except Exception:  # noqa: BLE001
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def main():
     asset_dir = os.environ.get("ASSET_DIR", "release-assets").strip()
     tag = os.environ.get("RELEASE_TAG", "").strip() or os.environ.get(
         "GITHUB_REF_NAME", ""
     ).strip()
-    published_at = os.environ.get("PUBLISHED_AT", "").strip() or datetime.now(
-        timezone.utc
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    published_at = (
+        os.environ.get("PUBLISHED_AT", "").strip() or commit_utc_timestamp()
+    )
     gh_repo = os.environ.get("GITHUB_REPO", "xinggue/PeiPal_App").strip()
     gitee_repo = os.environ.get("GITEE_REPO", "xinggue/peipal_app").strip()
 
