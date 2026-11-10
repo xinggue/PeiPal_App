@@ -203,3 +203,87 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # -------------------------------------------------------------
+      # 5. Sync Release Assets to Gitee
+      # -------------------------------------------------------------
+      - name: Sync Release Assets to Gitee
+        if: env.GITEE_TOKEN != ''
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag_info.outputs.tag }}
+        run: |
+          python3 - << 'EOF'
+          import os
+          import glob
+          import urllib.request
+          import urllib.parse
+          import json
+          import subprocess
+
+          gitee_token = os.environ.get("GITEE_TOKEN", "").strip()
+          tag = os.environ.get("RELEASE_TAG", "").strip()
+          owner = "xinggue"
+          repo = "peipal_app"
+
+          if not gitee_token:
+              print("No GITEE_TOKEN provided, skipping Gitee release sync.")
+              exit(0)
+
+          print(f"Syncing release {tag} to Gitee ({owner}/{repo})...")
+
+          # 1. Check if release already exists on Gitee
+          get_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/releases/tags/{tag}?access_token={gitee_token}"
+          release_id = None
+
+          try:
+              req = urllib.request.Request(get_url, headers={"User-Agent": "Mozilla/5.0"})
+              with urllib.request.urlopen(req) as resp:
+                  if resp.status == 200:
+                      data = json.loads(resp.read().decode())
+                      release_id = data.get("id")
+                      print(f"Found existing Gitee release ID: {release_id}")
+          except Exception as e:
+              print(f"Release not found on Gitee by tag ({e}), will create new release.")
+
+          # 2. Create release if not exists
+          if not release_id:
+              create_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/releases"
+              payload = urllib.parse.urlencode({
+                  "access_token": gitee_token,
+                  "tag_name": tag,
+                  "name": f"Release {tag}",
+                  "body": f"PeiPal (小培同学) {tag} 多平台发布版本。\n\n包含 Android 安装包、macOS 镜像、Windows 安装程序及便携版。\n国内镜像高速下载。",
+              }).encode("utf-8")
+
+              req = urllib.request.Request(create_url, data=payload, headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"})
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      data = json.loads(resp.read().decode())
+                      release_id = data.get("id")
+                      print(f"Created new Gitee release ID: {release_id}")
+              except Exception as e:
+                  print(f"Failed to create Gitee release: {e}")
+                  exit(0)
+
+          # 3. Upload release assets
+          files = sorted(glob.glob("release-assets/*"))
+          print(f"Uploading {len(files)} files to Gitee release {release_id}...")
+          for f in files:
+              fname = os.path.basename(f)
+              print(f"--> Uploading {fname} to Gitee...")
+              cmd = [
+                  "curl", "-s", "-S", "--retry", "3",
+                  "-X", "POST",
+                  "-F", f"access_token={gitee_token}",
+                  "-F", f"file=@{f}",
+                  f"https://gitee.com/api/v5/repos/{owner}/{repo}/releases/{release_id}/attach_files"
+              ]
+              res = subprocess.run(cmd, capture_output=True, text=True)
+              if res.returncode == 0:
+                  print(f"Uploaded {fname} successfully.")
+              else:
+                  print(f"Warning: Failed to upload {fname}: {res.stderr}")
+
+          print("Gitee release synchronization completed!")
+          EOF
