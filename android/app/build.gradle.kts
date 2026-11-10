@@ -29,6 +29,21 @@ val hasReleaseSigning = keystorePropertiesFile.exists() &&
 val signDebugWithRelease =
     (project.findProperty("signDebugWithRelease") as String?)?.toBoolean() ?: false
 
+// Opt-in: give the *debug* build an applicationId suffix so it installs as a
+// separate app that can coexist with the release build. Enable with
+//   -PdebugAppIdSuffix=true        -> ".debug"
+//   -PdebugAppIdSuffix=beta        -> ".beta"
+// or env ORG_GRADLE_PROJECT_debugAppIdSuffix=...
+// Default: no suffix (same applicationId as release).
+val debugAppIdSuffixRaw =
+    (project.findProperty("debugAppIdSuffix") as String?)?.trim()
+val debugAppIdSuffix: String? = when {
+    debugAppIdSuffixRaw.isNullOrEmpty() || debugAppIdSuffixRaw == "false" -> null
+    debugAppIdSuffixRaw == "true" -> ".debug"
+    debugAppIdSuffixRaw.startsWith(".") -> debugAppIdSuffixRaw
+    else -> ".$debugAppIdSuffixRaw"
+}
+
 android {
     namespace = "com.medhistorygen.medhistory_app"
     compileSdk = flutter.compileSdkVersion
@@ -76,6 +91,9 @@ android {
 
     buildTypes {
         debug {
+            if (debugAppIdSuffix != null) {
+                applicationIdSuffix = debugAppIdSuffix
+            }
             signingConfig = if (signDebugWithRelease && hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
