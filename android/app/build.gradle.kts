@@ -29,17 +29,21 @@ val hasReleaseSigning = keystorePropertiesFile.exists() &&
 val signDebugWithRelease =
     (project.findProperty("signDebugWithRelease") as String?)?.toBoolean() ?: false
 
-// Opt-in: give the *debug* build an applicationId suffix so it installs as a
-// separate app that can coexist with the release build. Enable with
+// Debug builds get an applicationId suffix by default so a debug build can
+// coexist with the release build on the same device (they upgrade independently).
+//   default            -> ".debug"
 //   -PdebugAppIdSuffix=true        -> ".debug"
 //   -PdebugAppIdSuffix=beta        -> ".beta"
+//   -PdebugAppIdSuffix=false|none  -> no suffix (same id as release)
 // or env ORG_GRADLE_PROJECT_debugAppIdSuffix=...
-// Default: no suffix (same applicationId as release).
 val debugAppIdSuffixRaw =
     (project.findProperty("debugAppIdSuffix") as String?)?.trim()
 val debugAppIdSuffix: String? = when {
-    debugAppIdSuffixRaw.isNullOrEmpty() || debugAppIdSuffixRaw == "false" -> null
-    debugAppIdSuffixRaw == "true" -> ".debug"
+    debugAppIdSuffixRaw == null -> ".debug"
+    debugAppIdSuffixRaw.isEmpty() -> null
+    debugAppIdSuffixRaw.equals("false", true) -> null
+    debugAppIdSuffixRaw.equals("none", true) -> null
+    debugAppIdSuffixRaw.equals("true", true) -> ".debug"
     debugAppIdSuffixRaw.startsWith(".") -> debugAppIdSuffixRaw
     else -> ".$debugAppIdSuffixRaw"
 }
