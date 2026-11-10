@@ -203,14 +203,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # -------------------------------------------------------------
-      # 5. Sync Release Assets to Gitee
-      # -------------------------------------------------------------
-      - name: Sync Release Assets to Gitee
-        if: env.GITEE_TOKEN != ''
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          RELEASE_TAG: ${{ steps.tag_info.outputs.tag }}
-          ASSET_DIR: release-assets
-        run: python3 .github/scripts/sync_gitee.py
