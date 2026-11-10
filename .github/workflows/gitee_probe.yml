@@ -1,0 +1,41 @@
+name: Gitee Upload Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe Gitee Upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Test File
+        run: |
+          head -c 1048576 /dev/urandom > /tmp/probe_1mb.bin
+          ls -lh /tmp/probe_1mb.bin
+
+      - name: Find Release ID
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          RELEASE_ID=$(curl -s "https://gitee.com/api/v5/repos/xinggue/peipal_app/releases/tags/v0.1.0?access_token=${GITEE_TOKEN}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id') if isinstance(d,dict) else '')")
+          echo "RELEASE_ID=$RELEASE_ID"
+          echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
+
+      - name: Upload 1MB Test File With Timing
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          echo "--- connect test ---"
+          curl -sS -o /dev/null -w "connect=%{time_connect}s total=%{time_total}s speed=%{speed_upload}B/s http=%{http_code}\n" \
+            --connect-timeout 20 --max-time 120 \
+            -X POST \
+            -F "access_token=${GITEE_TOKEN}" \
+            -F "file=@/tmp/probe_1mb.bin" \
+            "https://gitee.com/api/v5/repos/xinggue/peipal_app/releases/${RELEASE_ID}/attach_files" || echo "curl exit: $?"
+
+      - name: List Release Attachments
+        run: |
+          curl -s "https://gitee.com/api/v5/repos/xinggue/peipal_app/releases/${RELEASE_ID}/attach_files" | python3 -c "import sys,json;d=json.load(sys.stdin);print(json.dumps([{'name':a.get('name'),'size':a.get('size')} for a in d],ensure_ascii=False))"
