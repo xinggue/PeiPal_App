@@ -150,7 +150,7 @@ class LlmProviderPresets {
           defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
           baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
           apiKey: '',
-          selectedModel: 'glm-5.3-flash',
+          selectedModel: 'glm-5.3-flashx',
           websiteUrl: 'https://open.bigmodel.cn',
         ),
         LlmProviderConfig(

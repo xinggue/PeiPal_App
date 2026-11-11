@@ -21,7 +21,7 @@ void main() {
 
       final zhipu = presets.firstWhere((p) => p.id == 'zhipu');
       expect(zhipu.name, contains('智谱'));
-      expect(zhipu.selectedModel, 'glm-5.3-flash');
+      expect(zhipu.selectedModel, 'glm-5.3-flashx');
 
       // 确保不包含零一万物
       expect(presets.any((p) => p.id == 'yi'), isFalse);

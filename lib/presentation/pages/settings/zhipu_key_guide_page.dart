@@ -39,7 +39,7 @@ class ZhipuKeyGuidePage extends ConsumerStatefulWidget {
 class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
   static const String _bigModelUrl = 'https://bigmodel.cn';
   static const String _zhipuBaseUrl = 'https://open.bigmodel.cn/api/paas/v4';
-  static const String _defaultLlmModel = 'glm-5.3-flash';
+  static const String _defaultLlmModel = 'glm-5.3-flashx';
   static const String _defaultOcrModel = 'glm-ocr';
   static const String _defaultAsrModel = 'glm-asr-2512';
 
@@ -295,7 +295,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
         return;
       }
 
-      // 1. 写入并激活 LLM（智谱 glm-5.3-flash）
+      // 1. 写入并激活 LLM（智谱 glm-5.3-flashx）
       final llmNotifier = ref.read(llmProvidersProvider.notifier);
       final existingLlm = ref
           .read(llmProvidersProvider)
