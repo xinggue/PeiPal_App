@@ -455,7 +455,7 @@ class _TutorialPromptPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '跟着提示走一遍新建会话、录入材料\n与生成结果的基础流程。',
+            '跟着提示走一遍新建会话、录入材料\n与生成结果的基础流程。\n后续也可随时在「设置 - 关于与帮助」里重新打开。',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,

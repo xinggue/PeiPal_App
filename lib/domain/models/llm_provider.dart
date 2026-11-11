@@ -146,11 +146,11 @@ class LlmProviderPresets {
         LlmProviderConfig(
           id: 'zhipu',
           name: '智谱 AI (GLM)',
-          description: '清华系大模型，GLM 系列高效稳定',
+          description: '清华系大模型，GLM 系列高效稳定，同时支持对话 / OCR / 语音',
           defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
           baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
           apiKey: '',
-          selectedModel: 'glm-4-flash',
+          selectedModel: 'glm-5.3-flash',
           websiteUrl: 'https://open.bigmodel.cn',
         ),
         LlmProviderConfig(

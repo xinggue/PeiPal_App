@@ -202,6 +202,37 @@ void main() {
       expect(notifier.state.currentStep, 1);
       expect(settings.data[TutorialType.basicFlow.settingsKey], 'false');
     });
+
+    test('aiConfig tutorial advances through 3 steps and completes', () async {
+      final settings = MockSettingsRepo();
+      final notifier = TutorialNotifier(settings);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      await notifier.startTutorial(TutorialType.aiConfig, step: 1);
+      expect(notifier.state.isActive, isTrue);
+      expect(notifier.state.activeTutorial, TutorialType.aiConfig);
+      expect(notifier.state.currentStep, 1);
+
+      await notifier.nextStep();
+      expect(notifier.state.currentStep, 2);
+      await notifier.nextStep();
+      expect(notifier.state.currentStep, 3);
+      await notifier.nextStep();
+
+      expect(notifier.state.isActive, isFalse);
+      expect(settings.data[TutorialType.aiConfig.settingsKey], 'true');
+    });
+
+    test('resetTutorial supports custom starting step (step 4 generation)', () async {
+      final settings = MockSettingsRepo();
+      final notifier = TutorialNotifier(settings);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      await notifier.resetTutorial(TutorialType.basicFlow, step: 4);
+      expect(notifier.state.isActive, isTrue);
+      expect(notifier.state.activeTutorial, TutorialType.basicFlow);
+      expect(notifier.state.currentStep, 4);
+    });
   });
 
   group('SampleDataService Tests', () {

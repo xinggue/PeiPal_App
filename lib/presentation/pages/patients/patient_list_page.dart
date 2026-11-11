@@ -301,7 +301,8 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
         targetKey: _fabKey,
         stepTag: '新手指引 · 1/5',
         title: '从这里新建一个会话',
-        description: '需要整理新的内容时，点这里新建独立会话。\n教程期间先不新建，点「下一步」看看已有的示例会话。',
+        description:
+            '需要整理新的内容时，点这里新建独立会话。本教程随时可在「设置 - 关于与帮助」里重新打开。\n教程期间先不新建，点「下一步」看看已有的示例会话。',
         nextButtonLabel: '下一步',
         borderRadius: 28,
         onNext: () => ref.read(tutorialProvider.notifier).nextStep(),

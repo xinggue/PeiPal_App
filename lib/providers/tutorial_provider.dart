@@ -83,12 +83,16 @@ class TutorialNotifier extends StateNotifier<TutorialState> {
   Future<void> nextStep() async {
     if (!state.isActive) return;
 
-    if (state.activeTutorial == TutorialType.basicFlow) {
-      if (state.currentStep < 5) {
-        state = state.copyWith(currentStep: state.currentStep + 1);
-      } else {
-        await completeTutorial();
-      }
+    final maxStep = switch (state.activeTutorial) {
+      TutorialType.basicFlow => 5,
+      TutorialType.aiConfig => 3,
+      TutorialType.bleKeyboard => 3,
+      null => 0,
+    };
+    if (state.currentStep < maxStep) {
+      state = state.copyWith(currentStep: state.currentStep + 1);
+    } else {
+      await completeTutorial();
     }
   }
 
@@ -121,9 +125,9 @@ class TutorialNotifier extends StateNotifier<TutorialState> {
     );
   }
 
-  Future<void> resetTutorial(TutorialType type) async {
+  Future<void> resetTutorial(TutorialType type, {int step = 1}) async {
     await _settingsRepo.set(type.settingsKey, 'false');
-    await startTutorial(type, step: 1);
+    await startTutorial(type, step: step);
   }
 
   Future<bool> isCompleted(TutorialType type) async {

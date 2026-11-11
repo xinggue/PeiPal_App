@@ -243,6 +243,15 @@ class _AboutPageState extends ConsumerState<AboutPage> {
                 }
               },
             ),
+            const Divider(height: 1),
+            ListTile(
+              titleAlignment: ListTileTitleAlignment.center,
+              leading: Icon(Icons.key_rounded, color: colorScheme.primary),
+              title: const Text('智谱 API Key 获取与一键配置教程', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: const Text('图文教程：注册实名后，1 个 Key 同时配好文本 / 识图 / 语音', style: TextStyle(fontSize: 12)),
+              trailing: _trailingIcon(Icons.chevron_right),
+              onTap: () => context.push('/settings/zhipu-key-guide'),
+            ),
           ]),
 
           const SizedBox(height: 16),

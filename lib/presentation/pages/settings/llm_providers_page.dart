@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/models/llm_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/tutorial_provider.dart';
+import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
 
 class LlmProvidersPage extends ConsumerStatefulWidget {
   const LlmProvidersPage({super.key});
@@ -24,6 +26,10 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
   bool _isTestingActive = false;
   bool _isCheckingActiveBalance = false;
   String? _activeStatusMessage;
+
+  final GlobalKey _activeBannerKey = GlobalKey();
+  final GlobalKey _firstProviderCardKey = GlobalKey();
+  final GlobalKey _expandedConfigKey = GlobalKey();
 
   @override
   void dispose() {
@@ -358,10 +364,11 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(llmProvidersProvider);
+    final tutorialState = ref.watch(tutorialProvider);
     final theme = Theme.of(context);
     final active = state.activeProvider;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: const Text('大语言模型'),
         actions: [
@@ -399,10 +406,80 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
                 const SizedBox(height: 10),
 
                 // 2. 服务商列表
-                ...state.providers.map((p) => _buildProviderCard(theme, p, state.activeProviderId)),
+                for (int i = 0; i < state.providers.length; i++)
+                  _buildProviderCard(
+                    theme,
+                    state.providers[i],
+                    state.activeProviderId,
+                    isFirst: i == 0,
+                  ),
               ],
             ),
     );
+
+    if (!tutorialState.isActive ||
+        tutorialState.activeTutorial != TutorialType.aiConfig ||
+        state.isLoading ||
+        state.providers.isEmpty) {
+      return scaffold;
+    }
+
+    return Stack(
+      children: [
+        scaffold,
+        _buildAiTutorialOverlay(tutorialState, state),
+      ],
+    );
+  }
+
+  Widget _buildAiTutorialOverlay(
+      TutorialState tutorialState, LlmProvidersState state) {
+    final firstId = state.providers.first.id;
+
+    void expandFirstAndAdvance() {
+      setState(() {
+        _expandedProviderId ??= firstId;
+      });
+      ref.read(tutorialProvider.notifier).nextStep();
+    }
+
+    if (tutorialState.currentStep == 1) {
+      return TutorialSpotlightOverlay(
+        targetKey: _firstProviderCardKey,
+        stepTag: 'AI 配置指引 · 1/3',
+        title: '选择你的大模型服务商',
+        description:
+            '这里内置了 DeepSeek、硅基流动、智谱、通义千问等主流服务商（右上角 + 也可添加自定义端点）。点击对应卡片即可展开填写。',
+        nextButtonLabel: '展开卡片看看',
+        onNext: expandFirstAndAdvance,
+        onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+        onTargetTap: expandFirstAndAdvance,
+      );
+    } else if (tutorialState.currentStep == 2) {
+      final hasExpanded = _expandedProviderId != null;
+      return TutorialSpotlightOverlay(
+        targetKey: hasExpanded ? _expandedConfigKey : _firstProviderCardKey,
+        stepTag: 'AI 配置指引 · 2/3',
+        title: '填入 Key 并选用模型',
+        description:
+            '粘贴 API Key 后，点「保存 Key 并获取模型列表」挑选模型，再点右下角「确认选用该模型」就会立即生效！',
+        nextButtonLabel: '下一步',
+        onNext: () => ref.read(tutorialProvider.notifier).nextStep(),
+        onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+      );
+    } else if (tutorialState.currentStep == 3) {
+      return TutorialSpotlightOverlay(
+        targetKey: _activeBannerKey,
+        stepTag: 'AI 配置指引 · 3/3',
+        title: '测试连接，确认可用',
+        description:
+            '选好之后点这里「测试当前连接」确认接口通畅。\n返回会话页就能直接一键生成了！',
+        nextButtonLabel: '完成配置指引',
+        onNext: () => ref.read(tutorialProvider.notifier).completeTutorial(),
+        onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   /// 顶部当前选用模型 Banner
@@ -411,6 +488,7 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
     final statusMsg = _activeStatusMessage ?? active?.balance;
 
     return Container(
+      key: _activeBannerKey,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isConfigured
@@ -527,13 +605,15 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
 
   /// 单个服务商卡片
   Widget _buildProviderCard(
-      ThemeData theme, LlmProviderConfig p, String activeId) {
+      ThemeData theme, LlmProviderConfig p, String activeId,
+      {bool isFirst = false}) {
     final isActive = p.id == activeId;
     final isExpanded = _expandedProviderId == p.id;
     final isConfigured = p.isConfigured;
     final isLoadingModel = _loadingModels.contains(p.id);
 
     return Card(
+      key: isFirst ? _firstProviderCardKey : null,
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
@@ -622,6 +702,7 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
           if (isExpanded) ...[
             const Divider(height: 1),
             Padding(
+              key: _expandedConfigKey,
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,

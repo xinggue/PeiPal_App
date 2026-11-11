@@ -305,21 +305,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       if (choice == 'manual') {
         useManual = true;
-      } else if (choice == 'ai') {
-        if (!llmConfig.isConfigured) {
-          if (isTutorialConfirm) {
-            await ref.read(tutorialProvider.notifier).completeTutorial();
-          }
-          if (mounted) {
-            context.push('/settings/llm-providers');
-            showAppToast(context, '填入 API Key 后即可自动生成');
-          }
-          return;
+        if (isTutorialConfirm) {
+          await ref.read(tutorialProvider.notifier).completeTutorial();
         }
-        // 已配置 AI：选择后继续正常生成
-      }
-      if (isTutorialConfirm) {
-        await ref.read(tutorialProvider.notifier).completeTutorial();
+      } else if (choice == 'has_key') {
+        if (isTutorialConfirm) {
+          await ref.read(tutorialProvider.notifier).completeTutorial();
+        }
+        await ref
+            .read(tutorialProvider.notifier)
+            .startTutorial(TutorialType.aiConfig, step: 1);
+        if (mounted) {
+          context.push('/settings/llm-providers');
+        }
+        return;
+      } else if (choice == 'no_key') {
+        if (isTutorialConfirm) {
+          await ref.read(tutorialProvider.notifier).completeTutorial();
+        }
+        if (mounted) {
+          context.push('/settings/zhipu-key-guide');
+        }
+        return;
+      } else if (choice == 'direct_generate') {
+        if (isTutorialConfirm) {
+          await ref.read(tutorialProvider.notifier).completeTutorial();
+        }
       }
     } else if (isTutorialConfirm) {
       await ref.read(tutorialProvider.notifier).completeTutorial();
@@ -409,129 +420,72 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               ),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                aiConfigured
-                    ? '选择本次的生成方式：'
-                    : '还没有配置 AI 密钥，请选择生成方式：',
-                style: TextStyle(fontSize: 13.5, color: Colors.grey.shade700, height: 1.4),
-              ),
-              const SizedBox(height: 16),
-              // 选项 A：应用内 AI 生成（未配置时引导去配置）
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.pop(ctx, 'ai'),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: scheme.primary.withValues(alpha: 0.4)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        aiConfigured ? Icons.auto_awesome : Icons.key_rounded,
-                        color: scheme.primary,
-                        size: 24,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  aiConfigured ? '使用 AI 直接生成' : '配置 AI，直接生成',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold, fontSize: 14),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: scheme.primary,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text('推荐',
-                                      style: TextStyle(
-                                          fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              aiConfigured
-                                  ? '在应用内自动整理并生成结果。'
-                                  : '填写一次 API Key，之后都能在应用内自动生成。',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
-                    ],
-                  ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  aiConfigured
+                      ? '已配置 AI 接口，你可以直接生成或去调整配置：'
+                      : '还没有配置 AI 密钥，请选择接下来的方式：',
+                  style: TextStyle(fontSize: 13.5, color: Colors.grey.shade700, height: 1.4),
                 ),
-              ),
-              const SizedBox(height: 12),
-              // 选项 B：复制到外部 AI 手动生成
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.pop(ctx, 'manual'),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.amber.shade400),
+                const SizedBox(height: 14),
+                if (aiConfigured) ...[
+                  _buildModeChoiceCard(
+                    ctx: ctx,
+                    value: 'direct_generate',
+                    icon: Icons.auto_awesome,
+                    title: '使用当前 AI 直接生成',
+                    badge: '已就绪',
+                    subtitle: '在应用内自动整理并生成结果。',
+                    bgColor: Colors.teal.withValues(alpha: 0.1),
+                    borderColor: Colors.teal.withValues(alpha: 0.45),
+                    accentColor: Colors.teal.shade700,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.copy_all_rounded, color: Colors.amber.shade900, size: 24),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text('复制到外部 AI 生成',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: Colors.amber.shade900)),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.shade800,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text('免配置',
-                                      style: TextStyle(
-                                          fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '自动整理好内容并复制，粘贴到任意 AI 生成后再贴回。',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
-                    ],
-                  ),
+                  const SizedBox(height: 10),
+                ],
+                // 已有 API Key：前往 LLM 配置页
+                _buildModeChoiceCard(
+                  ctx: ctx,
+                  value: 'has_key',
+                  icon: Icons.key_rounded,
+                  title: aiConfigured ? '去查看或更换 AI 密钥' : '已有 API Key，去配置',
+                  badge: aiConfigured ? null : '去配置',
+                  subtitle: '点开「大语言模型」设置页，填入密钥即可使用。',
+                  bgColor: scheme.primaryContainer.withValues(alpha: 0.35),
+                  borderColor: scheme.primary.withValues(alpha: 0.4),
+                  accentColor: scheme.primary,
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                // 没有 API Key：进入智谱获取教程
+                _buildModeChoiceCard(
+                  ctx: ctx,
+                  value: 'no_key',
+                  icon: Icons.menu_book_rounded,
+                  title: '没有 API Key，查看获取教程',
+                  badge: '免费额度',
+                  subtitle: '智谱图文教程，注册实名后 1 个 Key 配齐文本 / 识图 / 语音。',
+                  bgColor: Colors.indigo.shade50,
+                  borderColor: Colors.indigo.shade300,
+                  accentColor: Colors.indigo.shade700,
+                ),
+                const SizedBox(height: 10),
+                // 剧情三：手动生成，直接结束
+                _buildModeChoiceCard(
+                  ctx: ctx,
+                  value: 'manual',
+                  icon: Icons.copy_all_rounded,
+                  title: '手动生成（复制到外部 AI）',
+                  badge: '免配置',
+                  subtitle: '自动整理内容并复制，粘贴到任意外部 AI 生成后再贴回。',
+                  bgColor: Colors.amber.shade50,
+                  borderColor: Colors.amber.shade400,
+                  accentColor: Colors.amber.shade900,
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -541,6 +495,83 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildModeChoiceCard({
+    required BuildContext ctx,
+    required String value,
+    required IconData icon,
+    required String title,
+    String? badge,
+    required String subtitle,
+    required Color bgColor,
+    required Color borderColor,
+    required Color accentColor,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.pop(ctx, value),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: accentColor, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: accentColor,
+                          ),
+                        ),
+                      ),
+                      if (badge != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            badge,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+          ],
+        ),
+      ),
     );
   }
 
