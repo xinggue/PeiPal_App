@@ -31,6 +31,7 @@ import '../presentation/pages/settings/backup_center_page.dart';
 import '../presentation/pages/hub/template_hub_page.dart';
 import '../presentation/pages/settings/char_replacement_settings_page.dart';
 import '../presentation/pages/settings/about_page.dart';
+import '../presentation/pages/settings/disclaimer_page.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -261,6 +262,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/about',
         name: 'about_settings',
         builder: (context, state) => const AboutPage(),
+      ),
+      GoRoute(
+        path: '/settings/disclaimer',
+        name: 'disclaimer_settings',
+        builder: (context, state) => const DisclaimerPage(),
       ),
     ],
   );

@@ -76,33 +76,42 @@ class _AboutPageState extends ConsumerState<AboutPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
+          const SizedBox(height: 24),
+
           // 头部：品牌与版本信息
           Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Column(
                 children: [
-                  Container(
-                    width: 68,
-                    height: 68,
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Image.asset(
-                      'assets/icons/app_icon.png',
-                      errorBuilder: (_, _, _) => Icon(
-                        Icons.edit_note_rounded,
-                        size: 40,
-                        color: colorScheme.primary,
+                  Builder(builder: (context) {
+                    final logoSize =
+                        (MediaQuery.sizeOf(context).width * 0.45).clamp(140.0, 280.0);
+                    return GestureDetector(
+                      onTap: () => _showLogoPreview(context),
+                      child: Container(
+                        width: logoSize,
+                        height: logoSize,
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(logoSize * 0.22),
+                          border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.asset(
+                          'assets/icons/app_icon.png',
+                          errorBuilder: (_, _, _) => Icon(
+                            Icons.edit_note_rounded,
+                            size: logoSize * 0.5,
+                            color: colorScheme.primary,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+                    );
+                  }),
+                  const SizedBox(height: 14),
                   const Text(
-                    'PeiPal',
+                    '小培同学 PeiPal',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
@@ -121,11 +130,12 @@ class _AboutPageState extends ConsumerState<AboutPage> {
           _buildGroupLabel('版本更新'),
           _buildCard([
             ListTile(
+              titleAlignment: ListTileTitleAlignment.center,
               leading: Icon(
                 _updateInfo?.hasUpdate == true
                     ? Icons.system_update_rounded
                     : Icons.check_circle_outline_rounded,
-                color: _updateInfo?.hasUpdate == true ? Colors.orange : Colors.teal,
+                color: colorScheme.primary,
               ),
               title: Text(
                 _isCheckingUpdate
@@ -146,14 +156,26 @@ class _AboutPageState extends ConsumerState<AboutPage> {
               ),
               trailing: _isCheckingUpdate
                   ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      width: 40,
+                      height: 40,
+                      child: Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
                     )
-                  : IconButton(
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      tooltip: '重新检测',
-                      onPressed: _checkUpdateSilently,
+                  : SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        iconSize: 20,
+                        icon: const Icon(Icons.refresh_rounded),
+                        tooltip: '重新检测',
+                        onPressed: _checkUpdateSilently,
+                      ),
                     ),
             ),
             if (_updateInfo?.hasUpdate == true) ...[
@@ -205,10 +227,11 @@ class _AboutPageState extends ConsumerState<AboutPage> {
           _buildGroupLabel('新手教程'),
           _buildCard([
             ListTile(
-              leading: const Icon(Icons.school_outlined, color: Colors.indigo),
+              titleAlignment: ListTileTitleAlignment.center,
+              leading: Icon(Icons.school_outlined, color: colorScheme.primary),
               title: const Text('重新开启入门操作演练', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: const Text('演练会话管理、素材整理与病历生成流程', style: TextStyle(fontSize: 12)),
-              trailing: const Icon(Icons.play_circle_outline_rounded),
+              trailing: _trailingIcon(Icons.play_circle_outline_rounded),
               onTap: () async {
                 final sampleService = ref.read(sampleDataServiceProvider);
                 await sampleService.ensureSampleData(force: true);
@@ -228,22 +251,73 @@ class _AboutPageState extends ConsumerState<AboutPage> {
           _buildGroupLabel('开源社区'),
           _buildCard([
             ListTile(
-              leading: const Icon(Icons.code_rounded),
+              titleAlignment: ListTileTitleAlignment.center,
+              leading: Icon(Icons.code_rounded, color: colorScheme.primary),
               title: const Text('Gitee 开源主页', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: const Text('gitee.com/xinggue/peipal_app', style: TextStyle(fontSize: 12)),
-              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              trailing: _trailingIcon(Icons.chevron_right),
               onTap: () => _openUrl('https://gitee.com/xinggue/peipal_app'),
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.terminal_rounded),
+              titleAlignment: ListTileTitleAlignment.center,
+              leading: Icon(Icons.terminal_rounded, color: colorScheme.primary),
               title: const Text('GitHub 开源主页', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: const Text('github.com/xinggue/PeiPal_App', style: TextStyle(fontSize: 12)),
-              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              trailing: _trailingIcon(Icons.chevron_right),
               onTap: () => _openUrl('https://github.com/xinggue/PeiPal_App'),
             ),
           ]),
+
+          const SizedBox(height: 16),
+
+          _buildGroupLabel('其他'),
+          _buildCard([
+            ListTile(
+              titleAlignment: ListTileTitleAlignment.center,
+              leading: Icon(Icons.gavel_rounded, color: colorScheme.primary),
+              title: const Text('免责声明', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: const Text('功能边界与数据责任说明', style: TextStyle(fontSize: 12)),
+              trailing: _trailingIcon(Icons.chevron_right),
+              onTap: () => context.push('/settings/disclaimer'),
+            ),
+          ]),
         ],
+      ),
+    );
+  }
+
+  void _showLogoPreview(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.pop(ctx),
+        child: InteractiveViewer(
+          minScale: 1.0,
+          maxScale: 4.0,
+          child: Center(
+            child: Image.asset(
+              'assets/icons/app_icon.png',
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _trailingIcon(IconData icon) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Center(
+        child: Icon(
+          icon,
+          size: 18,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
     );
   }

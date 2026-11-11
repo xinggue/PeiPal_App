@@ -23,7 +23,7 @@ class AppUpdateInfo {
 
 class AppUpdateService {
   static const String currentVersion = '0.1.1';
-  static const int currentBuildNumber = 15;
+  static const int currentBuildNumber = 18;
   static const String giteeRepo = 'xinggue/peipal_app';
   static const String githubRepo = 'xinggue/PeiPal_App';
 
