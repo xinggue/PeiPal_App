@@ -215,7 +215,8 @@ class TimingPreset {
     final dRel = values['alt_digit_release'] ?? 0.5;
     final altRel = values['alt_release_ms'] ?? 3.0;
     final gap = values['cjk_gap_ms'] ?? 2.0;
-    return hold + (5 * dPress) + (4 * dRel) + altRel + gap;
+    // 对齐固件：alt_release 共等待两次
+    return hold + (5 * dPress) + (4 * dRel) + (2 * altRel) + gap;
   }
 
   /// 估算每秒打字速度（字/秒）

@@ -42,7 +42,8 @@ class ActiveTimingState {
     final dRel = vals['alt_digit_release'] ?? 0.5;
     final altRel = vals['alt_release_ms'] ?? 3.0;
     final gap = vals['cjk_gap_ms'] ?? 2.0;
-    final total = hold + (5 * dPress) + (4 * dRel) + altRel + gap;
+    // 固件 send_alt_code 中 alt_release 实际等待两次（末位数字后 + 函数返回前）
+    final total = hold + (5 * dPress) + (4 * dRel) + (2 * altRel) + gap;
     if (total <= 0) return 0;
     return 1000.0 / total;
   }

@@ -40,7 +40,7 @@ class TypingSendSheet extends ConsumerStatefulWidget {
       final container = ProviderScope.containerOf(context, listen: false);
       final ble = container.read(bleServiceProvider);
       if (!ble.isConnected) {
-        final connected = await BleConnectManualSheet.show(context);
+        final connected = await BleConnectManualSheet.showAboveOverlay(context);
         if (!context.mounted) return;
         if (!connected || !ble.isConnected) {
           showAppToast(context, '未连接蓝牙键盘，无法开始录入');
@@ -268,7 +268,7 @@ class _TypingSendSheetState extends ConsumerState<TypingSendSheet> {
     // 蓝牙发送流程：如果未连接，绝不自动隐式回连，而是弹出直观的手动连接面板让用户安心挑选设备
     final ble = ref.read(bleServiceProvider);
     if (!ble.isConnected) {
-      final connected = await BleConnectManualSheet.show(context);
+      final connected = await BleConnectManualSheet.showAboveOverlay(context);
       if (!connected) return;
       if (!mounted) return;
       if (!ble.isConnected) {

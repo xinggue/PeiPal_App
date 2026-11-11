@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,7 +9,10 @@ import '../../../providers/providers.dart';
 
 /// 蓝牙发送前的手动连接弹窗：列出上次连接记录与周围扫描结果，供用户手动自主连接，杜绝隐式自动乱连
 class BleConnectManualSheet extends ConsumerStatefulWidget {
-  const BleConnectManualSheet({super.key});
+  /// 非空时以回调方式关闭（用于顶层 Overlay 模式，而非 Navigator 路由）。
+  final ValueChanged<bool>? onResult;
+
+  const BleConnectManualSheet({super.key, this.onResult});
 
   static Future<bool> show(BuildContext context) async {
     final result = await showModalBottomSheet<bool>(
@@ -22,12 +27,70 @@ class BleConnectManualSheet extends ConsumerStatefulWidget {
     return result ?? false;
   }
 
+  /// 挂在最顶层 [Overlay] 上弹出，层级高于全局悬浮窗。
+  static Future<bool> showAboveOverlay(BuildContext context) {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final completer = Completer<bool>();
+    late OverlayEntry entry;
+    var closed = false;
+
+    void close(bool ok) {
+      if (closed) return;
+      closed = true;
+      if (!completer.isCompleted) completer.complete(ok);
+      entry.remove();
+    }
+
+    entry = OverlayEntry(
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final size = MediaQuery.of(ctx).size;
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => close(false),
+                child: Container(color: Colors.black.withValues(alpha: 0.35)),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Material(
+                color: theme.colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                clipBehavior: Clip.antiAlias,
+                child: SafeArea(
+                  top: false,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: size.height * 0.62),
+                    child: BleConnectManualSheet(onResult: close),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    overlay.insert(entry);
+    return completer.future;
+  }
+
   @override
   ConsumerState<BleConnectManualSheet> createState() => _BleConnectManualSheetState();
 }
 
 class _BleConnectManualSheetState extends ConsumerState<BleConnectManualSheet> {
   bool _scanning = false;
+
+  void _finish(bool result) {
+    if (widget.onResult != null) {
+      widget.onResult!(result);
+    } else {
+      Navigator.pop(context, result);
+    }
+  }
   List<BleDeviceInfo> _devices = [];
   String? _connectingId;
 
@@ -74,7 +137,7 @@ class _BleConnectManualSheetState extends ConsumerState<BleConnectManualSheet> {
     if (ok) {
       await ref.read(bleConfigProvider.notifier).saveLastDevice(info.remoteId, info.name);
       if (mounted) {
-        Navigator.pop(context, true);
+        _finish(true);
       }
     } else {
       if (mounted) {
@@ -113,16 +176,27 @@ class _BleConnectManualSheetState extends ConsumerState<BleConnectManualSheet> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               else
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  tooltip: '重新扫描',
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                  ),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('重新扫描', style: TextStyle(fontSize: 12.5)),
                   onPressed: _startScan,
+                ),
+              if (widget.onResult != null)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  tooltip: '关闭',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _finish(false),
                 ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            '当前尚未连接键盘硬件。请在下方列表点击您所使用的 ESP32-C3 键盘设备完成连接。',
+            '当前尚未连接键盘。请在下方选择你的 ESP32 小培键盘完成连接。',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
           ),
           const Divider(height: 20),

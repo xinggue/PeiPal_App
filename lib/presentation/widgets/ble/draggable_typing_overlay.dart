@@ -7,6 +7,7 @@ import '../../../core/router.dart';
 import '../../../data/services/ble/active_timing_controller.dart';
 import '../../../data/services/ble/character_sanitizer.dart';
 import '../../../data/services/ble/timing_params.dart';
+import '../../../data/services/ble/typing_estimate.dart';
 import '../../../data/services/engine_b/typing_compiler.dart';
 import '../../../domain/models/template.dart';
 import '../../../domain/models/typing_action_block.dart';
@@ -52,13 +53,16 @@ class TypingProgressController extends ChangeNotifier {
     _title = title;
     _totalChars = text.length;
     _startTime = DateTime.now();
-    _estimatedDurationMs = estimatedDurationMs > 0
-        ? estimatedDurationMs
-        : (_totalChars * 28).clamp(1000, 180000);
+    if (estimatedDurationMs > 0) {
+      _estimatedDurationMs = estimatedDurationMs;
+    } else {
+      final timing = _ref.read(activeTimingControllerProvider).values;
+      _estimatedDurationMs = TypingDurationEstimator.estimate(text, timing);
+    }
     _isTyping = true;
 
     _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(milliseconds: 300), (_) {
+    _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       notifyListeners();
     });
     notifyListeners();
@@ -130,8 +134,8 @@ class _DraggableTypingOverlayState
     extends ConsumerState<DraggableTypingOverlay>
     with SingleTickerProviderStateMixin {
   static const double _ballSize = 56.0;
-  static const double _panelWidth = 310.0;
-  static const double _panelHeight = 400.0;
+  static const double _panelWidth = 216.0;
+  static const double _panelHeight = 265.0;
 
   // 悬浮球当前坐标与贴边藏入状态：-1=藏在左边缘, 0=常规悬浮, 1=藏在右边缘
   Offset _ballPosition = const Offset(12, 140);
@@ -177,6 +181,9 @@ class _DraggableTypingOverlayState
   // 快速贴入输入框
   final _quickTextCtrl = TextEditingController();
 
+  // 小窗速度方块横向滚动控制器（用于常显滚动条）
+  final ScrollController _speedScrollCtrl = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -205,6 +212,7 @@ class _DraggableTypingOverlayState
   void dispose() {
     _animController.dispose();
     _quickTextCtrl.dispose();
+    _speedScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -321,22 +329,24 @@ class _DraggableTypingOverlayState
     required String tooltip,
     required VoidCallback? onTap,
     required Color color,
+    double size = 24,
+    double iconSize = 14,
   }) {
     final enabled = onTap != null;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
-        width: 24,
-        height: 24,
+        width: size,
+        height: size,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: enabled ? color.withValues(alpha: 0.12) : Colors.grey.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(size * 0.25),
         ),
         child: Icon(
           icon,
-          size: 14,
+          size: iconSize,
           color: enabled ? color : Colors.grey.shade400,
         ),
       ),
@@ -387,8 +397,7 @@ class _DraggableTypingOverlayState
   }
 
   Future<void> _openConnectSheet() async {
-    final navContext = rootNavigatorKey.currentContext ?? context;
-    await BleConnectManualSheet.show(navContext);
+    await BleConnectManualSheet.showAboveOverlay(context);
   }
 
   Future<void> _openPresetsSheet() async {
@@ -405,8 +414,7 @@ class _DraggableTypingOverlayState
 
     final ble = ref.read(bleServiceProvider);
     if (!ble.isConnected) {
-      final navContext = rootNavigatorKey.currentContext ?? context;
-      final ok = await BleConnectManualSheet.show(navContext);
+      final ok = await BleConnectManualSheet.showAboveOverlay(context);
       if (!ok || !mounted || !ble.isConnected) return;
     }
 
@@ -433,8 +441,7 @@ class _DraggableTypingOverlayState
   Future<void> _triggerPresetBlock(TypingBlockPreset preset) async {
     final ble = ref.read(bleServiceProvider);
     if (!ble.isConnected) {
-      final navContext = rootNavigatorKey.currentContext ?? context;
-      final ok = await BleConnectManualSheet.show(navContext);
+      final ok = await BleConnectManualSheet.showAboveOverlay(context);
       if (!ok || !mounted || !ble.isConnected) return;
     }
 
@@ -521,8 +528,8 @@ class _DraggableTypingOverlayState
               ? AnimatedPositioned(
                   duration: _isDragging
                       ? Duration.zero
-                      : const Duration(milliseconds: 340),
-                  curve: const DampedSpringCurve(),
+                      : const Duration(milliseconds: 300),
+                  curve: Curves.fastOutSlowIn,
                   left: _panelPosition.dx,
                   top: _panelPosition.dy,
                   width: curW,
@@ -534,8 +541,11 @@ class _DraggableTypingOverlayState
                       child: ScaleTransition(
                         scale: _scaleAnimation,
                         alignment: _calcPanelPivot(screenSize),
-                        child: _buildExpandedPanel(
-                            typingCtrl, colorScheme, screenSize),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: _buildExpandedPanel(
+                              typingCtrl, colorScheme, screenSize),
+                        ),
                       ),
                     ),
                   ),
@@ -742,7 +752,7 @@ class _DraggableTypingOverlayState
     );
   }
 
-  /// 展开的工作面板（支持顶部拖动手柄拖拽位置）
+  /// 展开的工作面板（支持顶部拖动手柄拖拽位置，自适应小窗与大窗）
   Widget _buildExpandedPanel(
     TypingProgressController ctrl,
     ColorScheme colorScheme,
@@ -753,305 +763,362 @@ class _DraggableTypingOverlayState
     final activeTiming = ref.watch(activeTimingControllerProvider);
     final presets = ref.watch(timingPresetsProvider);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 260;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.16),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.65),
+              width: 1.2,
+            ),
           ),
-        ],
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.65),
-          width: 1.2,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 1. 顶部拖拽手柄 + 状态栏（整块顶栏可按住上下左右拖动位置，横条上下留白对称）
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onPanStart: (_) {
-              if (!_isDragging) setState(() => _isDragging = true);
-            },
-            onPanEnd: (_) {
-              if (_isDragging) setState(() => _isDragging = false);
-            },
-            onPanCancel: () {
-              if (_isDragging) setState(() => _isDragging = false);
-            },
-            onPanUpdate: (details) {
-              setState(() {
-                final curW = _effectiveWidth(screenSize);
-                final curH = _effectiveHeight(screenSize);
-                final newX = (_panelPosition.dx + details.delta.dx).clamp(
-                  6.0,
-                  (screenSize.width - curW - 6.0).clamp(6.0, double.infinity),
-                );
-                final newY = (_panelPosition.dy + details.delta.dy).clamp(
-                  32.0,
-                  (screenSize.height - curH - 16.0).clamp(32.0, double.infinity),
-                );
-                _panelPosition = Offset(newX, newY);
-                _ballPosition = Offset(
-                  newX.clamp(6.0, screenSize.width - _ballSize - 6.0),
-                  newY.clamp(36.0, screenSize.height - 100.0),
-                );
-              });
-            },
-            child: Column(
-              children: [
-                // 顶部横条（距离顶缘与底缘留白对称，支持点击呼出上方气泡菜单）
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _showHandleMenu(screenSize),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 10, 0, 8),
-                    child: Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
-                          borderRadius: BorderRadius.circular(2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 1. 顶部拖拽手柄 + 状态栏（整块顶栏可按住上下左右拖动位置，横条上下留白对称）
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (_) {
+                  if (!_isDragging) setState(() => _isDragging = true);
+                },
+                onPanEnd: (_) {
+                  if (_isDragging) setState(() => _isDragging = false);
+                },
+                onPanCancel: () {
+                  if (_isDragging) setState(() => _isDragging = false);
+                },
+                onPanUpdate: (details) {
+                  setState(() {
+                    final curW = _effectiveWidth(screenSize);
+                    final curH = _effectiveHeight(screenSize);
+                    final newX = (_panelPosition.dx + details.delta.dx).clamp(
+                      6.0,
+                      (screenSize.width - curW - 6.0).clamp(6.0, double.infinity),
+                    );
+                    final newY = (_panelPosition.dy + details.delta.dy).clamp(
+                      32.0,
+                      (screenSize.height - curH - 16.0).clamp(32.0, double.infinity),
+                    );
+                    _panelPosition = Offset(newX, newY);
+                    _ballPosition = Offset(
+                      newX.clamp(6.0, screenSize.width - _ballSize - 6.0),
+                      newY.clamp(36.0, screenSize.height - 100.0),
+                    );
+                  });
+                },
+                child: Column(
+                  children: [
+                    // 顶部横条（距离顶缘与底缘留白对称，支持点击呼出上方气泡菜单）
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _showHandleMenu(screenSize),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 7, 0, 5),
+                        child: Center(
+                          child: Container(
+                            width: 32,
+                            height: 3.5,
+                            decoration: BoxDecoration(
+                              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(isWide ? 10 : 8, 0, isWide ? 10 : 8, isWide ? 7 : 4),
+                      child: Row(
+                        children: [
+                          InkWell(
+                            borderRadius: BorderRadius.circular(6),
+                            onTap: () {
+                              if (!isConnected) {
+                                _openConnectSheet();
+                              }
+                            },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isConnected
+                                      ? Icons.bluetooth_connected
+                                      : Icons.bluetooth,
+                                  size: isWide ? 16 : 14,
+                                  color: isConnected ? Colors.teal : Colors.grey,
+                                ),
+                                const SizedBox(width: 4),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(maxWidth: isWide ? 130 : 46),
+                                  child: Text(
+                                    isConnected
+                                        ? (isWide ? (ble.connectedName ?? '已连键盘') : '已连接')
+                                        : (isWide ? '点击连接键盘' : '未连接'),
+                                    style: TextStyle(
+                                      fontSize: isWide ? 12.5 : 12.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: isConnected
+                                          ? Colors.teal.shade800
+                                          : Colors.grey.shade700,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Spacer(),
+                          // 窗口三按钮（顺序：最小化、最大化、关闭，使最边缘角上的关闭最好点击）
+                          _buildWindowButton(
+                            icon: Icons.remove_rounded,
+                            tooltip: '最小化',
+                            onTap: _collapsePanel,
+                            color: Colors.grey.shade700,
+                            size: isWide ? 24 : 22,
+                            iconSize: isWide ? 14 : 13,
+                          ),
+                          const SizedBox(width: 3),
+                          _buildWindowButton(
+                            icon: _isMaximized
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.crop_square_rounded,
+                            tooltip: _isMaximized ? '还原' : '最大化',
+                            onTap: () => _toggleMaximize(screenSize),
+                            color: Colors.grey.shade700,
+                            size: isWide ? 24 : 22,
+                            iconSize: isWide ? 14 : 13,
+                          ),
+                          const SizedBox(width: 3),
+                          _buildWindowButton(
+                            icon: Icons.close_rounded,
+                            tooltip: ctrl.isTyping ? '正在输入，暂不可关闭' : '关闭',
+                            onTap: ctrl.isTyping ? null : _closeOverlayPermanently,
+                            color: Colors.red.shade700,
+                            size: isWide ? 24 : 22,
+                            iconSize: isWide ? 14 : 13,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 10, 8),
-                  child: Row(
+              ),
+              const Divider(height: 1),
+
+              // 悬浮窗内部内嵌确认关闭对话框（柔和灰底警告，无刺眼大红和感叹号）
+              if (_isConfirmingClose) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      const Text(
+                        '确认关闭悬浮窗？',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '关闭后悬浮窗将退出。可在「蓝牙与键盘」设置中重新开启。',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       InkWell(
-                        borderRadius: BorderRadius.circular(6),
-                        onTap: () {
-                          if (!isConnected) {
-                            _openConnectSheet();
-                          }
-                        },
+                        borderRadius: BorderRadius.circular(4),
+                        onTap: () => setState(
+                            () => _confirmCloseDontAsk = !_confirmCloseDontAsk),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              isConnected
-                                  ? Icons.bluetooth_connected
-                                  : Icons.bluetooth,
-                              size: 16,
-                              color: isConnected ? Colors.teal : Colors.grey,
+                            Checkbox(
+                              value: _confirmCloseDontAsk,
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              onChanged: (v) => setState(
+                                  () => _confirmCloseDontAsk = v ?? false),
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              isConnected
-                                  ? (ble.connectedName ?? '已连键盘')
-                                  : '点击连接键盘',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: isConnected
-                                    ? Colors.teal.shade800
-                                    : Colors.grey.shade700,
-                              ),
-                            ),
+                            const Text('下次不再提示', style: TextStyle(fontSize: 11.5)),
                           ],
                         ),
                       ),
-                      const Spacer(),
-                      // 窗口三按钮（顺序：最小化、最大化、关闭，使最边缘角上的关闭最好点击）
-                      _buildWindowButton(
-                        icon: Icons.remove_rounded,
-                        tooltip: '最小化',
-                        onTap: _collapsePanel,
-                        color: Colors.grey.shade700,
-                      ),
-                      const SizedBox(width: 4),
-                      _buildWindowButton(
-                        icon: _isMaximized
-                            ? Icons.fullscreen_exit_rounded
-                            : Icons.crop_square_rounded,
-                        tooltip: _isMaximized ? '还原' : '最大化',
-                        onTap: () => _toggleMaximize(screenSize),
-                        color: Colors.grey.shade700,
-                      ),
-                      const SizedBox(width: 4),
-                      _buildWindowButton(
-                        icon: Icons.close_rounded,
-                        tooltip: ctrl.isTyping ? '正在输入，暂不可关闭' : '关闭',
-                        onTap: ctrl.isTyping ? null : _closeOverlayPermanently,
-                        color: Colors.red.shade700,
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                            onPressed: () =>
+                                setState(() => _isConfirmingClose = false),
+                            child: const Text('取消', style: TextStyle(fontSize: 12)),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red.shade700,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () async {
+                              if (_confirmCloseDontAsk) {
+                                final settingsRepo =
+                                    ref.read(settingsRepositoryProvider);
+                                await settingsRepo.set(
+                                    'floating_close_dont_ask', 'true');
+                              }
+                              await _performCloseOverlay();
+                            },
+                            child: const Text(
+                              '确认关闭',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
+                const Divider(height: 1),
               ],
-            ),
-          ),
-          const Divider(height: 1),
 
-          // 悬浮窗内部内嵌确认关闭对话框（柔和灰底警告，无刺眼大红和感叹号）
-          if (_isConfirmingClose) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    '确认关闭悬浮窗？',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+              // 2. 上半部：打字实时仪表盘
+              _buildUpperDashboard(ctrl, colorScheme, isWide),
+
+              const Divider(height: 1),
+
+              // 3. 中部：输入速度方形阵列快切栏
+              _buildSpeedSquaresBar(activeTiming, presets, colorScheme, isWide),
+
+              const Divider(height: 1),
+
+              // 4. 下半部：功能切换 Tab 与具体工作区
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: isWide ? 10 : 6, vertical: isWide ? 6 : 4),
+                child: Container(
+                  height: isWide ? 30 : 28,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '关闭后悬浮窗将退出。可在「蓝牙与键盘」设置中重新开启。',
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(4),
-                    onTap: () => setState(
-                        () => _confirmCloseDontAsk = !_confirmCloseDontAsk),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Checkbox(
-                          value: _confirmCloseDontAsk,
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          onChanged: (v) => setState(
-                              () => _confirmCloseDontAsk = v ?? false),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text('下次不再提示', style: TextStyle(fontSize: 11.5)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  child: Row(
                     children: [
-                      TextButton(
-                        style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                        onPressed: () =>
-                            setState(() => _isConfirmingClose = false),
-                        child: const Text('取消', style: TextStyle(fontSize: 12)),
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red.shade700,
-                          visualDensity: VisualDensity.compact,
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(5),
+                          onTap: () => setState(() => _currentTab = 0),
+                          child: Container(
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _currentTab == 0 ? colorScheme.surface : Colors.transparent,
+                              borderRadius: BorderRadius.circular(5),
+                              boxShadow: _currentTab == 0
+                                  ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 2)]
+                                  : null,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.send_rounded, size: isWide ? 13 : 12, color: _currentTab == 0 ? colorScheme.primary : Colors.grey),
+                                const SizedBox(width: 3),
+                                Text(isWide ? '发送文字' : '文字', style: TextStyle(fontSize: isWide ? 12 : 11.5, fontWeight: _currentTab == 0 ? FontWeight.bold : FontWeight.normal)),
+                              ],
+                            ),
+                          ),
                         ),
-                        onPressed: () async {
-                          if (_confirmCloseDontAsk) {
-                            final settingsRepo =
-                                ref.read(settingsRepositoryProvider);
-                            await settingsRepo.set(
-                                'floating_close_dont_ask', 'true');
-                          }
-                          await _performCloseOverlay();
-                        },
-                        child: const Text(
-                          '确认关闭',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(5),
+                          onTap: () => setState(() => _currentTab = 1),
+                          child: Container(
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _currentTab == 1 ? colorScheme.surface : Colors.transparent,
+                              borderRadius: BorderRadius.circular(5),
+                              boxShadow: _currentTab == 1
+                                  ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 2)]
+                                  : null,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.auto_fix_high, size: isWide ? 13 : 12, color: _currentTab == 1 ? colorScheme.primary : Colors.grey),
+                                const SizedBox(width: 3),
+                                Text(isWide ? '快捷动作' : '动作', style: TextStyle(fontSize: isWide ? 12 : 11.5, fontWeight: _currentTab == 1 ? FontWeight.bold : FontWeight.normal)),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ],
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-          ],
-
-          // 2. 上半部：打字实时仪表盘（空闲时折叠显示简明状态，打字时展开）
-          _buildUpperDashboard(ctrl, colorScheme),
-
-          const Divider(height: 1),
-
-          // 3. 中部：输入速度方形阵列快切栏（按速度从低到高排列）
-          _buildSpeedSquaresBar(activeTiming, presets, colorScheme),
-
-          const Divider(height: 1),
-
-          // 4. 下半部：功能切换 Tab 与具体工作区 (最大化时可占据剩余高度自适应)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SegmentedButton<int>(
-                    style: SegmentedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    segments: const [
-                      ButtonSegment(
-                        value: 0,
-                        label: Text('发送文字', style: TextStyle(fontSize: 12)),
-                        icon: Icon(Icons.send_rounded, size: 14),
-                      ),
-                      ButtonSegment(
-                        value: 1,
-                        label: Text('快捷动作', style: TextStyle(fontSize: 12)),
-                        icon: Icon(Icons.auto_fix_high, size: 14),
-                      ),
-                    ],
-                    selected: {_currentTab},
-                    onSelectionChanged: (set) {
-                      setState(() => _currentTab = set.first);
-                    },
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
 
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: _currentTab == 0
-                  ? _buildQuickTextTab(colorScheme)
-                  : _buildPresetActionsTab(colorScheme),
-            ),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(isWide ? 10 : 6, 0, isWide ? 10 : 6, isWide ? 10 : 6),
+                  child: _currentTab == 0
+                      ? _buildQuickTextTab(colorScheme, isWide)
+                      : _buildPresetActionsTab(colorScheme, isWide),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   /// 上半部仪表盘：无打字时简单显示，打字时平滑展开详细指标与急停
-  Widget _buildUpperDashboard(TypingProgressController ctrl, ColorScheme colorScheme) {
+  Widget _buildUpperDashboard(
+    TypingProgressController ctrl,
+    ColorScheme colorScheme,
+    bool isWide,
+  ) {
     if (!ctrl.isTyping) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        padding: EdgeInsets.symmetric(horizontal: isWide ? 12 : 8, vertical: isWide ? 6 : 4),
         color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
         child: Row(
           children: [
-            Icon(Icons.keyboard_outlined, size: 15, color: colorScheme.primary),
-            const SizedBox(width: 6),
-            const Text(
-              '当前没有输入正在进行',
-              style: TextStyle(fontSize: 11.5, color: Colors.blueGrey),
+            Icon(Icons.keyboard_outlined, size: isWide ? 15 : 13, color: colorScheme.primary),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                isWide ? '当前没有输入正在进行' : '就绪',
+                style: TextStyle(fontSize: isWide ? 12 : 12.5, color: Colors.blueGrey),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),
       );
     }
 
-    final elapsed = (ctrl.elapsedMs / 1000).toStringAsFixed(1);
+    final elapsedSec = ctrl.elapsedMs ~/ 1000;
     final remainingMs = math.max(0, ctrl.estimatedDurationMs - ctrl.elapsedMs);
-    final est = (remainingMs / 1000).toStringAsFixed(1);
+    final remainSec = (remainingMs / 1000).ceil();
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.symmetric(horizontal: isWide ? 10 : 6, vertical: isWide ? 8 : 5),
       color: colorScheme.primary.withValues(alpha: 0.06),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1059,19 +1126,19 @@ class _DraggableTypingOverlayState
           Row(
             children: [
               SizedBox(
-                width: 10,
-                height: 10,
+                width: 9,
+                height: 9,
                 child: CircularProgressIndicator(
-                  strokeWidth: 2,
+                  strokeWidth: 1.8,
                   color: colorScheme.primary,
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   ctrl.title.isNotEmpty ? ctrl.title : '输入进行中',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: isWide ? 12 : 12,
                     fontWeight: FontWeight.bold,
                     color: colorScheme.onSurface,
                   ),
@@ -1080,28 +1147,29 @@ class _DraggableTypingOverlayState
                 ),
               ),
               Text(
-                '${ctrl.totalChars}字 · 已用${elapsed}s · 剩余~${est}s',
+                '${ctrl.totalChars}字 · 已用${elapsedSec}s · 剩余约${remainSec}s',
                 style: TextStyle(
-                  fontSize: 10.5,
+                  fontSize: isWide ? 10 : 10,
                   color: colorScheme.primary,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: colorScheme.error,
               foregroundColor: colorScheme.onError,
               visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(vertical: 5),
+              padding: EdgeInsets.symmetric(vertical: isWide ? 8 : 6),
+              minimumSize: Size(double.infinity, isWide ? 40 : 32),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            icon: const Icon(Icons.stop_circle_outlined, size: 15),
-            label: const Text(
+            icon: Icon(Icons.stop_circle_outlined, size: isWide ? 18 : 16),
+            label: Text(
               '紧急停止',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: isWide ? 14 : 12.5, fontWeight: FontWeight.bold),
             ),
             onPressed: () async {
               await ctrl.emergencyStop();
@@ -1120,12 +1188,10 @@ class _DraggableTypingOverlayState
     ActiveTimingState activeTiming,
     List<TimingPreset> presets,
     ColorScheme colorScheme,
+    bool isWide,
   ) {
     final sorted = List<TimingPreset>.from(presets)
       ..sort((a, b) => a.estimatedCharsPerSec.compareTo(b.estimatedCharsPerSec));
-
-    final selectedSchemeName = activeTiming.matchedPreset?.name ??
-        '实时参数 (${activeTiming.estimatedCharsPerSec.toStringAsFixed(0)} 字/秒)';
 
     return Container(
       color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
@@ -1139,24 +1205,24 @@ class _DraggableTypingOverlayState
               });
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: isWide ? 10 : 8, vertical: isWide ? 7 : 5),
               child: Row(
                 children: [
-                  const Icon(Icons.speed, size: 15, color: Colors.blueGrey),
-                  const SizedBox(width: 5),
-                  const Text(
-                    '输入速度：',
+                  const Icon(Icons.speed, size: 14, color: Colors.blueGrey),
+                  const SizedBox(width: 4),
+                  Text(
+                    '当前输入速度：',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: isWide ? 13 : 12,
                       fontWeight: FontWeight.bold,
                       color: Colors.blueGrey,
                     ),
                   ),
                   Expanded(
                     child: Text(
-                      selectedSchemeName,
+                      '${activeTiming.estimatedCharsPerSec.toStringAsFixed(0)} 字/秒',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: isWide ? 13 : 12,
                         fontWeight: FontWeight.bold,
                         color: colorScheme.primary,
                       ),
@@ -1168,7 +1234,7 @@ class _DraggableTypingOverlayState
                     _isSpeedSquaresExpanded
                         ? Icons.keyboard_arrow_up_rounded
                         : Icons.keyboard_arrow_down_rounded,
-                    size: 18,
+                    size: 16,
                     color: Colors.blueGrey,
                   ),
                 ],
@@ -1177,15 +1243,118 @@ class _DraggableTypingOverlayState
           ),
           if (_isSpeedSquaresExpanded) ...[
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              padding: EdgeInsets.fromLTRB(isWide ? 12 : 6, 0, isWide ? 12 : 6, isWide ? 10 : 6),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final count = sorted.length;
                   if (count == 0) return const SizedBox.shrink();
 
-                  const spacing = 8.0;
+                  if (!isWide) {
+                    // 小窗：横向滚动的紧凑速度方块（带滚动条 + 选中方案名）
+                    final selectedName = activeTiming.matchedPreset?.name ?? '实时参数';
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          height: 30,
+                          child: Scrollbar(
+                            controller: _speedScrollCtrl,
+                            thumbVisibility: true,
+                            thickness: 3,
+                            radius: const Radius.circular(2),
+                            child: ListView.separated(
+                              controller: _speedScrollCtrl,
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.only(bottom: 4),
+                              itemCount: count,
+                              separatorBuilder: (_, _) => const SizedBox(width: 4),
+                              itemBuilder: (context, index) {
+                                final p = sorted[index];
+                                final isSelected = activeTiming.matchedPreset?.id == p.id;
+                                final speedVal = p.estimatedCharsPerSec.toStringAsFixed(0);
 
-                  return Row(
+                                return SizedBox(
+                                  width: 46,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(6),
+                                    onTap: () async {
+                                      final toastCtx = context;
+                                      await ref
+                                          .read(activeTimingControllerProvider.notifier)
+                                          .applyPreset(p);
+                                      if (mounted) {
+                                        showAppToast(toastCtx, '已切换速度：${p.name}');
+                                      }
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? colorScheme.primary
+                                            : colorScheme.surface,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? colorScheme.primary
+                                              : colorScheme.outlineVariant,
+                                          width: isSelected ? 1.5 : 1.0,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            speedVal,
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.bold,
+                                              height: 1.0,
+                                              color: isSelected
+                                                  ? colorScheme.onPrimary
+                                                  : colorScheme.onSurface,
+                                            ),
+                                          ),
+                                          Text(
+                                            '字/秒',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              height: 1.0,
+                                              color: isSelected
+                                                  ? colorScheme.onPrimary.withValues(alpha: 0.85)
+                                                  : colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '已选：$selectedName',
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  final spacing = 8.0;
+                  final selectedName = activeTiming.matchedPreset?.name ?? '实时参数';
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
                     children: List.generate(count, (index) {
                       final p = sorted[index];
                       final isSelected = activeTiming.matchedPreset?.id == p.id;
@@ -1229,7 +1398,7 @@ class _DraggableTypingOverlayState
                                     Text(
                                       speedVal,
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 15.5,
                                         fontWeight: FontWeight.bold,
                                         height: 1.1,
                                         color: isSelected
@@ -1238,9 +1407,9 @@ class _DraggableTypingOverlayState
                                       ),
                                     ),
                                     Text(
-                                      '字/s',
+                                      '字/秒',
                                       style: TextStyle(
-                                        fontSize: 9.5,
+                                        fontSize: 11,
                                         height: 1.1,
                                         color: isSelected
                                             ? colorScheme.onPrimary.withValues(alpha: 0.85)
@@ -1255,6 +1424,20 @@ class _DraggableTypingOverlayState
                         ),
                       );
                     }),
+                  ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '已选：$selectedName',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -1265,8 +1448,88 @@ class _DraggableTypingOverlayState
     );
   }
 
+  /// 发送中：发送按钮替换为同尺寸急停按钮
+  Widget _buildQuickStopButton(
+    TypingProgressController ctrl, {
+    required bool isWide,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return FilledButton.icon(
+      style: FilledButton.styleFrom(
+        backgroundColor: colorScheme.error,
+        foregroundColor: colorScheme.onError,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.symmetric(vertical: isWide ? 9 : 0),
+        minimumSize: Size(double.infinity, isWide ? 40 : 30),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isWide ? 8 : 6),
+        ),
+      ),
+      icon: Icon(Icons.stop_circle_outlined, size: isWide ? 17 : 15),
+      label: Text(
+        '紧急停止',
+        style: TextStyle(
+          fontSize: isWide ? 13.5 : 12.5,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      onPressed: () async {
+        await ctrl.emergencyStop();
+        if (mounted) showAppToast(context, '已发送急停指令，打字已中断');
+      },
+    );
+  }
+
   /// Tab 1：快速文字贴入
-  Widget _buildQuickTextTab(ColorScheme colorScheme) {
+  Widget _buildQuickTextTab(ColorScheme colorScheme, bool isWide) {
+    final typingCtrl = ref.watch(typingProgressControllerProvider);
+    final isTyping = typingCtrl.isTyping;
+
+    if (!isWide) {
+      // 小窗：输入框自适应填满剩余高度（静息无空隙，急停出现后自动收缩不溢出）
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _quickTextCtrl,
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              enableInteractiveSelection: true,
+              style: const TextStyle(fontSize: 12.5, height: 1.35),
+              decoration: InputDecoration(
+                hintText: '输入文字...',
+                hintStyle: const TextStyle(fontSize: 12),
+                isDense: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          SizedBox(
+            height: 30,
+            child: isTyping
+                ? _buildQuickStopButton(typingCtrl, isWide: false)
+                : FilledButton(
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                    onPressed: _sendQuickText,
+                    child: const Text(
+                      '发送文字',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+          ),
+        ],
+      );
+    }
+
+    // 大窗状态：自适应铺满高度
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1287,25 +1550,27 @@ class _DraggableTypingOverlayState
           ),
         ),
         const SizedBox(height: 8),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          icon: const Icon(Icons.send_rounded, size: 15),
-          label: const Text(
-            '发送文字',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-          ),
-          onPressed: _sendQuickText,
-        ),
+        isTyping
+            ? _buildQuickStopButton(typingCtrl, isWide: true)
+            : FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.send_rounded, size: 15),
+                label: const Text(
+                  '发送文字',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                onPressed: _sendQuickText,
+              ),
       ],
     );
   }
 
   /// Tab 2：快捷动作（按键精灵）
-  Widget _buildPresetActionsTab(ColorScheme colorScheme) {
+  Widget _buildPresetActionsTab(ColorScheme colorScheme, bool isWide) {
     final presets = ref.watch(typingBlockPresetsProvider);
 
     return Column(
@@ -1315,8 +1580,8 @@ class _DraggableTypingOverlayState
           child: presets.isEmpty
               ? const Center(
                   child: Text(
-                    '暂无快捷动作，可前往设置添加',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                    '暂无快捷动作',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 )
               : ListView.separated(
@@ -1329,8 +1594,10 @@ class _DraggableTypingOverlayState
                       borderRadius: BorderRadius.circular(6),
                       onTap: () => _triggerPresetBlock(item),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 6),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isWide ? 8 : 6,
+                          vertical: isWide ? 6 : 4,
+                        ),
                         decoration: BoxDecoration(
                           color: colorScheme.surfaceContainerHighest
                               .withValues(alpha: 0.3),
@@ -1342,36 +1609,42 @@ class _DraggableTypingOverlayState
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.play_circle_fill,
-                                size: 16, color: Colors.deepOrange),
-                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.play_circle_fill,
+                              size: isWide ? 16 : 14,
+                              color: Colors.deepOrange,
+                            ),
+                            const SizedBox(width: 5),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     item.name,
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    item.stepsPreview,
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontFamily: 'monospace',
-                                      color: Colors.grey,
+                                    style: TextStyle(
+                                      fontSize: isWide ? 12.5 : 12.5,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
+                                  if (isWide && item.stepsPreview.isNotEmpty) ...[
+                                    Text(
+                                      item.stepsPreview,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontFamily: 'monospace',
+                                        color: Colors.grey,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
-                            const Icon(Icons.chevron_right,
-                                size: 14, color: Colors.grey),
+                            if (isWide)
+                              const Icon(Icons.chevron_right, size: 14, color: Colors.grey),
                           ],
                         ),
                       ),
@@ -1379,19 +1652,21 @@ class _DraggableTypingOverlayState
                   },
                 ),
         ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 6),
+        if (isWide) ...[
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+              ),
+              icon: const Icon(Icons.tune, size: 14),
+              label: const Text('管理快捷动作', style: TextStyle(fontSize: 11)),
+              onPressed: _openPresetsSheet,
             ),
-            icon: const Icon(Icons.tune, size: 14),
-            label: const Text('管理快捷动作', style: TextStyle(fontSize: 11)),
-            onPressed: _openPresetsSheet,
           ),
-        ),
+        ],
       ],
     );
   }

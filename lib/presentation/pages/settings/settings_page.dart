@@ -8,8 +8,6 @@ import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
-import '../../../providers/tutorial_provider.dart';
-import '../../widgets/common/app_toast.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -80,39 +78,6 @@ class SettingsPage extends ConsumerWidget {
               onChangeEnd: (v) {
                 ref.read(appFontScaleProvider.notifier).setScale(v, persist: true);
               },
-            ),
-          ]),
-          _groupLabel(context, '使用指引'),
-          _groupCard(context, [
-            ListTile(
-              leading: const Icon(Icons.school_outlined),
-              title: const Text('基础操作流程指引', style: _title),
-              subtitle: const Text('重新演练会话管理、素材录入与文书生成'),
-              trailing: const Icon(Icons.play_circle_outline_rounded),
-              onTap: () async {
-                final sampleService = ref.read(sampleDataServiceProvider);
-                await sampleService.ensureSampleData(force: true);
-                ref.invalidate(patientsProvider);
-                await ref.read(tutorialProvider.notifier).resetTutorial(TutorialType.basicFlow);
-                if (context.mounted) {
-                  context.go('/patients');
-                  showAppToast(context, '已重新启动新手入门指引');
-                }
-              },
-            ),
-            const Divider(height: 1),
-            const ListTile(
-              leading: Icon(Icons.tune_rounded),
-              title: Text('AI 与离线识别配置指引', style: _title),
-              subtitle: Text('敬请期待'),
-              enabled: false,
-            ),
-            const Divider(height: 1),
-            const ListTile(
-              leading: Icon(Icons.keyboard_outlined),
-              title: Text('蓝牙模拟键盘录入指引', style: _title),
-              subtitle: Text('敬请期待'),
-              enabled: false,
             ),
           ]),
           _groupLabel(context, '人工智能'),
@@ -234,6 +199,16 @@ class SettingsPage extends ConsumerWidget {
               subtitle: const Text('数据备份、模板导入与导出'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/backup'),
+            ),
+          ]),
+          _groupLabel(context, '关于'),
+          _groupCard(context, [
+            ListTile(
+              leading: const Icon(Icons.info_outline_rounded),
+              title: const Text('关于与帮助', style: _title),
+              subtitle: const Text('版本检测、新手教程与开源社区'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/about'),
             ),
           ]),
         ],

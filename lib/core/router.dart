@@ -30,6 +30,7 @@ import '../presentation/pages/settings/llm_providers_page.dart';
 import '../presentation/pages/settings/backup_center_page.dart';
 import '../presentation/pages/hub/template_hub_page.dart';
 import '../presentation/pages/settings/char_replacement_settings_page.dart';
+import '../presentation/pages/settings/about_page.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -255,6 +256,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/char-replacement',
         name: 'char_replacement_settings',
         builder: (context, state) => const CharReplacementSettingsPage(),
+      ),
+      GoRoute(
+        path: '/settings/about',
+        name: 'about_settings',
+        builder: (context, state) => const AboutPage(),
       ),
     ],
   );
