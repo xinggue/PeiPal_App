@@ -252,7 +252,7 @@ class _TutorialSpotlightOverlayState extends State<TutorialSpotlightOverlay>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         child: Text(
-                          '跳过',
+                          '结束教学',
                           style: TextStyle(
                             fontSize: 12.5,
                             color: Colors.grey.shade600,

@@ -42,6 +42,7 @@ class _QrSettingsPageState extends ConsumerState<QrSettingsPage> {
     final packets = QrPackService.splitText(
       text,
       chunkSize: qrConfig.chunkSize,
+      scannerType: qrConfig.scannerType,
       customSessionId: QrPackService.generateSessionId(text),
     );
 
@@ -52,6 +53,59 @@ class _QrSettingsPageState extends ConsumerState<QrSettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 扫码设备类型卡片
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.qr_code_scanner, color: Colors.teal),
+                      SizedBox(width: 8),
+                      Text(
+                        '扫码设备类型',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<QrScannerType>(
+                      segments: const [
+                        ButtonSegment(
+                          value: QrScannerType.dedicated,
+                          label: Text('专用扫码器'),
+                          icon: Icon(Icons.devices_other, size: 18),
+                        ),
+                        ButtonSegment(
+                          value: QrScannerType.standard,
+                          label: Text('常规扫码枪'),
+                          icon: Icon(Icons.usb, size: 18),
+                        ),
+                      ],
+                      selected: {qrConfig.scannerType},
+                      onSelectionChanged: (set) {
+                        ref.read(qrConfigProvider.notifier).updateScannerType(set.first);
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    qrConfig.isStandardScanner
+                        ? '常规扫码枪：直连电脑输入纯文本，自动过滤硬件按键指令，长文本不含分包协议头。'
+                        : '专用扫码器：配备专用硬件接收端，支持多包乱序聚合与按键动作方案。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           // 参数配置卡片
           Card(
             child: Padding(
@@ -229,7 +283,9 @@ class _QrSettingsPageState extends ConsumerState<QrSettingsPage> {
                                 : null,
                           ),
                           Text(
-                            '左右滑动切换卡片，扫码枪扫完全部卡片后电脑将一次性输出',
+                            qrConfig.isStandardScanner
+                                ? '常规扫码枪请按顺序依次扫码'
+                                : '左右滑动切换卡片，扫齐后自动打字',
                             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                           ),
                           IconButton(

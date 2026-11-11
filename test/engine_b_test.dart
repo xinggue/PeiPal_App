@@ -167,7 +167,7 @@ void main() {
       expect(text.contains('【现病史】'), isFalse);
     });
 
-    test('Mode 3: interactiveDirect only compiles requested target slots', () {
+    test('Mode 3: interactiveDirect only compiles requested target slots with label, colon, and enter', () {
       final gcode = TypingCompiler.compile(TypingCompileContext(
         template: template,
         profile: profile,
@@ -177,7 +177,7 @@ void main() {
         targetSlotKeysForDirect: {'chief_complaint'}, // Only send chief complaint
       ));
 
-      expect(gcode, '{TAB}{DELAY:80}发热3天{DELAY:80}{ENTER}');
+      expect(gcode, '主诉：发热3天{DELAY:80}{ENTER}');
       expect(gcode.contains('否认高血压病史'), isFalse);
     });
 

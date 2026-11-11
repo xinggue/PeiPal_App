@@ -170,6 +170,7 @@ class Message {
     bool clearRecordJson = false,
     RecordMeta? recordMeta,
     bool clearRecordMeta = false,
+    DateTime? createdAt,
   }) =>
       Message(
         id: id,
@@ -189,7 +190,7 @@ class Message {
         recordJson: clearRecordJson ? null : (recordJson ?? this.recordJson),
         templateId: templateId,
         recordMeta: clearRecordMeta ? null : (recordMeta ?? this.recordMeta),
-        createdAt: createdAt,
+        createdAt: createdAt ?? this.createdAt,
       );
 
   Map<String, dynamic> toMap() => {

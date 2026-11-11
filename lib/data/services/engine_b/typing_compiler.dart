@@ -101,7 +101,7 @@ class TypingCompiler {
     return buffer.toString().trim();
   }
 
-  /// 模式 3：交互式单字段点播编译
+  /// 模式 3：交互式单字段点播编译（按字段平铺展开，带字段名与冒号，字段后统一回车换行）
   static String _compileInteractiveDirect(TypingCompileContext ctx) {
     final emitter = _StepEmitter(stepDelayMs: ctx.profile.postKeySettleMs);
     final targets = ctx.targetSlotKeysForDirect ?? ctx.activeSlotKeys;
@@ -111,23 +111,18 @@ class TypingCompiler {
       final cleanVal = TypingTextNormalizer.normalize(rawVal);
       if (cleanVal.isEmpty) continue;
 
-      // 查找对应槽位的定义以获取前后按键（若有方案覆盖则优先采用）
+      // 查找对应槽位的定义以获取标签名
       final slot = ctx.template.sortedSlots.firstWhere(
         (s) => s.key == slotKey,
         orElse: () => TemplateSlot(key: slotKey, label: slotKey, type: SlotType.text),
       );
-      final ov = ctx.profile.overrides[slotKey];
-      final preKeys = ov?.pre ?? slot.preKeys;
-      final postKeys = ov?.post ?? slot.postKeys;
+      final label = slot.label.isNotEmpty ? slot.label : slot.key;
 
-      // 1. 输入前动作（内部多键按键盘速度，整体作为一步）
-      emitter.emitKeyListStep(preKeys);
+      // 1. 字段名称：内容
+      emitter.emitStep('$label：$cleanVal');
 
-      // 2. 具体输入内容
-      emitter.emitStep(cleanVal);
-
-      // 3. 输入后动作（内部多键按键盘速度，整体作为一步）
-      emitter.emitKeyListStep(postKeys);
+      // 2. 字段输入完成后按回车换行（取代文书结构内的后置动作按键）
+      emitter.emitKeyListStep(['{ENTER}']);
     }
 
     return emitter.buildResult();

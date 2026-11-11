@@ -135,7 +135,23 @@ class _DraggableTypingOverlayState
 
   // 悬浮球当前坐标与贴边藏入状态：-1=藏在左边缘, 0=常规悬浮, 1=藏在右边缘
   Offset _ballPosition = const Offset(12, 140);
-  int _dockedSide = 0;
+  int _dockedSide = 1; // 默认贴在右侧边缘
+  bool _isPositionInitialized = false;
+
+  void _ensurePositionInitialized(Size screenSize) {
+    if (_isPositionInitialized) return;
+    if (screenSize.width <= 0 || screenSize.height <= 0) return;
+    _isPositionInitialized = true;
+    _dockedSide = 1;
+    // 默认放在右侧上方三分之一左右位置
+    final defaultY = (screenSize.height / 3.0).clamp(36.0, screenSize.height - 100.0);
+    _ballPosition = Offset(screenSize.width - _ballSize / 2, defaultY);
+    final targetLeft = (screenSize.width - _panelWidth - 10.0).clamp(10.0, double.infinity);
+    _panelPosition = Offset(
+      targetLeft,
+      defaultY.clamp(36.0, (screenSize.height - _panelHeight - 16.0).clamp(36.0, double.infinity)),
+    );
+  }
 
   // 展开面板的坐标与窗口形态：false=常规悬浮窗(310x400)，true=大窗(80%宽、2/3高)
   Offset _panelPosition = const Offset(16, 120);
@@ -283,7 +299,6 @@ class _DraggableTypingOverlayState
     );
 
     setState(() {
-      _dockedSide = 0;
       _panelPosition = Offset(targetLeft, targetTop);
       _isExpanded = true;
     });
@@ -474,6 +489,21 @@ class _DraggableTypingOverlayState
     final screenSize = MediaQuery.of(context).size;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    _ensurePositionInitialized(screenSize);
+
+    // 当贴边时，若屏幕尺寸变动（如旋转或调整窗口），保持贴边
+    if (_dockedSide == 1) {
+      _ballPosition = Offset(
+        screenSize.width - _ballSize / 2,
+        _ballPosition.dy.clamp(36.0, screenSize.height - 100.0),
+      );
+    } else if (_dockedSide == -1) {
+      _ballPosition = Offset(
+        -_ballSize / 2,
+        _ballPosition.dy.clamp(36.0, screenSize.height - 100.0),
+      );
+    }
 
     // 当常驻开关关闭时，仅在真正打字中途临时展示（以保障急停兜底）
     final shouldShow = enabled || typingCtrl.isTyping;

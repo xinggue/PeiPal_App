@@ -137,17 +137,27 @@ class _RecordGenerationWizardSheetState
       if (mounted) {
         setState(() {
           _contentTemplatesCache[template.id] = contentTmpls;
-          // 重置选中的内容模板
-          _selectedContentTemplate = null;
-          _useNoContentTemplate = contentTmpls.isEmpty;
+          // 默认选中最顶部的第一个内容模板；若无内容模板则选不使用模板
+          if (contentTmpls.isNotEmpty) {
+            _selectedContentTemplate = contentTmpls.first;
+            _useNoContentTemplate = false;
+          } else {
+            _selectedContentTemplate = null;
+            _useNoContentTemplate = true;
+          }
         });
       }
     } else {
       final cached = _contentTemplatesCache[template.id] ?? [];
       if (mounted) {
         setState(() {
-          _selectedContentTemplate = null;
-          _useNoContentTemplate = cached.isEmpty;
+          if (cached.isNotEmpty) {
+            _selectedContentTemplate = cached.first;
+            _useNoContentTemplate = false;
+          } else {
+            _selectedContentTemplate = null;
+            _useNoContentTemplate = true;
+          }
         });
       }
     }
@@ -558,10 +568,10 @@ class _RecordGenerationWizardSheetState
           child: ListTile(
             dense: true,
             visualDensity: VisualDensity.compact,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
             leading: Icon(
               Icons.not_interested_outlined,
-              size: 20,
+              size: 16,
               color: _useNoContentTemplate
                   ? theme.colorScheme.primary
                   : Colors.grey.shade500,
@@ -569,7 +579,7 @@ class _RecordGenerationWizardSheetState
             title: Text(
               '不使用模板',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 11.5,
                 color: _useNoContentTemplate
                     ? theme.colorScheme.primary
                     : Colors.grey.shade600,
@@ -577,9 +587,9 @@ class _RecordGenerationWizardSheetState
             ),
             trailing: _useNoContentTemplate
                 ? Icon(Icons.check_circle_rounded,
-                    size: 20, color: theme.colorScheme.primary)
+                    size: 16, color: theme.colorScheme.primary)
                 : Icon(Icons.radio_button_unchecked,
-                    size: 20, color: Colors.grey.shade500),
+                    size: 16, color: Colors.grey.shade500),
             onTap: () {
               setState(() {
                 _useNoContentTemplate = true;

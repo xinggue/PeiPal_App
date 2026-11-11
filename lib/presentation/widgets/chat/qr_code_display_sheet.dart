@@ -55,6 +55,7 @@ class _QrCodeDisplaySheetState extends ConsumerState<QrCodeDisplaySheet> {
     final packets = QrPackService.splitText(
       widget.text,
       chunkSize: qrConfig.chunkSize,
+      scannerType: qrConfig.scannerType,
       customSessionId: _sessionId,
     );
 
@@ -127,7 +128,9 @@ class _QrCodeDisplaySheetState extends ConsumerState<QrCodeDisplaySheet> {
                           border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
                         ),
                         child: Text(
-                          '第 ${_currentIndex + 1} / $total 张 · 会话 ID: ${packets[_currentIndex].sessionId}',
+                          qrConfig.isStandardScanner
+                              ? '第 ${_currentIndex + 1} / $total 张'
+                              : '第 ${_currentIndex + 1} / $total 张 · 会话 ID: ${packets[_currentIndex].sessionId}',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.blue,
@@ -199,7 +202,9 @@ class _QrCodeDisplaySheetState extends ConsumerState<QrCodeDisplaySheet> {
                             : null,
                       ),
                       Text(
-                        '支持任意顺序扫码\n全部扫齐后自动打字',
+                        qrConfig.isStandardScanner
+                            ? '常规扫码枪请按顺序依次扫码\n扫码后电脑立即录入'
+                            : '支持任意顺序扫码\n全部扫齐后自动打字',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                       ),

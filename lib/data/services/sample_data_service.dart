@@ -101,7 +101,18 @@ class SampleDataService {
 
   Future<void> _seedSampleTemplateIfNeeded() async {
     final existing = await templateRepo.getById(sampleTemplateId);
-    if (existing != null) return;
+    if (existing != null) {
+      // 检查已存的内置示例模板是否仍包含旧版 {TAB}，若是则平滑升级为 {ENTER}
+      final hasTab = existing.slots.any((s) => s.postKeys.contains('{TAB}'));
+      if (hasTab) {
+        final updatedSlots = existing.slots.map((s) {
+          final updatedPostKeys = s.postKeys.map((k) => k == '{TAB}' ? '{ENTER}' : k).toList();
+          return s.copyWith(postKeys: updatedPostKeys);
+        }).toList();
+        await templateRepo.update(existing.copyWith(slots: updatedSlots));
+      }
+      return;
+    }
 
     final templates = await templateRepo.getAll();
     if (templates.isNotEmpty) {
@@ -118,42 +129,42 @@ class SampleDataService {
           key: '主诉',
           label: '主诉',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 0,
         ),
         TemplateSlot(
           key: '现病史',
           label: '现病史',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 1,
         ),
         TemplateSlot(
           key: '既往史',
           label: '既往史',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 2,
         ),
         TemplateSlot(
           key: '辅检',
           label: '辅检',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 3,
         ),
         TemplateSlot(
           key: '查体',
           label: '专科查体',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 4,
         ),
         TemplateSlot(
           key: '诊断',
           label: '诊断',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 5,
           catalogType: 'diagnosis',
         ),
@@ -161,13 +172,14 @@ class SampleDataService {
           key: '诊断依据',
           label: '诊断依据',
           type: SlotType.text,
-          postKeys: ['{TAB}'],
+          postKeys: ['{ENTER}'],
           order: 6,
         ),
         TemplateSlot(
           key: '诊疗计划',
           label: '诊疗计划',
           type: SlotType.text,
+          postKeys: ['{ENTER}'],
           order: 7,
         ),
       ],
@@ -225,6 +237,18 @@ class SampleDataService {
   Future<void> _seedSamplePatientAndMessages() async {
     final existing = await patientRepo.getById(samplePatientId);
     if (existing != null) {
+      final msgs = await messageRepo.getAllChronological(samplePatientId);
+      if (msgs.length == 4 && msgs.first.type == MessageType.text) {
+        final photos = msgs.where((m) => m.type == MessageType.photo).toList();
+        final texts = msgs.where((m) => m.type == MessageType.text).toList();
+        if (photos.length == 2 && texts.length == 2) {
+          final base = existing.createdAt;
+          await messageRepo.update(photos[0].copyWith(createdAt: base.add(const Duration(minutes: 5))));
+          await messageRepo.update(photos[1].copyWith(createdAt: base.add(const Duration(minutes: 10))));
+          await messageRepo.update(texts[0].copyWith(createdAt: base.add(const Duration(minutes: 15))));
+          await messageRepo.update(texts[1].copyWith(createdAt: base.add(const Duration(minutes: 20))));
+        }
+      }
       return;
     }
 
@@ -239,25 +263,7 @@ class SampleDataService {
     );
     await patientRepo.insert(patient);
 
-    // 1. 聊天记录：就诊目的
-    final m1 = Message(
-      patientId: samplePatientId,
-      sender: MessageSender.user,
-      type: MessageType.text,
-      content: '来摘息肉的，没什么不舒服，一个月前做的肠镜和病理，都做好的',
-      createdAt: now.subtract(const Duration(minutes: 25)),
-    );
-
-    // 2. 聊天记录：既往史与用药
-    final m2 = Message(
-      patientId: samplePatientId,
-      sender: MessageSender.user,
-      type: MessageType.text,
-      content: '有冠心病，吃阿司匹林和阿托伐，阿司匹林停6天了',
-      createdAt: now.subtract(const Duration(minutes: 20)),
-    );
-
-    // 3. 肠镜检查报告（内置真实示例图片）
+    // 1. 肠镜检查报告（内置真实示例图片，图在前）
     final colonoscopyDraft = Message(
       patientId: samplePatientId,
       sender: MessageSender.user,
@@ -274,7 +280,7 @@ class SampleDataService {
           '泽.黏膜血管纹理呈树枝状,清晰可见.\n'
           '内镜诊断：\n'
           '结直肠多发息肉',
-      createdAt: now.subtract(const Duration(minutes: 12)),
+      createdAt: now.subtract(const Duration(minutes: 25)),
     );
     final colonoscopy = await _materializeAsset(
       assetPath: 'assets/sample/sample_colonoscopy.jpg',
@@ -284,14 +290,14 @@ class SampleDataService {
         return p.join(dir, 'page_001.jpg');
       },
     );
-    final m3 = colonoscopy == null
+    final m1 = colonoscopy == null
         ? colonoscopyDraft
         : colonoscopyDraft.copyWith(
             filePaths: [colonoscopy.path],
             fileSizes: [colonoscopy.size],
           );
 
-    // 4. 病理检查报告（内置真实示例图片）
+    // 2. 病理检查报告（内置真实示例图片，图在前）
     final pathologyDraft = Message(
       patientId: samplePatientId,
       sender: MessageSender.user,
@@ -302,7 +308,7 @@ class SampleDataService {
           '镜下所见：\n'
           '病理诊断：\n'
           '(乙状结肠粘膜）腺瘤性息肉，部分腺体呈低级别上皮内瘤变.',
-      createdAt: now.subtract(const Duration(minutes: 6)),
+      createdAt: now.subtract(const Duration(minutes: 20)),
     );
     final pathology = await _materializeAsset(
       assetPath: 'assets/sample/sample_pathology.jpg',
@@ -312,12 +318,30 @@ class SampleDataService {
         return p.join(dir, 'page_001.jpg');
       },
     );
-    final m4 = pathology == null
+    final m2 = pathology == null
         ? pathologyDraft
         : pathologyDraft.copyWith(
             filePaths: [pathology.path],
             fileSizes: [pathology.size],
           );
+
+    // 3. 聊天记录：就诊目的（文字在后）
+    final m3 = Message(
+      patientId: samplePatientId,
+      sender: MessageSender.user,
+      type: MessageType.text,
+      content: '来摘息肉的，没什么不舒服，一个月前做的肠镜和病理，都做好的',
+      createdAt: now.subtract(const Duration(minutes: 12)),
+    );
+
+    // 4. 聊天记录：既往史与用药（文字在后）
+    final m4 = Message(
+      patientId: samplePatientId,
+      sender: MessageSender.user,
+      type: MessageType.text,
+      content: '有冠心病，吃阿司匹林和阿托伐，阿司匹林停6天了',
+      createdAt: now.subtract(const Duration(minutes: 6)),
+    );
 
     await messageRepo.insert(m1);
     await messageRepo.insert(m2);

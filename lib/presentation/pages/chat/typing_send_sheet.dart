@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/services/ble/typing_done_prefs.dart';
 import '../../../data/services/ble/character_sanitizer.dart';
+import '../../../data/services/qr/qr_pack_service.dart';
 import '../../../data/services/engine_b/typing_compiler.dart';
 import '../../../data/services/engine_b/typing_text_normalizer.dart';
 import '../../../domain/models/message.dart';
@@ -232,12 +233,13 @@ class _TypingSendSheetState extends ConsumerState<TypingSendSheet> {
 
   String _buildPreviewText() {
     if (_template == null || _profile == null) return '';
+    final isQrStandard = widget.isQrMode && ref.read(qrConfigProvider).isStandardScanner;
     return TypingCompiler.compile(TypingCompileContext(
       template: _template!,
       profile: _profile!,
       recordValues: _values,
       activeSlotKeys: _activeKeys,
-      mode: _selectedMode,
+      mode: isQrStandard ? TypingSendMode.interactiveDirect : _selectedMode,
       targetSlotKeysForDirect: _selectedDirectSlots,
     ));
   }
@@ -320,6 +322,11 @@ class _TypingSendSheetState extends ConsumerState<TypingSendSheet> {
 
     final hasMultipleProfiles = _template != null && _template!.typingProfiles.length > 1;
     final slots = _template!.sortedSlots;
+    final qrConfig = ref.watch(qrConfigProvider);
+    final isQrStandardScanner = widget.isQrMode && qrConfig.isStandardScanner;
+    final activeSelectedMode = isQrStandardScanner
+        ? TypingSendMode.interactiveDirect
+        : _selectedMode;
 
     return Container(
       constraints: BoxConstraints(
@@ -351,88 +358,95 @@ class _TypingSendSheetState extends ConsumerState<TypingSendSheet> {
             ),
             const SizedBox(height: 10),
 
-            // 模式 1：选取字段录入 (默认且全选)
+            // 模式 1：按字段平铺展开 (默认且全选)
             Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: _selectedMode == TypingSendMode.interactiveDirect
+                color: activeSelectedMode == TypingSendMode.interactiveDirect
                     ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25)
                     : null,
               ),
               child: RadioListTile<TypingSendMode>(
                 value: TypingSendMode.interactiveDirect,
-                groupValue: _selectedMode,
-                title: const Text('选取字段录入 (默认)', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('输出手动勾选的一个或多个字段 (已选 ${_selectedDirectSlots.length} 项)'),
+                groupValue: activeSelectedMode,
+                title: const Text('按字段平铺展开 (默认)', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('按「字段名：内容」回车换行录入 (已选 ${_selectedDirectSlots.length} 项)'),
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 onChanged: (v) => setState(() => _selectedMode = v!),
               ),
             ),
 
-            // 模式 2：按照输入方案录入
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: _selectedMode == TypingSendMode.pipelineKeepFlow
-                    ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25)
-                    : null,
-              ),
-              child: Column(
-                children: [
-                  RadioListTile<TypingSendMode>(
-                    value: TypingSendMode.pipelineKeepFlow,
-                    groupValue: _selectedMode,
-                    title: const Text(
-                      '按照输入方案录入',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+            // 模式 2：按照输入方案录入（常规扫码枪模式下禁用）
+            Opacity(
+              opacity: isQrStandardScanner ? 0.45 : 1.0,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: activeSelectedMode == TypingSendMode.pipelineKeepFlow
+                      ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25)
+                      : null,
+                ),
+                child: Column(
+                  children: [
+                    RadioListTile<TypingSendMode>(
+                      value: TypingSendMode.pipelineKeepFlow,
+                      groupValue: activeSelectedMode,
+                      title: Text(
+                        isQrStandardScanner ? '按照输入方案录入 (常规扫码枪不可用)' : '按照输入方案录入',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        isQrStandardScanner
+                            ? '常规扫码枪仅支持纯文本，不支持按键动作方案'
+                            : (_noCustomFlow
+                                ? '此模板未配置输入方案'
+                                : '按文书输入方案依次打字，按导航键跨过输入框'),
+                      ),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: isQrStandardScanner ? null : (v) => setState(() => _selectedMode = v!),
                     ),
-                    subtitle: Text(
-                      _noCustomFlow
-                          ? '此模板未配置输入方案'
-                          : '按文书输入方案依次打字，按导航键跨过输入框',
-                    ),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (v) => setState(() => _selectedMode = v!),
-                  ),
-                  if (_selectedMode == TypingSendMode.pipelineKeepFlow && hasMultipleProfiles)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(36, 0, 16, 10),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.tune, size: 16, color: Colors.blueGrey),
-                          const SizedBox(width: 6),
-                          const Text('选用方案：', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _profile?.id,
-                                isDense: true,
-                                items: _template!.typingProfiles
-                                    .map((p) => DropdownMenuItem(
-                                          value: p.id,
-                                          child: Text(p.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                        ))
-                                    .toList(),
-                                onChanged: (pId) {
-                                  if (pId == null) return;
-                                  final p = _template!.typingProfiles.firstWhere((item) => item.id == pId);
-                                  setState(() => _profile = p);
-                                },
+                    if (activeSelectedMode == TypingSendMode.pipelineKeepFlow && hasMultipleProfiles)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(36, 0, 16, 10),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.tune, size: 16, color: Colors.blueGrey),
+                            const SizedBox(width: 6),
+                            const Text('选用方案：', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _profile?.id,
+                                  isDense: true,
+                                  items: _template!.typingProfiles
+                                      .map((p) => DropdownMenuItem(
+                                            value: p.id,
+                                            child: Text(p.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                                          ))
+                                      .toList(),
+                                  onChanged: isQrStandardScanner
+                                      ? null
+                                      : (pId) {
+                                          if (pId == null) return;
+                                          final p = _template!.typingProfiles.firstWhere((item) => item.id == pId);
+                                          setState(() => _profile = p);
+                                        },
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
 
-            // 字段直选大列表：当选择模式 3 时，直接铺展在中间充裕的空白区域
-            if (_selectedMode == TypingSendMode.interactiveDirect) ...[
+            // 字段直选大列表：当选择字段平铺模式时，直接铺展在中间充裕的空白区域
+            if (activeSelectedMode == TypingSendMode.interactiveDirect) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -523,26 +537,28 @@ class _TypingSendSheetState extends ConsumerState<TypingSendSheet> {
             ] else
               const Spacer(),
 
-            // 底部操作栏：左侧 1/4 灰色「预览代码」按钮 + 右侧 3/4 主发送/扫码按钮
+            // 底部操作栏：左侧灰色「预览代码」按钮（常规扫码枪模式下隐藏） + 主发送/扫码按钮
             Row(
               children: [
-                // 1/4 灰色预览代码按钮
-                Expanded(
-                  flex: 1,
-                  child: FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                if (!isQrStandardScanner) ...[
+                  // 1/4 灰色预览代码按钮
+                  Expanded(
+                    flex: 1,
+                    child: FilledButton.tonal(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      onPressed: _openGCodePreview,
+                      child: const Text('预览代码', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     ),
-                    onPressed: _openGCodePreview,
-                    child: const Text('预览代码', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
-                ),
-                const SizedBox(width: 10),
-                // 3/4 主发送按钮
+                  const SizedBox(width: 10),
+                ],
+                // 主发送按钮
                 Expanded(
-                  flex: 3,
+                  flex: isQrStandardScanner ? 1 : 3,
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
