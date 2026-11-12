@@ -387,7 +387,11 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('获取智谱 API Key'),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('获取智谱 API Key', maxLines: 1),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
@@ -408,12 +412,17 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                     Icon(Icons.devices_rounded, color: Colors.amber.shade900, size: 22),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        '请用手机看教程，用电脑开网页操作',
-                        style: TextStyle(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amber.shade900,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '请用手机看教程，用电脑开网页操作',
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber.shade900,
+                          ),
                         ),
                       ),
                     ),
@@ -757,27 +766,41 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  height: 20,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: colorScheme.primary,
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     '第 ${step.number} 步',
+                    strutStyle: const StrutStyle(
+                      fontSize: 11,
+                      height: 1.0,
+                      forceStrutHeight: true,
+                    ),
                     style: TextStyle(
                       color: colorScheme.onPrimary,
-                      fontSize: 11.5,
+                      fontSize: 11,
+                      height: 1.0,
+                      leadingDistribution: TextLeadingDistribution.even,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    step.title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      step.title,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),

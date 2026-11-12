@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class MainNavigationShell extends StatefulWidget {
+import '../../../providers/tutorial_provider.dart';
+import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
+
+class MainNavigationShell extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
   final List<Widget> children;
 
@@ -12,11 +16,14 @@ class MainNavigationShell extends StatefulWidget {
   });
 
   @override
-  State<MainNavigationShell> createState() => _MainNavigationShellState();
+  ConsumerState<MainNavigationShell> createState() => _MainNavigationShellState();
 }
 
-class _MainNavigationShellState extends State<MainNavigationShell> {
+class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
+  static const int _settingsTabIndex = 3;
+
   late final PageController _pageController;
+  final GlobalKey _settingsTabKey = GlobalKey();
   bool _isProgrammaticJump = false;
 
   @override
@@ -43,9 +50,13 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   }
 
   Future<void> _moveToPage(int index) async {
-    if (!_pageController.hasClients) return;
-    final currentPage =
-        _pageController.page?.round() ?? widget.navigationShell.currentIndex;
+    if (!_pageController.hasClients || _pageController.page == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _moveToPage(index);
+      });
+      return;
+    }
+    final currentPage = _pageController.page!.round();
     if (currentPage == index) return;
 
     _isProgrammaticJump = true;
@@ -64,8 +75,19 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     }
   }
 
+  int? get _visiblePage {
+    if (!_pageController.hasClients) return null;
+    return _pageController.page?.round();
+  }
+
   void _onTabTapped(int index) {
-    if (index == widget.navigationShell.currentIndex) {
+    if (_isGuidingToSettings) {
+      if (index == _settingsTabIndex) _enterSettingsGuide();
+      return;
+    }
+    final alreadyHere =
+        index == widget.navigationShell.currentIndex && index == _visiblePage;
+    if (alreadyHere) {
       widget.navigationShell.goBranch(index, initialLocation: true);
     } else {
       widget.navigationShell.goBranch(index);
@@ -73,9 +95,39 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     }
   }
 
+  bool get _isGuidingToSettings {
+    final tutorial = ref.read(tutorialProvider);
+    return tutorial.isActive &&
+        tutorial.activeTutorial == TutorialType.aiConfig &&
+        tutorial.currentStep == 1;
+  }
+
+  void _enterSettingsGuide() {
+    widget.navigationShell.goBranch(_settingsTabIndex);
+    _moveToPage(_settingsTabIndex);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_visiblePage != _settingsTabIndex) {
+        _moveToPage(_settingsTabIndex);
+      }
+      final tutorial = ref.read(tutorialProvider);
+      if (tutorial.isActive &&
+          tutorial.activeTutorial == TutorialType.aiConfig &&
+          tutorial.currentStep == 1 &&
+          _visiblePage == _settingsTabIndex) {
+        ref.read(tutorialProvider.notifier).nextStep();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final tutorial = ref.watch(tutorialProvider);
+    final guideSettings = tutorial.isActive &&
+        tutorial.activeTutorial == TutorialType.aiConfig &&
+        tutorial.currentStep == 1;
+
+    final scaffold = Scaffold(
       body: PageView(
         controller: _pageController,
         physics: const ClampingScrollPhysics(),
@@ -84,13 +136,35 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           if (index != widget.navigationShell.currentIndex) {
             widget.navigationShell.goBranch(index);
           }
+          if (index == _settingsTabIndex && _isGuidingToSettings) {
+            ref.read(tutorialProvider.notifier).nextStep();
+          }
         },
         children: widget.children,
       ),
       bottomNavigationBar: _WeChatBottomBar(
         currentIndex: widget.navigationShell.currentIndex,
         onTap: _onTabTapped,
+        settingsTabKey: _settingsTabKey,
       ),
+    );
+
+    return Stack(
+      children: [
+        scaffold,
+        if (guideSettings)
+          TutorialSpotlightOverlay(
+            targetKey: _settingsTabKey,
+            stepTag: '配置指引 · 1/2',
+            title: '打开设置',
+            description: '点底部「设置」。',
+            nextButtonLabel: '去设置',
+            borderRadius: 12,
+            onNext: _enterSettingsGuide,
+            onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+            onTargetTap: _enterSettingsGuide,
+          ),
+      ],
     );
   }
 }
@@ -98,10 +172,12 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 class _WeChatBottomBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
+  final GlobalKey settingsTabKey;
 
   const _WeChatBottomBar({
     required this.currentIndex,
     required this.onTap,
+    required this.settingsTabKey,
   });
 
   @override
@@ -158,6 +234,7 @@ class _WeChatBottomBar extends StatelessWidget {
 
                 return Expanded(
                   child: InkWell(
+                    key: index == 3 ? settingsTabKey : null,
                     onTap: () => onTap(index),
                     splashColor: Colors.transparent,
                     highlightColor: Colors.transparent,

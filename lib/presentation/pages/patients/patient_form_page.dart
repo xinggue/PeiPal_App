@@ -10,6 +10,7 @@ import '../../../domain/models/message.dart';
 import '../../../domain/models/patient.dart';
 import '../../../providers/providers.dart';
 import '../../widgets/common/app_toast.dart';
+import '../../widgets/common/asr_key_prompt_dialog.dart';
 import '../../widgets/common/voice_autofill_sheet.dart';
 
 class PatientFormPage extends ConsumerStatefulWidget {
@@ -113,6 +114,10 @@ class _PatientFormPageState extends ConsumerState<PatientFormPage> {
   }
 
   Future<void> _startVoiceFill() async {
+    if (!ref.read(asrConfigProvider).isConfigured) {
+      await showAsrKeyPromptDialog(context);
+      return;
+    }
     final wavPath = await VoiceAutofillSheet.show(context);
     if (wavPath == null || !mounted) return;
 

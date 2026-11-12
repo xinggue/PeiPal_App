@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -58,13 +59,24 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
   List<OcrProviderConfig> _filterPlatformPresets(List<OcrProviderConfig> list) {
     return list.where((p) {
       if (p.protocol == OcrProtocol.appleVision) {
-        return Platform.isIOS || Platform.isMacOS;
+        return !kIsWeb && (Platform.isIOS || Platform.isMacOS);
       }
       if (p.protocol == OcrProtocol.paddleLocal) {
-        return Platform.isAndroid;
+        return !kIsWeb && Platform.isAndroid;
       }
       return true;
     }).toList();
+  }
+
+  String _defaultLocalProviderId(List<OcrProviderConfig> loaded) {
+    if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
+      if (loaded.any((p) => p.id == 'appleVision')) return 'appleVision';
+    }
+    if (!kIsWeb && Platform.isAndroid) {
+      if (loaded.any((p) => p.id == 'paddleLocal')) return 'paddleLocal';
+    }
+    if (loaded.any((p) => p.id == 'mineru')) return 'mineru';
+    return loaded.isNotEmpty ? loaded.first.id : 'modelbest';
   }
 
   Future<void> _load() async {
@@ -131,13 +143,16 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
       final matchedOld = oldProv != null && oldProv.isNotEmpty
           ? _matchProviderId(oldProv, oldUrl ?? '')
           : '';
-      if (matchedOld.isNotEmpty && loaded.any((p) => p.id == matchedOld)) {
-        targetActiveId = matchedOld;
+      final matchedItem = matchedOld.isNotEmpty
+          ? loaded.where((p) => p.id == matchedOld).firstOrNull
+          : null;
+      if (matchedItem != null && matchedItem.isConfigured) {
+        targetActiveId = matchedItem.id;
       } else if (loaded.any((p) => p.requiresApiKey && p.isConfigured)) {
         targetActiveId =
             loaded.firstWhere((p) => p.requiresApiKey && p.isConfigured).id;
       } else {
-        targetActiveId = loaded.isNotEmpty ? loaded.first.id : 'modelbest';
+        targetActiveId = _defaultLocalProviderId(loaded);
       }
     }
 

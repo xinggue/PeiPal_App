@@ -8,6 +8,10 @@ import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/tutorial_provider.dart';
+import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
+
+final _llmSettingsTileKey = GlobalKey();
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -19,8 +23,19 @@ class SettingsPage extends ConsumerWidget {
     final fontScale = ref.watch(appFontScaleProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final tutorial = ref.watch(tutorialProvider);
+    final guideLlm = tutorial.isActive &&
+        tutorial.activeTutorial == TutorialType.aiConfig &&
+        tutorial.currentStep == 2;
 
-    return Scaffold(
+    void openLlm() {
+      if (guideLlm) {
+        ref.read(tutorialProvider.notifier).completeTutorial();
+      }
+      context.push('/settings/llm-providers');
+    }
+
+    final scaffold = Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -83,6 +98,7 @@ class SettingsPage extends ConsumerWidget {
           _groupLabel(context, '人工智能'),
           _groupCard(context, [
             ListTile(
+              key: _llmSettingsTileKey,
               leading: const Icon(Icons.psychology_outlined),
               title: const Text('大语言模型', style: _title),
               subtitle: Consumer(
@@ -92,7 +108,7 @@ class SettingsPage extends ConsumerWidget {
                 },
               ),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/settings/llm-providers'),
+              onTap: openLlm,
             ),
             const Divider(height: 1),
             ListTile(
@@ -214,6 +230,25 @@ class SettingsPage extends ConsumerWidget {
         ],
       ),
     );
+
+    if (!guideLlm) return scaffold;
+
+    return Stack(
+      children: [
+        scaffold,
+        const _RevealLlmTile(),
+        TutorialSpotlightOverlay(
+          targetKey: _llmSettingsTileKey,
+          stepTag: '配置指引 · 2/2',
+          title: '大语言模型',
+          description: '点这里进入。',
+          nextButtonLabel: '进入',
+          onNext: openLlm,
+          onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
+          onTargetTap: openLlm,
+        ),
+      ],
+    );
   }
 
   Widget _groupLabel(BuildContext context, String text) {
@@ -241,4 +276,32 @@ class SettingsPage extends ConsumerWidget {
       child: Column(children: children),
     );
   }
+}
+
+class _RevealLlmTile extends StatefulWidget {
+  const _RevealLlmTile();
+
+  @override
+  State<_RevealLlmTile> createState() => _RevealLlmTileState();
+}
+
+class _RevealLlmTileState extends State<_RevealLlmTile> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _llmSettingsTileKey.currentContext;
+      if (ctx != null && ctx.mounted) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.25,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

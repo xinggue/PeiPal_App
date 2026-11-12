@@ -27,6 +27,7 @@ import 'generation_run_page.dart';
 import '../../../data/services/task/task_center.dart';
 import '../../../domain/generation/generation_plan.dart';
 import '../../../providers/tutorial_provider.dart';
+import '../../widgets/common/asr_key_prompt_dialog.dart';
 import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
@@ -138,6 +139,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final msg = draft.copyWith(filePaths: [finalPath]);
     await _msgRepo.insert(msg);
     if (mounted) _notifyDataChanged();
+
+    if (!ref.read(asrConfigProvider).isConfigured) {
+      if (mounted) {
+        await showAsrKeyPromptDialog(context, voiceSaved: true);
+      }
+      return;
+    }
 
     // Hand off to ProcessingService for async ASR
     ref.read(processingServiceProvider.notifier)
@@ -285,8 +293,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         tutorial.activeTutorial == TutorialType.basicFlow &&
         tutorial.currentStep == 4;
 
-    final needChoice =
-        !useManual && (!llmConfig.isConfigured || isTutorialConfirm);
+    final needChoice = !useManual && !llmConfig.isConfigured;
 
     if (needChoice) {
       if (isTutorialConfirm) {
@@ -316,7 +323,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             .read(tutorialProvider.notifier)
             .startTutorial(TutorialType.aiConfig, step: 1);
         if (mounted) {
-          context.push('/settings/llm-providers');
+          context.go('/patients');
         }
         return;
       } else if (choice == 'no_key') {
@@ -412,9 +419,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 children: [
                   Icon(Icons.play_circle_outline_rounded, color: Colors.amber, size: 22),
                   SizedBox(width: 8),
-                  Text(
-                    '最后一步：确认开始生成',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '最后一步：确认开始生成',
+                        maxLines: 1,
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -451,7 +465,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ctx: ctx,
                   value: 'has_key',
                   icon: Icons.key_rounded,
-                  title: aiConfigured ? '去查看或更换 AI 密钥' : '已有 API Key，去配置',
+                  title: aiConfigured ? '去查看或更换密钥' : '已有 Key，去配置',
                   badge: aiConfigured ? null : '去配置',
                   subtitle: '点开「大语言模型」设置页，填入密钥即可使用。',
                   bgColor: scheme.primaryContainer.withValues(alpha: 0.35),
@@ -464,8 +478,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ctx: ctx,
                   value: 'no_key',
                   icon: Icons.menu_book_rounded,
-                  title: '没有 API Key，查看获取教程',
-                  badge: '免费额度',
+                  title: '没有 Key，查看教程',
+                  badge: '去获取',
                   subtitle: '智谱图文教程，注册实名后 1 个 Key 配齐文本 / 识图 / 语音。',
                   bgColor: Colors.indigo.shade50,
                   borderColor: Colors.indigo.shade300,
@@ -509,69 +523,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required Color borderColor,
     required Color accentColor,
   }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
+    return KeyPromptOptionCard(
+      icon: icon,
+      title: title,
+      badge: badge,
+      subtitle: subtitle,
+      bgColor: bgColor,
+      borderColor: borderColor,
+      accentColor: accentColor,
       onTap: () => Navigator.pop(ctx, value),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: accentColor, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: accentColor,
-                          ),
-                        ),
-                      ),
-                      if (badge != null) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: accentColor,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            badge,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
-          ],
-        ),
-      ),
     );
   }
 
@@ -658,6 +618,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 title: const Text('重新识别 (ASR)'),
                 onTap: () {
                   Navigator.pop(ctx);
+                  if (!ref.read(asrConfigProvider).isConfigured) {
+                    showAsrKeyPromptDialog(context, voiceSaved: true);
+                    return;
+                  }
                   ref.read(processingServiceProvider.notifier).processAsr(
                     widget.patientId,
                     msg.filePaths.first,

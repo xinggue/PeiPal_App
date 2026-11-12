@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -351,8 +353,16 @@ class OcrConfigNotifier extends StateNotifier<OcrConfig> {
     final key = values[2];
     final model = values[3];
     final resolved = OcrProvider.values.where((p) => p.name == provider);
+    final OcrProvider defaultOcrProvider;
+    if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
+      defaultOcrProvider = OcrProvider.appleVision;
+    } else if (!kIsWeb && Platform.isAndroid) {
+      defaultOcrProvider = OcrProvider.paddleLocal;
+    } else {
+      defaultOcrProvider = OcrProvider.mineru;
+    }
     final ocrProvider =
-        resolved.isEmpty ? OcrProvider.openai : resolved.first;
+        resolved.isEmpty ? defaultOcrProvider : resolved.first;
     state = OcrConfig(
       provider: ocrProvider,
       baseUrl: url ??
@@ -364,7 +374,11 @@ class OcrConfigNotifier extends StateNotifier<OcrConfig> {
                       ? 'https://open.bigmodel.cn/api/paas/v4'
                       : ocrProvider == OcrProvider.modelbest
                           ? 'https://api.modelbest.cn/v1'
-                          : 'https://api.openai.com/v1'),
+                          : ocrProvider == OcrProvider.appleVision
+                              ? 'local://apple-vision'
+                              : ocrProvider == OcrProvider.paddleLocal
+                                  ? 'local://paddle-ocr'
+                                  : 'https://api.openai.com/v1'),
       apiKey: key ?? '',
       model: model ??
           (ocrProvider == OcrProvider.paddleOcr

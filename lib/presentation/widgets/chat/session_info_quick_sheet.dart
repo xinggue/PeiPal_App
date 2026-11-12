@@ -10,6 +10,7 @@ import '../../../domain/models/patient.dart';
 import '../../../providers/providers.dart';
 import '../common/app_sheet.dart';
 import '../common/app_toast.dart';
+import '../common/asr_key_prompt_dialog.dart';
 import '../common/voice_autofill_sheet.dart';
 
 /// 会话内快捷查看、编辑与「根据会话内容一键补全」浮窗面板
@@ -152,6 +153,10 @@ class _SessionInfoQuickSheetState extends ConsumerState<SessionInfoQuickSheet> {
   }
 
   Future<void> _startVoiceFill() async {
+    if (!ref.read(asrConfigProvider).isConfigured) {
+      await showAsrKeyPromptDialog(context);
+      return;
+    }
     final wavPath = await VoiceAutofillSheet.show(context);
     if (wavPath == null || !mounted) return;
 

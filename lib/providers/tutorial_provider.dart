@@ -85,7 +85,7 @@ class TutorialNotifier extends StateNotifier<TutorialState> {
 
     final maxStep = switch (state.activeTutorial) {
       TutorialType.basicFlow => 5,
-      TutorialType.aiConfig => 3,
+      TutorialType.aiConfig => 2,
       TutorialType.bleKeyboard => 3,
       null => 0,
     };

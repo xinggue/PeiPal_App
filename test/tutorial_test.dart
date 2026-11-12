@@ -203,7 +203,7 @@ void main() {
       expect(settings.data[TutorialType.basicFlow.settingsKey], 'false');
     });
 
-    test('aiConfig tutorial advances through 3 steps and completes', () async {
+    test('aiConfig tutorial advances through 2 steps and completes', () async {
       final settings = MockSettingsRepo();
       final notifier = TutorialNotifier(settings);
       await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -215,8 +215,6 @@ void main() {
 
       await notifier.nextStep();
       expect(notifier.state.currentStep, 2);
-      await notifier.nextStep();
-      expect(notifier.state.currentStep, 3);
       await notifier.nextStep();
 
       expect(notifier.state.isActive, isFalse);
