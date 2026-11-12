@@ -18,16 +18,11 @@
 <br>
 <br>
 
-<a href="https://gitee.com/xinggue/peipal_app/releases">下载</a>（<a href="https://github.com/xinggue/PeiPal_app/releases">GitHub</a>） ｜
+<a href="https://github.com/xinggue/PeiPal_app/releases">下载</a> ｜
 <a href="#快速开始">快速开始</a> ｜
 <a href="#自行构建">自行构建</a> ｜
-<a href="https://gitee.com/xinggue/peipal_app/issues">问题反馈</a>（<a href="https://github.com/xinggue/PeiPal_app/issues">GitHub</a>） ｜
+<a href="https://github.com/xinggue/PeiPal_app/issues">问题反馈</a> ｜
 <a href="#配套项目">键盘与云端</a>
-
-<br>
-<br>
-
-<span>同步发布于 GitHub / Gitee，国内访问建议使用 Gitee 镜像</span>
 
 </div>
 
@@ -37,7 +32,7 @@
 
 <br>
 
-更有[配套的文书录入方案](https://gitee.com/xinggue/PeiPal_Keyboard)（[GitHub](https://github.com/xinggue/PeiPal_Keyboard)）：**高速、稳定，无惧内网电脑环境**，一站式解决枯燥、重复的文书撰写与录入，真正解放双手。
+更有[配套的文书录入方案](https://github.com/xinggue/PeiPal_Keyboard)：**高速、稳定，无惧内网电脑环境**，一站式解决枯燥、重复的文书撰写与录入，真正解放双手。
 
 <br>
 
@@ -79,7 +74,7 @@
 
 <br>
 
-- ⌨️ **高速、稳定、无惧内网的自动输入**：软硬件一站式解决，详见 [PeiPal_Keyboard](https://gitee.com/xinggue/PeiPal_Keyboard)（[GitHub](https://github.com/xinggue/PeiPal_Keyboard)）。模拟键盘直接向电脑输入，目标电脑无需安装软件、无需联网，也不会出现 U 盘设备，内网环境照常使用。输入速度可调，自动绕开输入法、校正大小写与数字键盘状态，并逐条回执确认。没有硬件时，也可以用多包二维码配合扫码枪录入。
+- ⌨️ **高速、稳定、无惧内网的自动输入**：软硬件一站式解决，详见 [PeiPal_Keyboard](https://github.com/xinggue/PeiPal_Keyboard)。模拟键盘直接向电脑输入，目标电脑无需安装软件、无需联网，也不会出现 U 盘设备，内网环境照常使用。输入速度可调，自动绕开输入法、校正大小写与数字键盘状态，并逐条回执确认。没有硬件时，也可以用多包二维码配合扫码枪录入。
 
 <br>
 
@@ -113,7 +108,7 @@
 
 | 项目 | 说明 | 地址 |
 |---|---|---|
-| 小培键盘 | ESP32 蓝牙键盘固件，把内容"打"进电脑，并支持扫码枪多包二维码输入 | [PeiPal_Keyboard](https://gitee.com/xinggue/PeiPal_Keyboard)（[GitHub](https://github.com/xinggue/PeiPal_Keyboard)） |
+| 小培键盘 | ESP32 蓝牙键盘固件，把内容"打"进电脑，并支持扫码枪多包二维码输入 | [PeiPal_Keyboard](https://github.com/xinggue/PeiPal_Keyboard) |
 | 在线模板广场 | 模板分享后端，支持 Cloudflare Workers 与单文件自托管 | TODO |
 
 <br>
@@ -126,7 +121,7 @@
 
 <br>
 
-1. 前往 [Releases](https://gitee.com/xinggue/peipal_app/releases)（国内推荐）或 [GitHub Releases](https://github.com/xinggue/PeiPal_app/releases)，下载适合你设备的安装包并安装。
+1. 前往 [Releases](https://github.com/xinggue/PeiPal_app/releases)，下载适合你设备的安装包并安装。
 2. 打开小培，上手步骤由 App 内置的引导带你完成。
 
 > 想自己编译？见 [自行构建](#自行构建)。
@@ -151,9 +146,8 @@
 ### 构建步骤
 
 ```bash
-# 国内推荐 Gitee；海外可用 https://github.com/xinggue/PeiPal_app.git
-git clone https://gitee.com/xinggue/peipal_app.git
-cd peipal_app
+git clone https://github.com/xinggue/PeiPal_app.git
+cd PeiPal_app
 
 flutter pub get
 flutter analyze        # 静态检查
