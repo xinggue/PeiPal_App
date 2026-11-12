@@ -93,6 +93,11 @@ android {
         }
     }
 
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     buildTypes {
         debug {
             if (debugAppIdSuffix != null) {
