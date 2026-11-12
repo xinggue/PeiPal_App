@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class AppUpdateInfo {
   final bool hasUpdate;
@@ -22,10 +23,20 @@ class AppUpdateInfo {
 }
 
 class AppUpdateService {
-  static const String currentVersion = '0.1.1';
-  static const int currentBuildNumber = 18;
   static const String giteeRepo = 'xinggue/peipal_app';
   static const String githubRepo = 'xinggue/PeiPal_App';
+
+  static Future<PackageInfo>? _packageInfoFuture;
+
+  /// 读取当前安装包真实版本（失败时退回 0.0.0，避免展示错误的旧版本号）
+  static Future<String> resolveCurrentVersion() async {
+    try {
+      final info = await (_packageInfoFuture ??= PackageInfo.fromPlatform());
+      return info.version.isEmpty ? '0.0.0' : info.version;
+    } catch (_) {
+      return '0.0.0';
+    }
+  }
 
   static final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 6),
@@ -35,6 +46,8 @@ class AppUpdateService {
 
   /// 检测版本更新：优先 Gitee Releases 保证国内直连，失败回退 GitHub release-manifest
   static Future<AppUpdateInfo> checkForUpdate() async {
+    final currentVersion = await resolveCurrentVersion();
+
     // 1. 优先尝试 Gitee API (国内直连)
     try {
       final res = await _dio.get(
@@ -122,7 +135,7 @@ class AppUpdateService {
     } catch (_) {}
 
     // 网络不可达或未发现新版
-    return const AppUpdateInfo(
+    return AppUpdateInfo(
       hasUpdate: false,
       currentVersion: currentVersion,
       latestVersion: currentVersion,

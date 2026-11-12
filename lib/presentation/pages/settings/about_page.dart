@@ -68,6 +68,8 @@ class _AboutPageState extends ConsumerState<AboutPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final pkgAsync = ref.watch(appPackageInfoProvider);
+    final installedVersion = pkgAsync.valueOrNull?.version ?? _updateInfo?.currentVersion;
 
     return Scaffold(
       appBar: AppBar(
@@ -116,7 +118,7 @@ class _AboutPageState extends ConsumerState<AboutPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'v${AppUpdateService.currentVersion} (Build ${AppUpdateService.currentBuildNumber})',
+                    installedVersion == null ? 'v—' : 'v$installedVersion',
                     style: TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
                   ),
                 ],
@@ -151,7 +153,7 @@ class _AboutPageState extends ConsumerState<AboutPage> {
                     : (_checkError ??
                         (_updateInfo?.hasUpdate == true
                             ? '建议及时更新以获取最新特性与优化'
-                            : '当前版本：v${AppUpdateService.currentVersion}')),
+                            : '当前版本：v${installedVersion ?? _updateInfo?.currentVersion ?? '—'}')),
                 style: const TextStyle(fontSize: 12),
               ),
               trailing: _isCheckingUpdate

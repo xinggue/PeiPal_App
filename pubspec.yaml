@@ -1,7 +1,7 @@
 name: peipal
 description: "Chat-first structured-document collection & generation workstation with BLE HID / QR output; medical records are the primary preset."
 publish_to: 'none'
-version: 0.1.3+20
+version: 0.1.3+21
 
 environment:
   sdk: ^3.12.2
@@ -56,6 +56,7 @@ dependencies:
   pdfx: ^2.11.0
   permission_handler: ^12.0.1
   url_launcher: ^6.3.3
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:

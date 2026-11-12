@@ -267,105 +267,14 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
       return;
     }
 
-    final instructionsCtrl = TextEditingController();
-    final selectedKeys = <String>{..._effectiveSlots.map((s) => s.key)};
-
-    final confirmed = await showDialog<bool>(
+    final result = await showDialog<_RewriteRequest>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) {
-          final canStart = selectedKeys.isNotEmpty &&
-              instructionsCtrl.text.trim().isNotEmpty;
-
-          return Dialog(
-            insetPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            clipBehavior: Clip.antiAlias,
-            backgroundColor: Theme.of(ctx).colorScheme.surface,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 620,
-                maxHeight: MediaQuery.of(ctx).size.height * 0.82,
-              ),
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.auto_fix_high,
-                            size: 20, color: Colors.teal),
-                        const SizedBox(width: 8),
-                        const Text('重写文书',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20),
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => Navigator.pop(ctx),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '在原文书基础上修改润色，未勾选的字段将保持原样。重写结果会保存为一份新文书，原稿保留。',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                            height: 1.35),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: GenerationFieldsAndRequirements(
-                      title: '重写字段',
-                      instructionsHint: '重写要求，例如：更简洁、突出过敏史、按时间顺序润色现病史…',
-                      slots: _effectiveSlots,
-                      selectedKeys: selectedKeys,
-                      instructionsController: instructionsCtrl,
-                      onSelectionChanged: (keys) => setSheetState(() {
-                        selectedKeys
-                          ..clear()
-                          ..addAll(keys);
-                      }),
-                      onInstructionsChanged: () => setSheetState(() {}),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.auto_awesome, size: 18),
-                        label: const Text('开始重写',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed:
-                            canStart ? () => Navigator.pop(ctx, true) : null,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+      builder: (ctx) => _RewriteDialog(slots: _effectiveSlots),
     );
 
-    final instruction = instructionsCtrl.text.trim();
-    instructionsCtrl.dispose();
-    if (confirmed == true && mounted) {
-      await _runRewrite(selectedKeys, instruction);
+    if (result != null && mounted) {
+      await _runRewrite(result.selectedKeys, result.instruction);
     }
   }
 
@@ -1138,6 +1047,138 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RewriteRequest {
+  final Set<String> selectedKeys;
+  final String instruction;
+
+  const _RewriteRequest({
+    required this.selectedKeys,
+    required this.instruction,
+  });
+}
+
+class _RewriteDialog extends StatefulWidget {
+  final List<TemplateSlot> slots;
+
+  const _RewriteDialog({required this.slots});
+
+  @override
+  State<_RewriteDialog> createState() => _RewriteDialogState();
+}
+
+class _RewriteDialogState extends State<_RewriteDialog> {
+  late final TextEditingController _instructionsCtrl;
+  late final Set<String> _selectedKeys;
+
+  @override
+  void initState() {
+    super.initState();
+    _instructionsCtrl = TextEditingController();
+    _selectedKeys = widget.slots.map((s) => s.key).toSet();
+  }
+
+  @override
+  void dispose() {
+    // 路由退出动画期间 TextField 仍挂在树上，立刻 dispose 会在
+    // InheritedElement 卸载时留下依赖，触发 _dependents.isEmpty。
+    final ctrl = _instructionsCtrl;
+    WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
+    super.dispose();
+  }
+
+  void _close([_RewriteRequest? result]) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.pop(context, result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canStart =
+        _selectedKeys.isNotEmpty && _instructionsCtrl.text.trim().isNotEmpty;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 620,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_fix_high, size: 20, color: Colors.teal),
+                  const SizedBox(width: 8),
+                  const Text('重写文书',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _close(),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '在原文书基础上修改润色，未勾选的字段将保持原样。重写结果会保存为一份新文书，原稿保留。',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.grey.shade600, height: 1.35),
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: GenerationFieldsAndRequirements(
+                title: '重写字段',
+                instructionsHint:
+                    '重写要求，例如：更简洁、突出过敏史、按时间顺序润色现病史…',
+                slots: widget.slots,
+                selectedKeys: _selectedKeys,
+                instructionsController: _instructionsCtrl,
+                onSelectionChanged: (keys) => setState(() {
+                  _selectedKeys
+                    ..clear()
+                    ..addAll(keys);
+                }),
+                onInstructionsChanged: () => setState(() {}),
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.auto_awesome, size: 18),
+                  label: const Text('开始重写',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: canStart
+                      ? () => _close(_RewriteRequest(
+                            selectedKeys: Set<String>.from(_selectedKeys),
+                            instruction: _instructionsCtrl.text.trim(),
+                          ))
+                      : null,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

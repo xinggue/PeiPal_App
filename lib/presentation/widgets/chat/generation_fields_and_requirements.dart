@@ -8,7 +8,7 @@ import '../../../providers/providers.dart';
 /// 字段选择 + 补充要求输入。
 ///
 /// 普通文书生成向导的第 4 步与审阅页的「重写」共用此组件，保证交互与样式一致。
-class GenerationFieldsAndRequirements extends ConsumerWidget {
+class GenerationFieldsAndRequirements extends ConsumerStatefulWidget {
   final List<TemplateSlot> slots;
   final Set<String> selectedKeys;
   final TextEditingController instructionsController;
@@ -29,7 +29,26 @@ class GenerationFieldsAndRequirements extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GenerationFieldsAndRequirements> createState() =>
+      _GenerationFieldsAndRequirementsState();
+}
+
+class _GenerationFieldsAndRequirementsState
+    extends ConsumerState<GenerationFieldsAndRequirements> {
+  final ScrollController _scrollCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    final ctrl = _scrollCtrl;
+    WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slots = widget.slots;
+    final selectedKeys = widget.selectedKeys;
+    final title = widget.title;
     final theme = Theme.of(context);
     final catalogDefinitions = {
       for (final c in (ref.watch(catalogsProvider).valueOrNull ??
@@ -53,13 +72,13 @@ class GenerationFieldsAndRequirements extends ConsumerWidget {
                 label: const Text('全选', style: TextStyle(fontSize: 11)),
                 visualDensity: VisualDensity.compact,
                 onPressed: () =>
-                    onSelectionChanged(slots.map((s) => s.key).toSet()),
+                    widget.onSelectionChanged(slots.map((s) => s.key).toSet()),
               ),
               const SizedBox(width: 6),
               ActionChip(
                 label: const Text('全不选', style: TextStyle(fontSize: 11)),
                 visualDensity: VisualDensity.compact,
-                onPressed: () => onSelectionChanged(<String>{}),
+                onPressed: () => widget.onSelectionChanged(<String>{}),
               ),
               const SizedBox(width: 6),
               ActionChip(
@@ -67,7 +86,7 @@ class GenerationFieldsAndRequirements extends ConsumerWidget {
                 visualDensity: VisualDensity.compact,
                 onPressed: () {
                   final all = slots.map((s) => s.key).toSet();
-                  onSelectionChanged(all.difference(selectedKeys));
+                  widget.onSelectionChanged(all.difference(selectedKeys));
                 },
               ),
             ],
@@ -79,7 +98,10 @@ class GenerationFieldsAndRequirements extends ConsumerWidget {
         // 槽位列表
         Expanded(
           child: Scrollbar(
+            controller: _scrollCtrl,
             child: ListView.builder(
+              controller: _scrollCtrl,
+              primary: false,
               padding: EdgeInsets.zero,
               itemCount: slots.length,
               itemBuilder: (ctx, i) {
@@ -106,7 +128,7 @@ class GenerationFieldsAndRequirements extends ConsumerWidget {
                     } else {
                       next.remove(s.key);
                     }
-                    onSelectionChanged(next);
+                    widget.onSelectionChanged(next);
                   },
                 );
               },
@@ -124,15 +146,16 @@ class GenerationFieldsAndRequirements extends ConsumerWidget {
             ),
           ),
           child: TextField(
-            controller: instructionsController,
+            controller: widget.instructionsController,
             maxLines: 2,
             minLines: 1,
-            onChanged:
-                onInstructionsChanged == null ? null : (_) => onInstructionsChanged!(),
+            onChanged: widget.onInstructionsChanged == null
+                ? null
+                : (_) => widget.onInstructionsChanged!(),
             style: const TextStyle(fontSize: 12.5),
             decoration: InputDecoration(
               isDense: true,
-              hintText: instructionsHint,
+              hintText: widget.instructionsHint,
               hintStyle: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
               prefixIcon: const Icon(Icons.edit_note, size: 20, color: Colors.teal),
               filled: true,

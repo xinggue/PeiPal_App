@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../data/database/database_helper.dart';
 import '../data/repositories/patient_repository.dart';
@@ -906,5 +907,8 @@ final activeTimingControllerProvider =
   );
 });
 
+// ---- 安装包版本信息（真实读取 APK/安装包元数据） ----
 
-
+final appPackageInfoProvider = FutureProvider<PackageInfo>((ref) {
+  return PackageInfo.fromPlatform();
+});
