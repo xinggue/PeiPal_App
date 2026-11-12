@@ -27,7 +27,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"小培同学", origin, size)) {
+  // Unicode escapes: MSVC on a non-UTF-8 build machine (GitHub windows-latest
+  // is en-US, code page 1252) otherwise bakes mojibake into the wide title.
+  if (!window.Create(L"\u5C0F\u57F9\u540C\u5B66", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

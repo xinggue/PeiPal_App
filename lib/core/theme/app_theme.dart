@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -7,16 +8,27 @@ class AppTheme {
   /// 全局列表卡片标准统一外间距（卡片之间自然形成 8dp 间隙，左右各 12dp）
   static const cardListMargin = EdgeInsets.symmetric(horizontal: 12, vertical: 4);
 
+  static const List<String> _windowsCjkFallback = [
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'Segoe UI',
+  ];
+
   static ThemeData get lightTheme {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: primarySeed,
       brightness: Brightness.light,
     );
+    final windows = defaultTargetPlatform == TargetPlatform.windows;
+    final String? uiFont = windows ? 'Microsoft YaHei UI' : null;
+    final List<String>? uiFallback = windows ? _windowsCjkFallback : null;
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       brightness: Brightness.light,
+      fontFamily: uiFont,
+      fontFamilyFallback: uiFallback,
       scaffoldBackgroundColor: colorScheme.surfaceContainerLowest,
       
       // AppBar 样式规范
@@ -30,6 +42,8 @@ class AppTheme {
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: colorScheme.onSurface,
+          fontFamily: uiFont,
+          fontFamilyFallback: uiFallback,
         ),
         iconTheme: IconThemeData(
           color: colorScheme.onSurface,
@@ -57,13 +71,17 @@ class AppTheme {
         minLeadingWidth: 24,
         iconColor: colorScheme.onSurfaceVariant,
         textColor: colorScheme.onSurface,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w500,
+          fontFamily: uiFont,
+          fontFamilyFallback: uiFallback,
         ),
         subtitleTextStyle: TextStyle(
           fontSize: 13,
           color: colorScheme.onSurfaceVariant,
+          fontFamily: uiFont,
+          fontFamilyFallback: uiFallback,
         ),
       ),
 
@@ -79,10 +97,14 @@ class AppTheme {
           fontSize: 17,
           fontWeight: FontWeight.w600,
           color: colorScheme.onSurface,
+          fontFamily: uiFont,
+          fontFamilyFallback: uiFallback,
         ),
         contentTextStyle: TextStyle(
           fontSize: 14,
           color: colorScheme.onSurfaceVariant,
+          fontFamily: uiFont,
+          fontFamilyFallback: uiFallback,
         ),
       ),
 

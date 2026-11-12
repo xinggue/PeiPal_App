@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:peipal/data/database/database_helper.dart';
+import 'package:peipal/data/database/database_path.dart';
 import 'package:peipal/domain/models/catalog_definition.dart';
 
 void main() {
@@ -10,6 +11,7 @@ void main() {
       () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    databasesPathOverride = getDatabasesPath;
 
     final dbPath = p.join(await getDatabasesPath(), 'medhistory.db');
     await databaseFactory.deleteDatabase(dbPath);

@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../../domain/models/icd_diagnosis.dart';
+import '../database/database_path.dart';
 
 class IcdService {
   static const int _expectedAssetBytes = 8269824;
@@ -19,7 +20,7 @@ class IcdService {
   }
 
   Future<Database> _initDatabase() async {
-    final dbDir = await getDatabasesPath();
+    final dbDir = await appDatabasesPath();
     final dbPath = p.join(dbDir, 'icd_knowledge.db');
     final file = File(dbPath);
 

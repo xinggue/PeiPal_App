@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 
+import 'database_path.dart';
+
 class DatabaseHelper {
   static Database? _db;
   static Future<Database>? _initFuture;
@@ -15,7 +17,7 @@ class DatabaseHelper {
   }
 
   static Future<Database> _initDb() async {
-    final dbPath = await getDatabasesPath();
+    final dbPath = await appDatabasesPath();
     final path = p.join(dbPath, 'medhistory.db');
 
     return openDatabase(
@@ -406,7 +408,7 @@ class DatabaseHelper {
   }
 
   static Future<void> deleteDatabase() async {
-    final dbPath = await getDatabasesPath();
+    final dbPath = await appDatabasesPath();
     final path = p.join(dbPath, 'medhistory.db');
     await databaseFactory.deleteDatabase(path);
     _db = null;

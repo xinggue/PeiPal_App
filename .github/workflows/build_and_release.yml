@@ -139,7 +139,17 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows Executable
-        run: flutter build windows --release
+        shell: pwsh
+        run: |
+          # windows-latest is en-US (code page 1252). rc.exe and Inno Setup
+          # read source as the system ANSI code page unless the file has a UTF-8 BOM.
+          $utf8 = New-Object System.Text.UTF8Encoding $true
+          foreach ($rel in @("windows\runner\Runner.rc", "windows\packaging\installer.iss")) {
+            $path = (Resolve-Path $rel).Path
+            $text = [System.IO.File]::ReadAllText($path)
+            [System.IO.File]::WriteAllText($path, $text, $utf8)
+          }
+          flutter build windows --release
 
       - name: Compress Release Folder to Portable ZIP
         shell: pwsh
