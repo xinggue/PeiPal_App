@@ -6,6 +6,7 @@ import 'package:peipal/data/repositories/favorite_diagnosis_repository.dart';
 import 'package:peipal/data/repositories/settings_repository.dart';
 import 'package:peipal/data/repositories/template_repository.dart';
 import 'package:peipal/data/services/backup/backup_service.dart';
+import 'package:peipal/data/services/hub/hub_service.dart';
 import 'package:peipal/domain/models/content_template.dart';
 import 'package:peipal/domain/models/favorite_diagnosis.dart';
 import 'package:peipal/domain/models/template.dart';
@@ -310,3 +311,51 @@ void main() {
     expect(bundle.containsKey('api_configs'), false);
   });
 }
+
+  test('full backup transfers templates but never the publishing identity', () async {
+    await tRepo.insert(Template(id: 'shared-template', name: '检查记录', slots: const [
+      TemplateSlot(key: 'result', label: '检查结果', type: SlotType.text),
+    ]));
+    await sec.write(key: 'hub_owner_key', value: 'old-device-a-owner');
+    final hubA = HubService(sec);
+    final ownerA = await hubA.ownerKey();
+    await hubA.setAdminToken('device-a-admin-secret');
+    final bundle = await service.exportBundle(const BackupExportOptions());
+    final exportedText = jsonEncode(bundle);
+    expect(exportedText, isNot(contains(ownerA)));
+    expect(exportedText, isNot(contains('old-device-a-owner')));
+    expect(exportedText, isNot(contains('device-a-admin-secret')));
+    expect((bundle['api_configs'] as Map).containsKey('hub_owner_key'), isFalse);
+
+    // Previously exported files can contain credentials. Import must ignore
+    // both the old field and arbitrary new-looking credential fields.
+    bundle['api_configs'] = <String, dynamic>{
+      ...Map<String, dynamic>.from(bundle['api_configs'] as Map),
+      'hub_owner_key': 'old-device-a-owner',
+      'hub_publisher_key_v2_injected': ownerA,
+      'hub_admin_token': 'device-a-admin-secret',
+    };
+    final storageB = InMemorySecureStorage();
+    await storageB.write(key: 'hub_owner_key', value: 'old-device-b-owner');
+    final hubB = HubService(storageB);
+    final ownerB = await hubB.ownerKey();
+    final repoB = InMemoryTemplateRepo();
+    final importer = BackupService(
+      templateRepo: repoB,
+      contentTemplateRepo: InMemoryContentTemplateRepo(),
+      favoriteDiagnosisRepo: InMemoryFavDiagRepo(),
+      settingsRepo: InMemorySettingsRepo(),
+      secureStorage: storageB,
+    );
+    final result = await importer.importBundle(bundle);
+    expect(result.isSuccess, isTrue);
+    expect((await repoB.getAll()).single.id, 'shared-template');
+    expect(await hubB.ownerKey(), ownerB);
+    expect(ownerB, isNot(ownerA));
+    expect(await storageB.read(key: 'hub_owner_key'), 'old-device-b-owner');
+    expect(await storageB.read(key: 'hub_publisher_key_v2_injected'), isNull);
+    expect(await storageB.read(key: 'hub_admin_token'), isNull);
+    final reexported = jsonEncode(await importer.exportBundle(const BackupExportOptions()));
+    expect(reexported, isNot(contains(ownerA)));
+    expect(reexported, isNot(contains(ownerB)));
+  });

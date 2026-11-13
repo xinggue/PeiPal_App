@@ -235,7 +235,19 @@ class HubListing {
 
 class HubService {
   static const defaultBaseUrl = 'https://xlearning.website/hub';
-  static const _keyName = 'hub_owner_key';
+  // Local publishing credentials are deliberately outside all backup formats.
+  // Never migrate the legacy hub_owner_key: older backups could copy it.
+  static const _publisherKeyPrefix = 'hub_publisher_key_v2_';
+  static Future<void> _identityQueue = Future<void>.value();
+  static const _publisherIosOptions = IOSOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+    synchronizable: false,
+  );
+  static const _publisherMacOptions = MacOsOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+    synchronizable: false,
+    useDataProtectionKeyChain: false,
+  );
   static const _urlKey = 'hub_custom_base_url';
   static const _adminTokenKey = 'hub_admin_token';
 
@@ -281,8 +293,8 @@ class HubService {
     }
   }
 
-  Future<String?> getAdminToken() async {
-    final base = await getBaseUrl();
+  Future<String?> getAdminToken({String? baseUrl}) async {
+    final base = baseUrl ?? await getBaseUrl();
     final scoped = await _storage.read(
       key: '${_adminTokenKey}_${_scope(base)}',
     );
@@ -314,16 +326,33 @@ class HubService {
     }
   }
 
-  Future<String> ownerKey() async {
-    final base = await getBaseUrl();
-    final key = base == defaultBaseUrl
-        ? _keyName
-        : '${_keyName}_${_scope(base)}';
-    final existing = await _storage.read(key: key);
-    if (existing != null && existing.isNotEmpty) return existing;
-    final created = const Uuid().v4() + const Uuid().v4();
-    await _storage.write(key: key, value: created);
-    return created;
+  Future<String> ownerKey({String? baseUrl}) async {
+    final base = baseUrl ?? await getBaseUrl();
+    final key = '$_publisherKeyPrefix${_scope(base)}';
+    // Different HubService instances may initialize the same secure-storage
+    // key concurrently. Serialize read/create/write, not the resulting identity:
+    // separate storage instances (devices) must still receive separate keys.
+    final result = _identityQueue.then((_) async {
+      final existing = await _storage.read(
+        key: key,
+        iOptions: _publisherIosOptions,
+        mOptions: _publisherMacOptions,
+      );
+      if (existing != null && existing.isNotEmpty) return existing;
+      final created = const Uuid().v4() + const Uuid().v4();
+      await _storage.write(
+        key: key,
+        value: created,
+        iOptions: _publisherIosOptions,
+        mOptions: _publisherMacOptions,
+      );
+      return created;
+    });
+    _identityQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
   }
 
   static String _scope(String base) => base64Url.encode(utf8.encode(base));
@@ -338,7 +367,7 @@ class HubService {
     final response = await _dio.post(
       '$base/v2/analyses',
       data: {
-        'ownerKey': await ownerKey(),
+        'ownerKey': await ownerKey(baseUrl: base),
         'payload': payload,
         'targets': targets,
         'scope': scope,
@@ -360,7 +389,7 @@ class HubService {
     final response = await _dio.post(
       '$base/v2/batches',
       data: {
-        'ownerKey': await ownerKey(),
+        'ownerKey': await ownerKey(baseUrl: base),
         'analysis_id': analysisId,
         'request_id': requestId,
         'structure_id': structureId,
@@ -376,7 +405,7 @@ class HubService {
     final base = await getBaseUrl();
     final res = await _dio.get(
       '$base/v2/structures/$structureId',
-      options: Options(headers: {'X-Owner-Key': await ownerKey()}),
+      options: Options(headers: {'X-Owner-Key': await ownerKey(baseUrl: base)}),
     );
     return ((res.data['listings'] as List?) ?? const [])
         .whereType<Map>()
@@ -403,8 +432,8 @@ class HubService {
     int offset = 0,
   }) async {
     final base = await getBaseUrl();
-    final key = await ownerKey();
-    final adminToken = await getAdminToken();
+    final key = await ownerKey(baseUrl: base);
+    final adminToken = await getAdminToken(baseUrl: base);
 
     final res = await _dio.get(
       '$base/v1/listings',
@@ -431,8 +460,8 @@ class HubService {
 
   Future<HubListing> get(String id) async {
     final base = await getBaseUrl();
-    final key = await ownerKey();
-    final adminToken = await getAdminToken();
+    final key = await ownerKey(baseUrl: base);
+    final adminToken = await getAdminToken(baseUrl: base);
 
     final res = await _dio.get(
       '$base/v1/listings/$id',
@@ -459,7 +488,7 @@ class HubService {
     final res = await _dio.post(
       '$base/v1/listings',
       data: {
-        'ownerKey': await ownerKey(),
+        'ownerKey': await ownerKey(baseUrl: base),
         'kind': kind,
         'title': title,
         'readme': readme,
@@ -473,7 +502,7 @@ class HubService {
     final base = await getBaseUrl();
     await _dio.delete(
       '$base/v1/listings/$id',
-      data: {'ownerKey': await ownerKey()},
+      data: {'ownerKey': await ownerKey(baseUrl: base)},
     );
   }
 
@@ -482,7 +511,7 @@ class HubService {
   // --------------------------------------------------------------------------
   Future<void> reviewItem({required String id, required bool approve}) async {
     final base = await getBaseUrl();
-    final token = await getAdminToken();
+    final token = await getAdminToken(baseUrl: base);
     if (token == null || token.isEmpty) {
       throw Exception('未配置管理员密钥');
     }

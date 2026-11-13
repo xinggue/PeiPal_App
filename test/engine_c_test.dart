@@ -9,6 +9,7 @@ import 'package:peipal/data/repositories/settings_repository.dart';
 import 'package:peipal/data/repositories/template_repository.dart';
 import 'package:peipal/data/services/engine_c/engine_c_models.dart';
 import 'package:peipal/data/services/engine_c/template_bundle_engine.dart';
+import 'package:peipal/data/services/hub/hub_service.dart';
 import 'package:peipal/domain/models/catalog_definition.dart';
 import 'package:peipal/domain/models/content_template.dart';
 import 'package:peipal/domain/models/favorite_diagnosis.dart';
@@ -826,6 +827,49 @@ void main() {
     expect(restoredEntries.single.catalogType, 'tcm');
     expect(restoredEntries.single.name, '桂枝汤');
     expect(await tagsRepo2.getAll('tcm'), contains('方剂'));
+  });
+
+  test('Engine C shares templates while leaving publishing identity local', () async {
+    await tRepo.insert(Template(id: 'shared-structure', name: '检查记录', slots: const [
+      TemplateSlot(key: 'result', label: '检查结果', type: SlotType.text),
+    ]));
+    await ctRepo.insert(ContentTemplate(id: 'shared-content',
+      structureTemplateId: 'shared-structure', name: '通用检查', globalGuidance: '按实际情况填写'));
+    await sec.write(key: 'hub_owner_key', value: 'old-device-a-owner');
+    final hubA = HubService(sec);
+    final ownerA = await hubA.ownerKey();
+    final bundle = jsonDecode(await engine.exportJsonString(const EngineCExportRequest(
+      families: [StructureFamilyExportSelection(templateId: 'shared-structure')],
+      includeApiConfigs: true,
+    ))) as Map<String, dynamic>;
+    final exportedText = jsonEncode(bundle);
+    expect(exportedText, isNot(contains(ownerA)));
+    expect(exportedText, isNot(contains('old-device-a-owner')));
+    expect((bundle['api_configs'] as Map).containsKey('hub_owner_key'), isFalse);
+    bundle['api_configs'] = <String, dynamic>{
+      ...Map<String, dynamic>.from(bundle['api_configs'] as Map),
+      'hub_owner_key': 'old-device-a-owner',
+      'hub_publisher_key_v2_injected': ownerA,
+    };
+    final storageB = _FakeSecureStorage();
+    final hubB = HubService(storageB);
+    final ownerB = await hubB.ownerKey();
+    final templatesB = _MemTemplateRepo();
+    final contentsB = _MemContentTemplateRepo();
+    final importer = TemplateBundleEngine(
+      templateRepo: templatesB, contentTemplateRepo: contentsB,
+      favoriteDiagnosisRepo: _MemFavDiagRepo(), catalogRepo: _MemCatalogRepo(),
+      catalogTagsRepo: _MemCatalogTagsRepo(), settingsRepo: _MemSettingsRepo(),
+      secureStorage: storageB,
+    );
+    final result = await importer.executeImportPlan(await importer.analyzeImport(bundle));
+    expect(result.isSuccess, isTrue);
+    expect((await templatesB.getAll()).single.id, 'shared-structure');
+    expect((await contentsB.getAll()).single.name, '通用检查');
+    expect(await hubB.ownerKey(), ownerB);
+    expect(ownerB, isNot(ownerA));
+    expect(await storageB.read(key: 'hub_owner_key'), isNull);
+    expect(await storageB.read(key: 'hub_publisher_key_v2_injected'), isNull);
   });
 
   test('Engine C: exports and imports AI provider matrix with native list & smart merge',

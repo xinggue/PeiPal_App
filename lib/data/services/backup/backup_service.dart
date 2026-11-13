@@ -141,7 +141,6 @@ class BackupService {
           await secureStorage.read(key: 'ocr_providers_matrix_v1');
       final ocrActiveProviderId =
           await secureStorage.read(key: 'ocr_active_provider_id_v1');
-      final hubOwnerKey = await secureStorage.read(key: 'hub_owner_key');
 
       dynamic decodeMatrix(String? raw) {
         if (raw == null || raw.trim().isEmpty) return null;
@@ -190,8 +189,6 @@ class BackupService {
           if (ocrActiveProviderId != null && ocrActiveProviderId.isNotEmpty)
             'activeProviderId': ocrActiveProviderId,
         },
-        if (hubOwnerKey != null && hubOwnerKey.isNotEmpty)
-          'hub_owner_key': hubOwnerKey,
       };
     }
 
@@ -420,13 +417,7 @@ class BackupService {
             await secureStorage.write(key: 'llm_active_provider_id_v1', value: '');
           }
         }
-        if (apis['hub_owner_key'] != null &&
-            apis['hub_owner_key'].toString().trim().isNotEmpty) {
-          await secureStorage.write(
-            key: 'hub_owner_key',
-            value: apis['hub_owner_key'].toString(),
-          );
-        }
+        // Publishing credentials from old backups are intentionally ignored.
 
         if (apis.containsKey('asr') && apis['asr'] is Map) {
           final asr = apis['asr'] as Map;

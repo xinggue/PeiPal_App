@@ -194,7 +194,6 @@ class TemplateBundleEngine {
           await secureStorage.read(key: 'ocr_providers_matrix_v1');
       final ocrActiveProviderId =
           await secureStorage.read(key: 'ocr_active_provider_id_v1');
-      final hubOwnerKey = await secureStorage.read(key: 'hub_owner_key');
       final ocrConcurrency = await settingsRepo.get('ocr_concurrency');
 
       dynamic decodeMatrix(String? raw) {
@@ -245,8 +244,6 @@ class TemplateBundleEngine {
             'activeProviderId': ocrActiveProviderId,
           'ocr_concurrency': ?ocrConcurrency,
         },
-        if (hubOwnerKey != null && hubOwnerKey.isNotEmpty)
-          'hub_owner_key': hubOwnerKey,
       };
     }
 
@@ -1728,13 +1725,7 @@ class TemplateBundleEngine {
         result.importedLlmProviders =
             await _importLlmProviders(apis['llm'] as Map);
       }
-      if (apis['hub_owner_key'] != null &&
-          apis['hub_owner_key'].toString().trim().isNotEmpty) {
-        await secureStorage.write(
-          key: 'hub_owner_key',
-          value: apis['hub_owner_key'].toString(),
-        );
-      }
+      // Publishing credentials from old backups are intentionally ignored.
       if (apis['asr'] is Map) {
         result.importedAsrProviders =
             await _importAsrProviders(apis['asr'] as Map);
