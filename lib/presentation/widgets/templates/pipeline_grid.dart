@@ -11,6 +11,7 @@ class PipelineGrid extends StatefulWidget {
   final List<TemplateSlot> allSlots;
   final Set<String> assignedSlots;
   final void Function() onChanged;
+  final bool readOnly;
 
   const PipelineGrid({
     super.key,
@@ -18,6 +19,7 @@ class PipelineGrid extends StatefulWidget {
     required this.allSlots,
     required this.assignedSlots,
     required this.onChanged,
+    this.readOnly = false,
   });
 
   static const gridW = 240;
@@ -32,6 +34,16 @@ class PipelineGrid extends StatefulWidget {
 }
 
 class _PipelineGridState extends State<PipelineGrid> {
+  void _previewNode(String title, String prompt, List<String> keys) {
+    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: SingleChildScrollView(child: SelectableText([
+        if (keys.isNotEmpty) keys.map((k) => widget.allSlots.where((s) => s.key == k).firstOrNull?.label ?? k).join('、'),
+        if (prompt.isNotEmpty) prompt,
+      ].join('\n\n'))),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭'))],
+    ));
+  }
   int _connectingFromIdx = -1;
   int _movingIdx = -1;
   int _movingGroup = -1;
@@ -74,6 +86,11 @@ class _PipelineGridState extends State<PipelineGrid> {
   }
 
   void _showNodeMenu(int i) {
+    if (widget.readOnly) {
+      final n = widget.graph.nodes[i];
+      _previewNode(n.label, n.prompt, n.slotKeys);
+      return;
+    }
     final node = widget.graph.nodes[i];
     showModalBottomSheet(
       context: context,
@@ -174,6 +191,7 @@ class _PipelineGridState extends State<PipelineGrid> {
   }
 
   void _onPort(int i, bool out) {
+    if (widget.readOnly) return;
     if (_selectMode) return; // mask node ops during selection
     if(_connectingFromIdx<0){
       if(out) setState(()=>_connectingFromIdx=i);
@@ -190,6 +208,7 @@ class _PipelineGridState extends State<PipelineGrid> {
 
   /// Folder port: uses the group's first member as the edge endpoint.
   void _onFolderPort(int gid, bool out) {
+    if (widget.readOnly) return;
     if (_selectMode) return;
     final memberIdx = widget.graph.nodes.indexWhere((n) => n.group == gid);
     if (memberIdx < 0) return;
@@ -216,7 +235,7 @@ class _PipelineGridState extends State<PipelineGrid> {
       return Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
         Text('暂无节点',style:TextStyle(color:Colors.grey[400],fontSize:16)),
         const SizedBox(height:12),
-        OutlinedButton.icon(icon:const Icon(Icons.add,size:16),label:const Text('添加节点'),onPressed:_addNode),
+        if (!widget.readOnly) OutlinedButton.icon(icon:const Icon(Icons.add,size:16),label:const Text('添加节点'),onPressed:_addNode),
       ]));
     }
 
@@ -225,7 +244,7 @@ class _PipelineGridState extends State<PipelineGrid> {
 
     return Column(children:[
       // Toolbar
-      SingleChildScrollView(
+      if (!widget.readOnly) SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal:8,vertical:4),
         child: Row(children:[
@@ -265,7 +284,7 @@ class _PipelineGridState extends State<PipelineGrid> {
                               ?_selectedIds.remove(widget.graph.nodes[i].id)
                               :_selectedIds.add(widget.graph.nodes[i].id))
                           :_showNodeMenu(i),
-                        onDrag:(dx,dy){setState((){widget.graph.nodes[i].col=max(0,widget.graph.nodes[i].col+dx);widget.graph.nodes[i].row=max(0,widget.graph.nodes[i].row+dy);});widget.onChanged();},
+                         onDrag:(dx,dy){if (widget.readOnly) return;setState((){widget.graph.nodes[i].col=max(0,widget.graph.nodes[i].col+dx);widget.graph.nodes[i].row=max(0,widget.graph.nodes[i].row+dy);});widget.onChanged();},
                         onOut:()=>_onPort(i,true),onIn:()=>_onPort(i,false),
                         onLongPress:()=>_selectMode?setState((){_selectedIds.add(widget.graph.nodes[i].id);_showNodeMenu(i);}):_showNodeMenu(i),
                       )),
@@ -443,6 +462,13 @@ class _PipelineGridState extends State<PipelineGrid> {
   }
 
   void _showFolderMenu(int gid) {
+    if (widget.readOnly) {
+      final members = widget.graph.nodes.where((n) => n.group == gid);
+      _previewNode(members.map((n) => n.label).join('、'),
+        [widget.graph.groupPrompts[gid] ?? '', ...members.map((n) => n.prompt)].where((s) => s.isNotEmpty).join('\n'),
+        members.expand((n) => n.slotKeys).toList());
+      return;
+    }
     final members = widget.graph.nodes.where((n) => n.group == gid).toList();
     showModalBottomSheet(
       context: context,

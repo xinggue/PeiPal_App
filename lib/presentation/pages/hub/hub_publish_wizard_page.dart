@@ -1,7 +1,7 @@
-import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../data/services/engine_c/engine_c_models.dart';
 import '../../../data/services/engine_c/template_bundle_engine.dart';
@@ -10,6 +10,9 @@ import '../../../domain/models/content_template.dart';
 import '../../../domain/models/template.dart';
 import '../../../domain/models/typing_profile.dart';
 import '../../../providers/providers.dart';
+import '../../widgets/common/app_toast.dart';
+import '../templates/content_template_editor_page.dart';
+import '../templates/template_editor_page.dart';
 
 class HubPublishItemSelection {
   final Template template;
@@ -33,427 +36,493 @@ class HubBatchPublishPage extends ConsumerStatefulWidget {
   final HubPublishItemSelection? selection;
   final bool diagnosisMode;
   final List<String> selectedDiagnosisTags;
+  final String catalogType;
 
   const HubBatchPublishPage({
     super.key,
     this.selection,
     this.diagnosisMode = false,
     this.selectedDiagnosisTags = const [],
+    this.catalogType = 'diagnosis',
   });
 
   @override
-  ConsumerState<HubBatchPublishPage> createState() => _HubBatchPublishPageState();
+  ConsumerState<HubBatchPublishPage> createState() =>
+      _HubBatchPublishPageState();
 }
 
 class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
-  // 结构说明（当用户发布结构本身时必填）
-  late final TextEditingController _structureReadmeCtrl;
+  final _institution = TextEditingController();
+  final _descriptions = <String, TextEditingController>{};
+  final _newCopies = <String>{};
+  final _editedDescriptions = <String>{};
+  Map<String, dynamic>? _analysis;
+  Map<String, dynamic>? _payload;
+  List<Map<String, dynamic>> _targets = [];
+  String _scope = '';
+  String _structureId = '';
+  String _requestId = const Uuid().v4();
+  String? _error;
+  bool _busy = true;
+  bool _submitting = false;
+  bool _institutionChanged = false;
 
-  // 各个输入方案的说明控制器：profile.id -> TextEditingController（必填）
-  final Map<String, TextEditingController> _profileReadmeCtrls = {};
-
-  // 解析流程说明控制器（选填）
-  final TextEditingController _pipelineReadmeCtrl = TextEditingController();
-
-  // 各个内容模板说明控制器：ct.id -> TextEditingController（选填）
-  final Map<String, TextEditingController> _contentReadmeCtrls = {};
-
-  // 诊断说明控制器（选填）
-  final TextEditingController _diagnosisReadmeCtrl = TextEditingController();
-  final TextEditingController _diagnosisTitleCtrl = TextEditingController();
-
-  bool _isPublishing = false;
+  HubService get _hub => HubService(ref.read(secureStorageProvider));
+  List<Map<String, dynamic>> get _items =>
+      ((_analysis?['items'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+  List<Map<String, dynamic>> get _candidates =>
+      ((_analysis?['candidates'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
 
   @override
   void initState() {
     super.initState();
-    _structureReadmeCtrl = TextEditingController();
-
-    if (widget.diagnosisMode) {
-      _diagnosisTitleCtrl.text = widget.selectedDiagnosisTags.isNotEmpty
-          ? '${widget.selectedDiagnosisTags.join("、")} 标准库'
-          : '标准词条库';
-    }
-
-    final sel = widget.selection;
-    if (sel != null) {
-      for (final p in sel.selectedProfiles) {
-        _profileReadmeCtrls[p.id] = TextEditingController();
-      }
-      for (final c in sel.selectedContents) {
-        _contentReadmeCtrls[c.id] = TextEditingController();
-      }
-    }
+    Future.microtask(_prepare);
   }
 
   @override
   void dispose() {
-    _structureReadmeCtrl.dispose();
-    _pipelineReadmeCtrl.dispose();
-    for (final c in _profileReadmeCtrls.values) {
+    _institution.dispose();
+    for (final c in _descriptions.values) {
       c.dispose();
     }
-    for (final c in _contentReadmeCtrls.values) {
-      c.dispose();
-    }
-    _diagnosisReadmeCtrl.dispose();
-    _diagnosisTitleCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _prepare() async {
+    try {
+      final sel = widget.selection;
+      final request = widget.diagnosisMode
+          ? EngineCExportRequest(
+              includeAllDiagnoses: widget.selectedDiagnosisTags.isEmpty,
+              catalogTypes: {widget.catalogType},
+              selectedDiagnosisTags: widget.selectedDiagnosisTags.toSet(),
+            )
+          : EngineCExportRequest(
+              families: [
+                StructureFamilyExportSelection(
+                  templateId: sel!.template.id,
+                  includePipeline: sel.includePipeline,
+                  selectedTypingProfileIds: sel.selectedProfiles
+                      .map((p) => p.id)
+                      .toSet(),
+                  selectedContentTemplateIds: sel.selectedContents
+                      .map((c) => c.id)
+                      .toSet(),
+                  includeLinkedDiagnoses: false,
+                ),
+              ],
+            );
+      final envelope = await ref
+          .read(templateBundleEngineProvider)
+          .buildExportEnvelope(request);
+      _payload = envelope.toJson();
+      if (sel != null) {
+        // Preserve the exact editor snapshot instead of silently exporting an
+        // older database copy of the structure or input schemes.
+        final selected = envelope.units.firstOrNull;
+        if (selected == null) throw StateError('未找到所选文书类型');
+        _payload!['structure_units'] = [
+          StructureGroundedUnit(
+            structure: sel.template,
+            hasPipeline: sel.includePipeline,
+            typingProfiles: sel.selectedProfiles,
+            contentTemplates: selected.contentTemplates,
+          ).toJson(),
+        ];
+      }
+      if (widget.diagnosisMode) {
+        final name =
+            ref
+                .read(catalogsProvider)
+                .valueOrNull
+                ?.where((c) => c.id == widget.catalogType)
+                .firstOrNull
+                ?.name ??
+            '标准词条库';
+        _targets = [
+          {'kind': 'diagnosis', 'source_id': widget.catalogType, 'name': name},
+        ];
+      } else {
+        _targets = [
+          if (sel!.publishStructureItself) {'kind': 'structure'},
+          for (final c in sel.selectedContents)
+            {'kind': 'content', 'source_id': c.id},
+          for (final p in sel.selectedProfiles)
+            {'kind': 'typing', 'source_id': p.id},
+          if (sel.includePipeline) {'kind': 'pipeline'},
+        ];
+      }
+      await _match();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = _message(e);
+        });
+      }
+    }
+  }
+
+  Future<void> _match() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await _hub.analyzeUpload(
+        payload: _payload!,
+        targets: _targets,
+        scope: _scope,
+        institution: _institution.text.trim(),
+      );
+      if (!mounted) return;
+      for (final raw in (result['items'] as List)) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        final key = item['key'] as String;
+        _descriptions.putIfAbsent(
+          key,
+          () => TextEditingController(text: item['readme'] as String? ?? ''),
+        );
+        if (!_editedDescriptions.contains(key)) {
+          _descriptions[key]!.text = item['readme'] as String? ?? '';
+        }
+      }
+      setState(() {
+        _analysis = result;
+        _structureId = result['structure_id'] as String? ?? '';
+        _scope = result['scope'] as String? ?? '';
+        _institution.text = result['institution'] as String? ?? '';
+        _busy = false;
+        _institutionChanged = false;
+        _requestId = const Uuid().v4();
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = _message(e);
+        });
+      }
+    }
+  }
+
+  void _chooseStructure(String? id) {
+    if (id == null || id.isEmpty) {
+      setState(() {
+        _structureId = '';
+        _scope = '';
+        _institution.clear();
+      });
+      return;
+    }
+    final candidate = _candidates.firstWhere((c) => c['id'] == id);
+    _scope = candidate['scope'] as String? ?? '';
+    _institution.text = candidate['institution'] as String? ?? '';
+    _match();
+  }
+
+  String _message(Object e) {
+    if (e is DioException) {
+      if (e.response?.statusCode == 404) return '当前模板平台需要升级后才能上传';
+      if (e.response?.data is Map) {
+        return e.response!.data['error']?.toString() ?? '连接失败';
+      }
+      return '连接失败，请稍后重试';
+    }
+    return e.toString();
+  }
+
   Future<void> _submit() async {
-    // 1. 必填校验
-    final sel = widget.selection;
-    if (sel != null) {
-      if (sel.publishStructureItself && _structureReadmeCtrl.text.trim().isEmpty) {
-        showAppToast(context, '文书类型说明为必填项（请注明与实际系统内文书的对应关系）');
+    for (final item in _items) {
+      if (['structure', 'typing'].contains(item['kind']) &&
+          _descriptions[item['key']]!.text.trim().isEmpty) {
+        showAppToast(context, '请填写「${item['name']}」的使用说明');
         return;
       }
-      for (final p in sel.selectedProfiles) {
-        final ctrl = _profileReadmeCtrls[p.id];
-        if (ctrl == null || ctrl.text.trim().isEmpty) {
-          showAppToast(context, '输入方案「${p.name}」说明为必填项（请注明运行前提与光标初始位置）');
-          return;
-        }
-      }
     }
-
-    setState(() => _isPublishing = true);
-
+    if (!widget.diagnosisMode &&
+        _structureId.isEmpty &&
+        (_scope.isEmpty ||
+            (_scope == 'institution' && _institution.text.trim().isEmpty))) {
+      showAppToast(context, '请确认适用范围');
+      return;
+    }
+    if (_institutionChanged) {
+      await _match();
+      return;
+    }
+    setState(() => _submitting = true);
     try {
-      final engine = ref.read(templateBundleEngineProvider);
-      final hub = HubService(ref.read(secureStorageProvider));
-
-      if (widget.diagnosisMode) {
-        final req = EngineCExportRequest(
-          includeAllDiagnoses: widget.selectedDiagnosisTags.isEmpty,
-          selectedDiagnosisTags: Set.of(widget.selectedDiagnosisTags),
-        );
-        final payloadText = await engine.exportJsonString(req);
-        await hub.publish(
-          kind: 'diagnosis',
-          title: _diagnosisTitleCtrl.text.trim().isEmpty ? '标准词条库' : _diagnosisTitleCtrl.text.trim(),
-          readme: _diagnosisReadmeCtrl.text.trim(),
-          payload: HubService.publicPayload(payloadText),
-        );
-      } else if (sel != null) {
-        final t = sel.template;
-
-        // A. 如果勾选了“发布结构本身”
-        if (sel.publishStructureItself) {
-          final req = EngineCExportRequest(
-            families: [
-              StructureFamilyExportSelection(
-                templateId: t.id,
-                includePipeline: sel.includePipeline,
-                selectedTypingProfileIds: sel.selectedProfiles.map((p) => p.id).toSet(),
-                selectedContentTemplateIds: sel.selectedContents.map((c) => c.id).toSet(),
-                includeLinkedDiagnoses: sel.includeLinkedDiagnoses,
-              ),
-            ],
-          );
-          final text = await engine.exportJsonString(req);
-          await hub.publish(
-            kind: 'structure',
-            title: t.name,
-            readme: _structureReadmeCtrl.text.trim(),
-            payload: HubService.publicPayload(text),
-          );
-        }
-
-        // B. 单独为每个勾选的输入方案独立发布一条专属 listing（以便在输入方案栏目下专属陈列并带专属说明）
-        for (final p in sel.selectedProfiles) {
-          final req = EngineCExportRequest(
-            families: [
-              StructureFamilyExportSelection(
-                templateId: t.id,
-                includePipeline: false,
-                selectedTypingProfileIds: {p.id},
-                selectedContentTemplateIds: const {},
-                includeLinkedDiagnoses: false,
-              ),
-            ],
-          );
-          final text = await engine.exportJsonString(req);
-          await hub.publish(
-            kind: 'typing',
-            title: p.name,
-            readme: _profileReadmeCtrls[p.id]?.text.trim() ?? '',
-            payload: HubService.publicPayload(text),
-          );
-        }
-
-        // C. 单独为每个勾选的内容模板独立发布一条专属 listing（以便在内容模板栏目下专属陈列并带专属说明）
-        for (final c in sel.selectedContents) {
-          final req = EngineCExportRequest(
-            families: [
-              StructureFamilyExportSelection(
-                templateId: t.id,
-                includePipeline: false,
-                selectedTypingProfileIds: const {},
-                selectedContentTemplateIds: {c.id},
-                includeLinkedDiagnoses: sel.includeLinkedDiagnoses,
-              ),
-            ],
-          );
-          final text = await engine.exportJsonString(req);
-          await hub.publish(
-            kind: 'content',
-            title: c.name,
-            readme: _contentReadmeCtrls[c.id]?.text.trim() ?? '',
-            payload: HubService.publicPayload(text),
-          );
-        }
-
-        // D. 如果勾选了解析流程且没有勾选结构本身，单独发布流程
-        if (!sel.publishStructureItself && sel.includePipeline) {
-          final req = EngineCExportRequest(
-            families: [
-              StructureFamilyExportSelection(
-                templateId: t.id,
-                includePipeline: true,
-                selectedTypingProfileIds: const {},
-                selectedContentTemplateIds: const {},
-                includeLinkedDiagnoses: false,
-              ),
-            ],
-          );
-          final text = await engine.exportJsonString(req);
-          await hub.publish(
-            kind: 'pipeline',
-            title: '默认解析流程',
-            readme: _pipelineReadmeCtrl.text.trim(),
-            payload: HubService.publicPayload(text),
-          );
-        }
-      }
-
+      final result = await _hub.submitUpload(
+        analysisId: _analysis!['analysis_id'] as String,
+        requestId: _requestId,
+        structureId: _structureId,
+        scope: _scope,
+        institution: _institution.text.trim(),
+        decisions: [
+          for (final item in _items)
+            {
+              'key': item['key'],
+              'readme': _descriptions[item['key']]!.text.trim(),
+              'new_copy': _newCopies.contains(item['key']),
+            },
+        ],
+      );
       if (!mounted) return;
-      setState(() => _isPublishing = false);
+      final unchanged = (result['items'] as List).every(
+        (i) => i['status'] == 'unchanged',
+      );
       Navigator.pop(context, true);
-      showAppToast(context, '已成功提交发布！管理员审核通过后将在公开模板库展示');
-    } on DioException catch (e) {
-      if (!mounted) return;
-      setState(() => _isPublishing = false);
-      final msg = e.response?.data is Map ? e.response?.data['error']?.toString() : null;
-      showAppToast(context, msg ?? '发布失败: $e');
+      showAppToast(context, unchanged ? '内容没有变化' : '已提交审核');
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _isPublishing = false);
-      showAppToast(context, '发布异常: $e');
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _error = _message(e);
+        });
+      }
     }
+  }
+
+  void _preview(Map<String, dynamic> item) {
+    final sel = widget.selection;
+    if (sel == null) return;
+    final payload = Map<String, dynamic>.from(item['payload'] as Map);
+    final raw = (payload['structure_units'] as List).first as Map;
+    final unit = StructureGroundedUnit.fromJson(Map<String, dynamic>.from(raw));
+    Widget page;
+    if (item['kind'] == 'content') {
+      page = ContentTemplateEditorPage(
+        structureTemplateId: unit.structure.id,
+        previewStructure: unit.structure,
+        previewContentTemplate: unit.contentTemplates.single,
+      );
+    } else {
+      page = TemplateEditorPage(
+        previewTemplate: unit.structure,
+        initialTabIndex: item['kind'] == 'pipeline'
+            ? 1
+            : item['kind'] == 'typing'
+            ? 2
+            : 0,
+        initialProfileId: item['kind'] == 'typing'
+            ? item['source_id'] as String
+            : null,
+      );
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
   }
 
   @override
   Widget build(BuildContext context) {
     final sel = widget.selection;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('填写说明并确认发布'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (widget.diagnosisMode) ...[
-            TextField(
-              controller: _diagnosisTitleCtrl,
-              decoration: const InputDecoration(
-                labelText: '词条包标题',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _diagnosisReadmeCtrl,
-              minLines: 4,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: '使用说明 (选填)',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(),
-                hintText: '选填：说明词条包包含的分类或使用建议...',
-              ),
-            ),
-          ] else if (sel != null) ...[
-            // 基底归属信息 (克制、不啰嗦)
-            Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.grey.withAlpha(20),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.link, size: 16, color: Colors.blueGrey),
-                  const SizedBox(width: 8),
+      appBar: AppBar(title: const Text('确认上传')),
+      body: _busy
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (_error != null) ...[
                   Text(
-                    '基于文书类型：${sel.template.name}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _submitting
+                        ? null
+                        : _payload == null
+                        ? _prepare
+                        : _match,
+                    child: const Text('重新检查'),
+                  ),
+                ],
+                if (_analysis != null) ...[
+                  if (sel != null) ...[
+                    Text(
+                      '基于 结构模板：${sel.template.name}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(
+                        '${_analysis!['analysis_id']}:$_structureId',
+                      ),
+                      initialValue: _structureId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: '确认归属',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (final c in _candidates.where(
+                          (c) => c['exact'] == true,
+                        ))
+                          DropdownMenuItem(
+                            value: c['id'] as String,
+                            child: Text(
+                              '${(c['institution'] as String).isEmpty ? (c['scope'] == 'general' ? '通用' : '待确认机构') : c['institution']} · ${c['name']}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        const DropdownMenuItem(value: '', child: Text('新建归属')),
+                      ],
+                      onChanged: _submitting ? null : _chooseStructure,
+                    ),
+                    if (_structureId.isEmpty) ...[
+                      const SizedBox(height: 12),
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'general', label: Text('通用')),
+                          ButtonSegment(
+                            value: 'institution',
+                            label: Text('特定机构'),
+                          ),
+                        ],
+                        selected: {
+                          if (['general', 'institution'].contains(_scope))
+                            _scope,
+                        },
+                        emptySelectionAllowed: true,
+                        onSelectionChanged: _submitting
+                            ? null
+                            : (s) => setState(() {
+                                _scope = s.firstOrNull ?? '';
+                                _institutionChanged = true;
+                              }),
+                      ),
+                      if (_scope == 'institution')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: TextField(
+                            controller: _institution,
+                            enabled: !_submitting,
+                            maxLength: 120,
+                            decoration: const InputDecoration(
+                              labelText: '机构名称',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (_) => _institutionChanged = true,
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 20),
+                  ],
+                  for (final item in _items) _itemCard(item),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _submitting ? null : _submit,
+                    child: Text(
+                      _submitting
+                          ? '提交中…'
+                          : _institutionChanged
+                          ? '检查归属'
+                          : '确认提交',
                     ),
                   ),
                 ],
-              ),
+              ],
             ),
-
-            // 1. 如果勾选了“发布结构本身”
-            if (sel.publishStructureItself) ...[
-              _buildSectionCard(
-                title: '文书类型：${sel.template.name}',
-                icon: Icons.schema_outlined,
-                badge: '必填说明 *',
-                badgeColor: Colors.deepOrange,
-                child: TextField(
-                  controller: _structureReadmeCtrl,
-                  minLines: 3,
-                  maxLines: 6,
-                  decoration: const InputDecoration(
-                    labelText: '文书类型使用说明 (必填 *)',
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
-                    hintText: '必填：请说明此文书对应的实际文书类型、包含的字段要求及适用场景...',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // 2. 每个选中的输入方案 (必填说明)
-            for (final p in sel.selectedProfiles) ...[
-              _buildSectionCard(
-                title: '输入方案：${p.name}',
-                icon: Icons.keyboard_outlined,
-                badge: '必填说明 *',
-                badgeColor: Colors.blue,
-                child: TextField(
-                  controller: _profileReadmeCtrls[p.id],
-                  minLines: 3,
-                  maxLines: 6,
-                  decoration: InputDecoration(
-                    labelText: '「${p.name}」使用说明 (必填 *)',
-                    alignLabelWithHint: true,
-                    border: const OutlineInputBorder(),
-                    hintText: '必填：请说明此方案运行的前提要求（如光标必须初始点在哪个输入框、按键流适配哪套系统等）...',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // 3. 解析流程说明 (如有)
-            if (sel.includePipeline) ...[
-              _buildSectionCard(
-                title: '默认解析流程',
-                icon: Icons.account_tree_outlined,
-                badge: '选填',
-                badgeColor: Colors.grey,
-                child: TextField(
-                  controller: _pipelineReadmeCtrl,
-                  minLines: 2,
-                  maxLines: 5,
-                  decoration: const InputDecoration(
-                    labelText: '解析流程说明 (选填)',
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
-                    hintText: '选填：说明 AI 拆分各阶段提示词设计意图...',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // 4. 每个选中的内容模板说明 (选填)
-            for (final c in sel.selectedContents) ...[
-              _buildSectionCard(
-                title: '内容模板：${c.name}',
-                icon: Icons.article_outlined,
-                badge: '选填',
-                badgeColor: Colors.grey,
-                child: TextField(
-                  controller: _contentReadmeCtrls[c.id],
-                  minLines: 2,
-                  maxLines: 5,
-                  decoration: InputDecoration(
-                    labelText: '「${c.name}」使用说明 (选填)',
-                    alignLabelWithHint: true,
-                    border: const OutlineInputBorder(),
-                    hintText: '选填：可说明此示范文书的适用场景或分类...',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ],
-
-          const SizedBox(height: 16),
-
-          FilledButton.icon(
-            icon: _isPublishing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.cloud_upload_outlined),
-            label: Text(_isPublishing ? '发布中…' : '全部确认发布'),
-            onPressed: _isPublishing ? null : _submit,
-          ),
-        ],
-      ),
     );
   }
 
-  Widget _buildSectionCard({
-    required String title,
-    required IconData icon,
-    required String badge,
-    required Color badgeColor,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Theme.of(context).dividerColor.withAlpha(60)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 18, color: badgeColor),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: badgeColor.withAlpha(20),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  badge,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: badgeColor,
+  Widget _itemCard(Map<String, dynamic> item) {
+    final kind = item['kind'];
+    final key = item['key'] as String;
+    final required = kind == 'structure' || kind == 'typing';
+    const labels = {
+      'structure': '文书类型',
+      'content': '内容模板',
+      'typing': '输入方案',
+      'pipeline': '解析流程',
+      'diagnosis': '标准词条库',
+    };
+    final hint = kind == 'structure'
+        ? '说明与实际系统内文书的对应关系'
+        : kind == 'typing'
+        ? '说明运行前提、光标初始位置'
+        : '用途与使用建议';
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${item['name']} · ${labels[kind]}',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                 ),
+                if (!widget.diagnosisMode)
+                  TextButton(
+                    onPressed: () => _preview(item),
+                    child: const Text('预览'),
+                  ),
+              ],
+            ),
+            if ((item['update_id'] as String? ?? '').isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Expanded(child: Text('更新我的发布')),
+                  Switch(
+                    value: _newCopies.contains(key),
+                    onChanged: _submitting
+                        ? null
+                        : (v) => setState(() {
+                            _requestId = const Uuid().v4();
+                            if (v) {
+                              _newCopies.add(key);
+                            } else {
+                              _newCopies.remove(key);
+                            }
+                          }),
+                  ),
+                  const Text('另建一份'),
+                ],
               ),
+              if (_candidates.any((c) => c['exact'] != true))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '已有同名文书，但字段定义不同。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
             ],
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
+            const SizedBox(height: 8),
+            TextField(
+              controller: _descriptions[key],
+              onChanged: (_) {
+                _editedDescriptions.add(key);
+                _requestId = const Uuid().v4();
+              },
+              enabled: !_submitting,
+              minLines: 2,
+              maxLines: 8,
+              maxLength: 4000,
+              decoration: InputDecoration(
+                labelText: required ? '使用说明 *' : '使用说明',
+                hintText: hint,
+                alignLabelWithHint: true,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

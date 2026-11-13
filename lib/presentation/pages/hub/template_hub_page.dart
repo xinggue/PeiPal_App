@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../data/services/engine_c/engine_c_models.dart';
 import '../../../data/services/engine_c/template_bundle_engine.dart';
 import '../../../data/services/hub/hub_service.dart';
+import '../../../data/services/hub/hub_payload.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
@@ -65,6 +66,9 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
   bool _isRailExpanded = true;
   List<HubListing> _rawListings = const [];
   bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  int _loadSequence = 0;
   String? _error;
 
   HubService get _hub => HubService(ref.read(secureStorageProvider));
@@ -81,9 +85,11 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool append = false}) async {
+    if (append && _loadingMore) return;
+    final sequence = ++_loadSequence;
     setState(() {
-      _loading = true;
+      if (append) { _loadingMore = true; } else { _loading = true; }
       _error = null;
     });
     try {
@@ -91,23 +97,28 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
         kind: _kind,
         q: _searchCtrl.text.trim(),
         mineOnly: _mineOnly,
+        offset: append ? _rawListings.length : 0,
       );
-      if (!mounted) return;
+      if (!mounted || sequence != _loadSequence) return;
       setState(() {
-        _rawListings = listings;
+        _rawListings = append ? [..._rawListings, ...listings] : listings;
+        _hasMore = listings.length == 50;
+        _loadingMore = false;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || sequence != _loadSequence) return;
       setState(() {
         _error = '加载失败: $e';
         _loading = false;
+        _loadingMore = false;
       });
     }
   }
 
   List<HubCardItem> _flattenItems() {
     final items = <HubCardItem>[];
+    final seenStructures = <String>{};
     for (final listing in _rawListings) {
       final s = listing.summary;
       final structName = s.structure?.name.trim().isNotEmpty == true
@@ -116,6 +127,7 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
 
       switch (_kind) {
         case 'structure':
+          if (listing.structureId.isNotEmpty && !seenStructures.add(listing.structureId)) continue;
           final slots = s.structure?.slotLabels ?? [];
           final slotOverview = slots.isNotEmpty
               ? '字段：${slots.join("、")}${s.structure!.slotCount > slots.length ? " 等${s.structure!.slotCount}个字段" : ""}'
@@ -272,6 +284,7 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
               children: [
                 TextField(
                   controller: urlCtrl,
+                  onChanged: (_) => adminCtrl.clear(),
                   decoration: InputDecoration(
                     labelText: '服务器接口地址',
                     hintText: HubService.defaultBaseUrl,
@@ -282,6 +295,7 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                       onPressed: () {
                         setDialogState(() {
                           urlCtrl.text = HubService.defaultBaseUrl;
+                          adminCtrl.clear();
                         });
                       },
                     ),
@@ -538,8 +552,11 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                                   onRefresh: _load,
                                   child: ListView.builder(
                                     padding: const EdgeInsets.all(12),
-                                    itemCount: items.length,
-                                    itemBuilder: (_, i) => _buildCard(items[i]),
+                                    itemCount: items.length + (_hasMore ? 1 : 0),
+                                    itemBuilder: (_, i) => i < items.length
+                                        ? _buildCard(items[i])
+                                        : TextButton(onPressed: _loadingMore ? null : () => _load(append: true),
+                                            child: Text(_loadingMore ? '加载中…' : '加载更多')),
                                   ),
                                 ),
                 ),
@@ -729,6 +746,9 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
               ),
 
               const SizedBox(height: 7),
+              if (listing.institution.isNotEmpty) Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(listing.institution, style: Theme.of(context).textTheme.bodySmall)),
 
               // 主细节胶囊卡片（字段清单、示范文本、或按键流）
               Container(
@@ -797,6 +817,7 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
   EngineCBundleEnvelope? _envelope;
   bool _loading = true;
   String? _error;
+  List<HubListing> _related = const [];
 
   @override
   void initState() {
@@ -808,6 +829,9 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
     try {
       final detail = await HubService(ref.read(secureStorageProvider))
           .get(widget.item.listing.id);
+      if (detail.structureId.isNotEmpty) {
+        _related = await HubService(ref.read(secureStorageProvider)).related(detail.structureId);
+      }
       if (detail.payload != null) {
         final decoded = jsonDecode(detail.payload!);
         final env = await ref
@@ -862,10 +886,12 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
     if (env == null || env.units.isEmpty) return;
     final unit = env.units.first;
     final ct = unit.contentTemplates
-            .where((c) => c.id == widget.item.subId || c.name == widget.item.subName)
-            .firstOrNull ??
-        unit.contentTemplates.firstOrNull;
-    if (ct == null) return;
+            .where((c) => c.id == widget.item.subId)
+            .firstOrNull;
+    if (ct == null) {
+      showAppToast(context, '所选内容已变更，请刷新后重试');
+      return;
+    }
 
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -923,7 +949,13 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
     final full = _fullListing;
     if (env == null || full?.payload == null) return;
 
-    final targetedPayload = _buildTargetedPayload(env);
+    String targetedPayload;
+    try {
+      targetedPayload = _buildTargetedPayload(env);
+    } on FormatException catch (e) {
+      showAppToast(context, e.message);
+      return;
+    }
 
     await showModalBottomSheet(
       context: context,
@@ -938,65 +970,24 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
   }
 
   String _buildTargetedPayload(EngineCBundleEnvelope original) {
-    if (widget.item.subtype == HubItemSubtype.diagnosis) {
-      return jsonEncode(original.toJson());
-    }
-    if (original.units.isEmpty) return _fullListing!.payload!;
+    return jsonEncode(selectHubPayload(original.toJson(),
+      widget.item.subtype.name, widget.item.subId));
+  }
 
-    final unit = original.units.first;
-    switch (widget.item.subtype) {
-      case HubItemSubtype.structure:
-        // 导入整套结构
-        return jsonEncode(original.toJson());
-
-      case HubItemSubtype.pipeline:
-        // 定向只导入此流程（附带结构）
-        final singleUnit = StructureGroundedUnit(
-          structure: unit.structure,
-          hasPipeline: true,
-          typingProfiles: const [],
-          contentTemplates: const [],
-        );
-        return jsonEncode(EngineCBundleEnvelope(
-          exportedAt: DateTime.now(),
-          units: [singleUnit],
-        ).toJson());
-
-      case HubItemSubtype.typing:
-        // 定向只导入用户点的这个输入方案
-        final pickedProfiles = unit.typingProfiles
-            .where((p) => p.id == widget.item.subId || p.name == widget.item.subName)
-            .toList();
-        final singleUnit = StructureGroundedUnit(
-          structure: unit.structure,
-          hasPipeline: false,
-          typingProfiles: pickedProfiles.isNotEmpty ? pickedProfiles : unit.typingProfiles,
-          contentTemplates: const [],
-        );
-        return jsonEncode(EngineCBundleEnvelope(
-          exportedAt: DateTime.now(),
-          units: [singleUnit],
-        ).toJson());
-
-      case HubItemSubtype.content:
-        // 定向只导入用户点的这个内容模板
-        final pickedCts = unit.contentTemplates
-            .where((c) => c.id == widget.item.subId || c.name == widget.item.subName)
-            .toList();
-        final singleUnit = StructureGroundedUnit(
-          structure: unit.structure,
-          hasPipeline: false,
-          typingProfiles: const [],
-          contentTemplates: pickedCts.isNotEmpty ? pickedCts : unit.contentTemplates,
-        );
-        return jsonEncode(EngineCBundleEnvelope(
-          exportedAt: DateTime.now(),
-          units: [singleUnit],
-        ).toJson());
-
-      case HubItemSubtype.diagnosis:
-        return jsonEncode(original.toJson());
-    }
+  void _openRelated(HubListing listing) {
+    final subtype = HubItemSubtype.values.where((v) => v.name == listing.kind).firstOrNull;
+    if (subtype == null) return;
+    final summary = listing.summary;
+    final targetId = subtype == HubItemSubtype.content ? summary.contents.firstOrNull?.id ?? ''
+        : subtype == HubItemSubtype.typing ? summary.profiles.firstOrNull?.id ?? ''
+        : summary.structure?.id ?? '';
+    final name = subtype == HubItemSubtype.content ? summary.contents.firstOrNull?.name ?? listing.title
+        : subtype == HubItemSubtype.typing ? summary.profiles.firstOrNull?.name ?? listing.title
+        : subtype == HubItemSubtype.pipeline ? '默认解析流程' : summary.structure?.name ?? listing.title;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => HubDetailSheet(item: HubCardItem(
+      listing: listing, subtype: subtype, subId: targetId, subName: name,
+      structureName: summary.structure?.name ?? '', formattedTitle: listing.title,
+      primaryDetail: '', secondaryDetail: listing.readme))));
   }
 
   @override
@@ -1157,6 +1148,14 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
                         onTap: _previewStructureOrPipelineOrTyping,
                       ),
 
+                    if (_related.any((r) => r.id != listing.id)) ...[
+                      const SizedBox(height: 24),
+                      const Text('同一文书类型下的内容', style: TextStyle(fontWeight: FontWeight.w500)),
+                      for (final related in _related.where((r) => r.id != listing.id))
+                        ListTile(contentPadding: EdgeInsets.zero, title: Text(related.title),
+                          subtitle: Text(related.isMine ? '我发布的' : '相关内容'),
+                          trailing: const Icon(Icons.chevron_right), onTap: () => _openRelated(related)),
+                    ],
                     const SizedBox(height: 32),
                   ],
                 ),
@@ -1176,7 +1175,7 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
   String _buildImportButtonLabel(HubCardItem item) {
     switch (item.subtype) {
       case HubItemSubtype.structure:
-        return '导入整套模板到本地';
+        return '导入文书类型到本地';
       case HubItemSubtype.pipeline:
         return '导入此流程到本地';
       case HubItemSubtype.typing:

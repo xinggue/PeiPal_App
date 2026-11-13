@@ -21,9 +21,8 @@ class HubStructureSummary {
         id: json['id'] as String? ?? '',
         name: json['name'] as String? ?? '',
         slotCount: json['slotCount'] as int? ?? 0,
-        slotLabels: (json['slotLabels'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        slotLabels:
+            (json['slotLabels'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
       );
 }
@@ -33,11 +32,7 @@ class HubProfileSummary {
   final String name;
   final int blockCount;
 
-  const HubProfileSummary({
-    this.id = '',
-    this.name = '',
-    this.blockCount = 0,
-  });
+  const HubProfileSummary({this.id = '', this.name = '', this.blockCount = 0});
 
   factory HubProfileSummary.fromJson(Map<String, dynamic> json) =>
       HubProfileSummary(
@@ -90,9 +85,8 @@ class HubPipelineSummary {
       HubPipelineSummary(
         hasPipeline: json['hasPipeline'] as bool? ?? false,
         nodeCount: json['nodeCount'] as int? ?? 0,
-        stageLabels: (json['stageLabels'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        stageLabels:
+            (json['stageLabels'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
       );
 }
@@ -111,11 +105,11 @@ class HubDiagnosisSummary {
   factory HubDiagnosisSummary.fromJson(Map<String, dynamic> json) =>
       HubDiagnosisSummary(
         count: json['count'] as int? ?? 0,
-        tags: (json['tags'] as List?)?.map((e) => e.toString()).toList() ??
+        tags:
+            (json['tags'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
-        sampleNames: (json['sampleNames'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        sampleNames:
+            (json['sampleNames'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
       );
 }
@@ -139,29 +133,37 @@ class HubListingSummary {
       HubListingSummary(
         structure: json['structure'] is Map
             ? HubStructureSummary.fromJson(
-                Map<String, dynamic>.from(json['structure'] as Map))
+                Map<String, dynamic>.from(json['structure'] as Map),
+              )
             : (json['structureName'] != null
-                ? HubStructureSummary(name: json['structureName'].toString())
-                : null),
+                  ? HubStructureSummary(name: json['structureName'].toString())
+                  : null),
         pipeline: json['pipeline'] is Map
             ? HubPipelineSummary.fromJson(
-                Map<String, dynamic>.from(json['pipeline'] as Map))
+                Map<String, dynamic>.from(json['pipeline'] as Map),
+              )
             : (json['pipeline'] == true
-                ? const HubPipelineSummary(hasPipeline: true)
-                : null),
-        profiles: (json['profiles'] as List?)
+                  ? const HubPipelineSummary(hasPipeline: true)
+                  : null),
+        profiles:
+            (json['profiles'] as List?)
                 ?.whereType<Map>()
-                .map((m) => HubProfileSummary.fromJson(
-                    Map<String, dynamic>.from(m)))
+                .map(
+                  (m) =>
+                      HubProfileSummary.fromJson(Map<String, dynamic>.from(m)),
+                )
                 .toList() ??
             ((json['profiles'] as List?)
                     ?.map((e) => HubProfileSummary(name: e.toString()))
                     .toList() ??
                 const []),
-        contents: (json['contents'] as List?)
+        contents:
+            (json['contents'] as List?)
                 ?.whereType<Map>()
-                .map((m) => HubContentSummary.fromJson(
-                    Map<String, dynamic>.from(m)))
+                .map(
+                  (m) =>
+                      HubContentSummary.fromJson(Map<String, dynamic>.from(m)),
+                )
                 .toList() ??
             ((json['contents'] as List?)
                     ?.map((e) => HubContentSummary(name: e.toString()))
@@ -169,10 +171,11 @@ class HubListingSummary {
                 const []),
         diagnoses: json['diagnoses'] is Map
             ? HubDiagnosisSummary.fromJson(
-                Map<String, dynamic>.from(json['diagnoses'] as Map))
+                Map<String, dynamic>.from(json['diagnoses'] as Map),
+              )
             : (json['diagnoses'] is int
-                ? HubDiagnosisSummary(count: json['diagnoses'] as int)
-                : null),
+                  ? HubDiagnosisSummary(count: json['diagnoses'] as int)
+                  : null),
       );
 }
 
@@ -186,6 +189,9 @@ class HubListing {
   final String status; // 'approved', 'pending', 'rejected'
   final bool isMine;
   final String? payload;
+  final String structureId;
+  final String institution;
+  final String versionId;
   final DateTime updatedAt;
 
   const HubListing({
@@ -199,24 +205,32 @@ class HubListing {
     this.isMine = false,
     required this.updatedAt,
     this.payload,
+    this.structureId = '',
+    this.institution = '',
+    this.versionId = '',
   });
 
   factory HubListing.fromJson(Map<String, dynamic> json) => HubListing(
-        id: json['id'] as String,
-        kind: json['kind'] as String? ?? '',
-        title: json['title'] as String? ?? '',
-        readme: json['readme'] as String? ?? '',
-        counts: Map<String, dynamic>.from(json['counts'] as Map? ?? const {}),
-        summary: json['summary'] is Map
-            ? HubListingSummary.fromJson(
-                Map<String, dynamic>.from(json['summary'] as Map))
-            : const HubListingSummary(),
-        status: json['status'] as String? ?? 'approved',
-        isMine: json['is_mine'] as bool? ?? false,
-        payload: json['payload'] as String?,
-        updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? '') ??
-            DateTime.now(),
-      );
+    id: json['id'] as String,
+    kind: json['kind'] as String? ?? '',
+    title: json['title'] as String? ?? '',
+    readme: json['readme'] as String? ?? '',
+    counts: Map<String, dynamic>.from(json['counts'] as Map? ?? const {}),
+    summary: json['summary'] is Map
+        ? HubListingSummary.fromJson(
+            Map<String, dynamic>.from(json['summary'] as Map),
+          )
+        : const HubListingSummary(),
+    status: json['status'] as String? ?? 'approved',
+    isMine: json['is_mine'] as bool? ?? false,
+    payload: json['payload'] as String?,
+    structureId: json['structure_id'] as String? ?? '',
+    institution: json['institution'] as String? ?? '',
+    versionId: json['version_id'] as String? ?? '',
+    updatedAt:
+        DateTime.tryParse(json['updated_at']?.toString() ?? '') ??
+        DateTime.now(),
+  );
 }
 
 class HubService {
@@ -229,10 +243,13 @@ class HubService {
   final FlutterSecureStorage _storage;
 
   HubService(this._storage)
-      : _dio = Dio(BaseOptions(
+    : _dio = Dio(
+        BaseOptions(
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 30),
-        ));
+          followRedirects: false,
+        ),
+      );
 
   Future<String> getBaseUrl() async {
     final custom = await _storage.read(key: _urlKey);
@@ -243,31 +260,128 @@ class HubService {
   }
 
   Future<void> setBaseUrl(String? url) async {
+    if (url != null && url.trim().isNotEmpty) {
+      final uri = Uri.tryParse(url.trim());
+      if (uri == null ||
+          !['https', 'http'].contains(uri.scheme) ||
+          uri.host.isEmpty ||
+          uri.userInfo.isNotEmpty ||
+          uri.hasQuery ||
+          uri.hasFragment) {
+        throw const FormatException('请填写有效的服务器地址');
+      }
+    }
     if (url == null || url.trim().isEmpty || url.trim() == defaultBaseUrl) {
       await _storage.delete(key: _urlKey);
     } else {
-      await _storage.write(key: _urlKey, value: url.trim().replaceAll(RegExp(r'/+$'), ''));
+      await _storage.write(
+        key: _urlKey,
+        value: url.trim().replaceAll(RegExp(r'/+$'), ''),
+      );
     }
   }
 
   Future<String?> getAdminToken() async {
-    return _storage.read(key: _adminTokenKey);
+    final base = await getBaseUrl();
+    final scoped = await _storage.read(
+      key: '${_adminTokenKey}_${_scope(base)}',
+    );
+    if (scoped != null) return scoped;
+    // Old credentials belong only to the original official service.
+    if (base == defaultBaseUrl) {
+      final legacy = await _storage.read(key: _adminTokenKey);
+      if (legacy != null) {
+        await _storage.write(
+          key: '${_adminTokenKey}_${_scope(base)}',
+          value: legacy,
+        );
+        await _storage.delete(key: _adminTokenKey);
+      }
+      return legacy;
+    }
+    return null;
   }
 
   Future<void> setAdminToken(String? token) async {
+    final key = '${_adminTokenKey}_${_scope(await getBaseUrl())}';
     if (token == null || token.trim().isEmpty) {
-      await _storage.delete(key: _adminTokenKey);
+      await _storage.delete(key: key);
+      if (await getBaseUrl() == defaultBaseUrl) {
+        await _storage.delete(key: _adminTokenKey);
+      }
     } else {
-      await _storage.write(key: _adminTokenKey, value: token.trim());
+      await _storage.write(key: key, value: token.trim());
     }
   }
 
   Future<String> ownerKey() async {
-    final existing = await _storage.read(key: _keyName);
+    final base = await getBaseUrl();
+    final key = base == defaultBaseUrl
+        ? _keyName
+        : '${_keyName}_${_scope(base)}';
+    final existing = await _storage.read(key: key);
     if (existing != null && existing.isNotEmpty) return existing;
     final created = const Uuid().v4() + const Uuid().v4();
-    await _storage.write(key: _keyName, value: created);
+    await _storage.write(key: key, value: created);
     return created;
+  }
+
+  static String _scope(String base) => base64Url.encode(utf8.encode(base));
+
+  Future<Map<String, dynamic>> analyzeUpload({
+    required Map<String, dynamic> payload,
+    required List<Map<String, dynamic>> targets,
+    String scope = '',
+    String institution = '',
+  }) async {
+    final base = await getBaseUrl();
+    final response = await _dio.post(
+      '$base/v2/analyses',
+      data: {
+        'ownerKey': await ownerKey(),
+        'payload': payload,
+        'targets': targets,
+        'scope': scope,
+        'institution': institution,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> submitUpload({
+    required String analysisId,
+    required String requestId,
+    required List<Map<String, dynamic>> decisions,
+    String structureId = '',
+    String scope = '',
+    String institution = '',
+  }) async {
+    final base = await getBaseUrl();
+    final response = await _dio.post(
+      '$base/v2/batches',
+      data: {
+        'ownerKey': await ownerKey(),
+        'analysis_id': analysisId,
+        'request_id': requestId,
+        'structure_id': structureId,
+        'scope': scope,
+        'institution': institution,
+        'items': decisions,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<HubListing>> related(String structureId) async {
+    final base = await getBaseUrl();
+    final res = await _dio.get(
+      '$base/v2/structures/$structureId',
+      options: Options(headers: {'X-Owner-Key': await ownerKey()}),
+    );
+    return ((res.data['listings'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((m) => HubListing.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
   }
 
   Future<bool> testConnection([String? testUrl]) async {
@@ -286,21 +400,28 @@ class HubService {
     required String kind,
     String q = '',
     bool mineOnly = false,
+    int offset = 0,
   }) async {
     final base = await getBaseUrl();
     final key = await ownerKey();
     final adminToken = await getAdminToken();
 
-    final res = await _dio.get('$base/v1/listings',
-        queryParameters: {
-          'kind': kind,
-          if (q.trim().isNotEmpty) 'q': q.trim(),
-          if (mineOnly) 'mine': '1',
-        },
-        options: Options(headers: {
+    final res = await _dio.get(
+      '$base/v1/listings',
+      queryParameters: {
+        'kind': kind,
+        if (q.trim().isNotEmpty) 'q': q.trim(),
+        if (mineOnly) 'mine': '1',
+        if (offset > 0) 'offset': offset,
+      },
+      options: Options(
+        headers: {
           'X-Owner-Key': key,
-          if (adminToken != null && adminToken.isNotEmpty) 'X-Admin-Token': adminToken,
-        }));
+          if (adminToken != null && adminToken.isNotEmpty)
+            'X-Admin-Token': adminToken,
+        },
+      ),
+    );
     final rows = (res.data['listings'] as List?) ?? const [];
     return rows
         .whereType<Map>()
@@ -313,13 +434,19 @@ class HubService {
     final key = await ownerKey();
     final adminToken = await getAdminToken();
 
-    final res = await _dio.get('$base/v1/listings/$id',
-        options: Options(headers: {
+    final res = await _dio.get(
+      '$base/v1/listings/$id',
+      options: Options(
+        headers: {
           'X-Owner-Key': key,
-          if (adminToken != null && adminToken.isNotEmpty) 'X-Admin-Token': adminToken,
-        }));
+          if (adminToken != null && adminToken.isNotEmpty)
+            'X-Admin-Token': adminToken,
+        },
+      ),
+    );
     return HubListing.fromJson(
-        Map<String, dynamic>.from(res.data['listing'] as Map));
+      Map<String, dynamic>.from(res.data['listing'] as Map),
+    );
   }
 
   Future<Map<String, dynamic>> publish({
@@ -329,19 +456,25 @@ class HubService {
     required String payload,
   }) async {
     final base = await getBaseUrl();
-    final res = await _dio.post('$base/v1/listings', data: {
-      'ownerKey': await ownerKey(),
-      'kind': kind,
-      'title': title,
-      'readme': readme,
-      'payload': payload,
-    });
+    final res = await _dio.post(
+      '$base/v1/listings',
+      data: {
+        'ownerKey': await ownerKey(),
+        'kind': kind,
+        'title': title,
+        'readme': readme,
+        'payload': payload,
+      },
+    );
     return Map<String, dynamic>.from(res.data as Map);
   }
 
   Future<void> delete(String id) async {
     final base = await getBaseUrl();
-    await _dio.delete('$base/v1/listings/$id', data: {'ownerKey': await ownerKey()});
+    await _dio.delete(
+      '$base/v1/listings/$id',
+      data: {'ownerKey': await ownerKey()},
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -355,7 +488,7 @@ class HubService {
     }
     await _dio.post(
       '$base/v1/admin/review',
-      data: {'id': id, 'action': approve ? 'approve' : 'reject'},
+      data: {'version_id': id, 'action': approve ? 'approve' : 'reject'},
       options: Options(headers: {'X-Admin-Token': token}),
     );
   }

@@ -72,7 +72,7 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
       _nameCtrl = TextEditingController(text: preview.name);
       _versionCtrl = TextEditingController(text: preview.version);
       _slots = List.from(preview.slots);
-      _pipeline = preview.pipeline;
+      _pipeline = PipelineGraph.fromJsonString(preview.pipeline.toJsonString());
       _typingProfiles = List.from(preview.typingProfiles);
       _createdAt = preview.createdAt;
       _isNew = false;
@@ -110,6 +110,7 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
       }
       return;
     }
+    if (widget.isReadOnly) return;
     if (_slots.isEmpty) return;
 
     _assignedSlots.clear();
@@ -279,6 +280,7 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
                   flex: 3,
                   child: TextField(
                     controller: _nameCtrl,
+                    readOnly: widget.isReadOnly,
                     decoration: const InputDecoration(
                       labelText: '模板名称',
                       border: OutlineInputBorder(),
@@ -291,6 +293,7 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
                   flex: 1,
                   child: TextField(
                     controller: _versionCtrl,
+                    readOnly: widget.isReadOnly,
                     decoration: const InputDecoration(
                       labelText: '版本',
                       border: OutlineInputBorder(),
@@ -318,6 +321,7 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
                 Builder(builder: (_) {
                   final g = _pipeline ?? PipelineGraph();
                   return PipelineGrid(
+                    readOnly: widget.isReadOnly,
                     graph: g,
                     allSlots: _slots,
                     assignedSlots: _assignedSlots,
@@ -325,6 +329,8 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
                   );
                 }),
                 TypingFlowTab(
+                  readOnly: widget.isReadOnly,
+                  initialProfileId: widget.initialProfileId,
                   slots: _slots,
                   profiles: _typingProfiles,
                   onChanged: (updated) =>
@@ -339,6 +345,22 @@ class _TemplateEditorPageState extends ConsumerState<TemplateEditorPage>
   }
 
   Widget _buildSlotTab() {
+    if (widget.isReadOnly) {
+      return ListView(children: [for (final s in _slots)
+        ExpansionTile(title: Text(s.label), subtitle: Text(s.type.name), children: [
+          ListTile(title: SelectableText([
+            '标识：${s.key}',
+            if (s.required) '必填',
+            if (s.defaultValue != null) '默认值：${s.defaultValue}',
+            if (s.options?.isNotEmpty == true) '选项：${s.options!.join('、')}',
+            if (s.catalogType != null) '词库：${s.catalogType}',
+            if (s.preKeys.isNotEmpty) '输入前：${s.preKeys.join(' ')}',
+            if (s.postKeys.isNotEmpty) '输入后：${s.postKeys.join(' ')}',
+            if (s.condition != null) '条件：${s.condition!.toJson()}',
+          ].join('\n'))),
+        ]),
+      ]);
+    }
     if (_slots.isEmpty) {
       return Center(
         child: Column(

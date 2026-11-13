@@ -15,12 +15,16 @@ class TypingFlowTab extends ConsumerStatefulWidget {
   final List<TemplateSlot> slots;
   final List<TypingProfile> profiles;
   final ValueChanged<List<TypingProfile>> onChanged;
+  final bool readOnly;
+  final String? initialProfileId;
 
   const TypingFlowTab({
     super.key,
     required this.slots,
     required this.profiles,
     required this.onChanged,
+    this.readOnly = false,
+    this.initialProfileId,
   });
 
   @override
@@ -35,6 +39,8 @@ class _TypingFlowTabState extends ConsumerState<TypingFlowTab> {
   @override
   void initState() {
     super.initState();
+    final index = widget.profiles.indexWhere((p) => p.id == widget.initialProfileId);
+    if (index >= 0) _selectedIndex = index;
     _ensureCurrentBlocksSolidified();
   }
 
@@ -46,6 +52,7 @@ class _TypingFlowTabState extends ConsumerState<TypingFlowTab> {
 
   /// 确保当前方案的 blocks 被立即固化保存，避免每次 build 生成不同随机 ID 导致无法点击选中
   void _ensureCurrentBlocksSolidified() {
+    if (widget.readOnly) return;
     if (_current.blocks.isEmpty && widget.slots.isNotEmpty) {
       final defaultBlocks = _current.effectiveBlocks(widget.slots);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2126,6 +2133,18 @@ class _TypingFlowTabState extends ConsumerState<TypingFlowTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.readOnly) {
+      final profile = _current;
+      return ListView(padding: const EdgeInsets.all(16), children: [
+        DropdownButton<int>(value: _selectedIndex, isExpanded: true,
+          items: [for (int i = 0; i < widget.profiles.length; i++)
+            DropdownMenuItem(value: i, child: Text(widget.profiles[i].name))],
+          onChanged: (i) { if (i != null) setState(() => _selectedIndex = i); }),
+        Text('组合键按住 ${profile.keyComboHoldMs} ms · 步骤间隔 ${profile.postKeySettleMs} ms'),
+        const SizedBox(height: 12),
+        for (final b in profile.effectiveBlocks(widget.slots)) _readOnlyBlock(b),
+      ]);
+    }
     // 预热输入节奏预设与动作积木预设，避免首次弹窗异步读取未完成
     ref.watch(timingPresetsProvider);
     ref.watch(typingBlockPresetsProvider);
@@ -3005,5 +3024,18 @@ class _TypingFlowTabState extends ConsumerState<TypingFlowTab> {
     if (b is GroupBlock) return '分组 [${b.name}] (${b.blocks.length}步)';
     if (b is ForEachBlock) return '循环录入 ${b.fieldKey}';
     return b.type.name;
+  }
+
+  Widget _readOnlyBlock(TypingActionBlock block) {
+    final children = block is GroupBlock ? block.blocks : block is ForEachBlock ? block.subBlocks : <TypingActionBlock>[];
+    return Card(elevation: 0, child: Padding(padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(_subBlockDescription(block), style: const TextStyle(fontWeight: FontWeight.w500)),
+        if (block is FieldInputBlock) ...[
+          if (block.preKeys.isNotEmpty) Text('输入前：${block.preKeys.join(' ')}'),
+          if (block.postKeys.isNotEmpty) Text('输入后：${block.postKeys.join(' ')}'),
+        ],
+        for (final c in children) _readOnlyBlock(c),
+      ])));
   }
 }

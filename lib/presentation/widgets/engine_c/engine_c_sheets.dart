@@ -159,6 +159,7 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => HubBatchPublishPage(
           diagnosisMode: true,
+          catalogType: widget.catalogType,
           selectedDiagnosisTags: _selectedDiagTags.toList(),
         ),
       ));
