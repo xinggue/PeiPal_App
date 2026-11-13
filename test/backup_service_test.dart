@@ -310,7 +310,6 @@ void main() {
     expect(bundle.containsKey('favorite_diagnoses'), false);
     expect(bundle.containsKey('api_configs'), false);
   });
-}
 
   test('full backup transfers templates but never the publishing identity', () async {
     await tRepo.insert(Template(id: 'shared-template', name: '检查记录', slots: const [
@@ -359,3 +358,4 @@ void main() {
     expect(reexported, isNot(contains(ownerA)));
     expect(reexported, isNot(contains(ownerB)));
   });
+}
