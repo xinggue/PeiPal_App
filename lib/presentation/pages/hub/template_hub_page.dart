@@ -1,4 +1,3 @@
-import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -7,13 +6,15 @@ import 'package:intl/intl.dart';
 
 import '../../../data/services/engine_c/engine_c_models.dart';
 import '../../../data/services/engine_c/template_bundle_engine.dart';
-import '../../../data/services/hub/hub_service.dart';
 import '../../../data/services/hub/hub_payload.dart';
-import '../../../domain/models/template.dart';
+import '../../../data/services/hub/hub_service.dart';
 import '../../../providers/providers.dart';
+import '../../widgets/common/app_toast.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 import '../templates/content_template_editor_page.dart';
 import '../templates/template_editor_page.dart';
+import 'hub_components.dart';
+import 'hub_management.dart';
 
 const hubKinds = [
   ('structure', '文书类型', Icons.schema_outlined),
@@ -23,93 +24,109 @@ const hubKinds = [
   ('pipeline', '解析流程', Icons.account_tree_outlined),
 ];
 
-class HubCardItem {
-  final HubListing listing;
-  final HubItemSubtype subtype;
-  final String subId;
-  final String subName;
-  final String structureName;
-  final String formattedTitle;
-  final String primaryDetail;
-  final String secondaryDetail;
+List<HubCardItem> _cardItems(List<HubListing> listings, String kind) {
+  final items = <HubCardItem>[];
+  final seen = <String>{};
+  final ordered = kind == 'structure'
+      ? [
+          ...listings.where((l) => l.isMine),
+          ...listings.where((l) => !l.isMine),
+        ]
+      : listings;
+  for (final listing in ordered) {
+    final s = listing.summary;
+    final structureName = s.structure?.name.isNotEmpty == true
+        ? s.structure!.name
+        : kind == 'structure'
+        ? listing.name
+        : '';
+    void add(HubItemSubtype type, String id, String name, String preview) {
+      items.add(
+        HubCardItem(
+          listing: listing,
+          subtype: type,
+          subId: id,
+          subName: name,
+          structureName: structureName,
+          formattedTitle: listing.title,
+          primaryDetail: preview,
+          secondaryDetail: listing.readme,
+        ),
+      );
+    }
 
-  const HubCardItem({
-    required this.listing,
-    required this.subtype,
-    required this.subId,
-    required this.subName,
-    required this.structureName,
-    required this.formattedTitle,
-    required this.primaryDetail,
-    required this.secondaryDetail,
-  });
+    switch (kind) {
+      case 'structure':
+        if (listing.structureId.isNotEmpty && !seen.add(listing.structureId)) {
+          continue;
+        }
+        add(
+          HubItemSubtype.structure,
+          s.structure?.id ?? '',
+          structureName.isNotEmpty ? structureName : listing.title,
+          s.structure?.slotLabels.join('、') ?? '',
+        );
+      case 'content':
+        for (final c in s.contents) {
+          add(
+            HubItemSubtype.content,
+            c.id,
+            c.name,
+            c.sampleSnippet.isNotEmpty ? c.sampleSnippet : '',
+          );
+        }
+      case 'typing':
+        for (final p in s.profiles) {
+          add(
+            HubItemSubtype.typing,
+            p.id,
+            p.name,
+            p.blockCount > 0 ? '${p.blockCount} 个输入步骤' : '按字段顺序录入',
+          );
+        }
+      case 'pipeline':
+        add(
+          HubItemSubtype.pipeline,
+          'pipeline',
+          '默认解析流程',
+          s.pipeline?.stageLabels.join(' → ') ?? '',
+        );
+      case 'diagnosis':
+        add(
+          HubItemSubtype.diagnosis,
+          'diagnosis',
+          listing.name.isEmpty ? listing.title : listing.name,
+          s.diagnoses?.sampleNames.join('、') ?? '',
+        );
+    }
+  }
+  return items;
 }
 
-enum HubItemSubtype {
-  structure,
-  content,
-  diagnosis,
-  typing,
-  pipeline,
-}
-
-class _StructureWithdrawalDialog extends StatefulWidget {
-  final String name;
-  const _StructureWithdrawalDialog({required this.name});
-
-  @override
-  State<_StructureWithdrawalDialog> createState() => _StructureWithdrawalDialogState();
-}
-
-class _StructureWithdrawalDialogState extends State<_StructureWithdrawalDialog> {
-  final _reason = TextEditingController();
-  final _form = GlobalKey<FormState>();
-
-  @override
-  void dispose() { _reason.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('申请下架文书类型'),
-    content: SingleChildScrollView(child: Form(key: _form,
-      child: Column(mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(widget.name),
-          const SizedBox(height: 8),
-          const Text('审核通过后，该文书类型及全部关联内容仅各自发布者与管理员可见。'),
-          const SizedBox(height: 16),
-          TextFormField(controller: _reason, minLines: 2, maxLines: 5, maxLength: 1000,
-            decoration: const InputDecoration(labelText: '下架原因', border: OutlineInputBorder()),
-            validator: (v) => v == null || v.trim().isEmpty ? '请填写下架原因' : null),
-        ]))),
-    actions: [
-      TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-      FilledButton(onPressed: () {
-        if (_form.currentState!.validate()) Navigator.pop(context, _reason.text.trim());
-      }, child: const Text('提交申请')),
-    ],
-  );
+String _errorText(Object error) {
+  if (error is DioException && error.response?.data is Map) {
+    return error.response!.data['error']?.toString() ?? '连接失败，请稍后重试';
+  }
+  return '连接失败，请稍后重试';
 }
 
 class TemplateHubPage extends ConsumerStatefulWidget {
   const TemplateHubPage({super.key});
-
   @override
   ConsumerState<TemplateHubPage> createState() => _TemplateHubPageState();
 }
 
 class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
   String _kind = 'structure';
-  final TextEditingController _searchCtrl = TextEditingController();
+  final _search = TextEditingController();
   bool _mineOnly = false;
-  bool _isRailExpanded = true;
-  List<HubListing> _rawListings = const [];
+  bool _railExpanded = true;
   bool _loading = true;
   bool _loadingMore = false;
   bool _hasMore = false;
-  int _loadSequence = 0;
+  int _sequence = 0;
   String? _error;
-
+  List<HubListing> _listings = const [];
   HubService get _hub => HubService(ref.read(secureStorageProvider));
 
   @override
@@ -120,506 +137,271 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    _search.dispose();
     super.dispose();
   }
 
   Future<void> _load({bool append = false}) async {
     if (append && _loadingMore) return;
-    final sequence = ++_loadSequence;
+    final sequence = ++_sequence;
     setState(() {
-      if (append) { _loadingMore = true; } else { _loading = true; }
+      if (append) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+      }
       _error = null;
     });
     try {
       final listings = await _hub.list(
         kind: _kind,
-        q: _searchCtrl.text.trim(),
+        q: _search.text,
         mineOnly: _mineOnly,
-        offset: append ? _rawListings.length : 0,
+        offset: append ? _listings.length : 0,
       );
-      if (!mounted || sequence != _loadSequence) return;
+      if (!mounted || sequence != _sequence) return;
       setState(() {
-        _rawListings = append ? [..._rawListings, ...listings] : listings;
+        _listings = append ? [..._listings, ...listings] : listings;
         _hasMore = listings.length == 50;
-        _loadingMore = false;
         _loading = false;
+        _loadingMore = false;
       });
     } catch (e) {
-      if (!mounted || sequence != _loadSequence) return;
-      setState(() {
-        _error = '加载失败: $e';
-        _loading = false;
-        _loadingMore = false;
-      });
-    }
-  }
-
-  List<HubCardItem> _flattenItems() {
-    final items = <HubCardItem>[];
-    final seenStructures = <String>{};
-    for (final listing in _rawListings) {
-      final s = listing.summary;
-      final structName = s.structure?.name.trim().isNotEmpty == true
-          ? s.structure!.name.trim()
-          : listing.title.trim();
-
-      switch (_kind) {
-        case 'structure':
-          if (listing.structureId.isNotEmpty && !seenStructures.add(listing.structureId)) continue;
-          final slots = s.structure?.slotLabels ?? [];
-          final slotOverview = slots.isNotEmpty
-              ? '字段：${slots.join("、")}${s.structure!.slotCount > slots.length ? " 等${s.structure!.slotCount}个字段" : ""}'
-              : '无独立字段';
-          items.add(HubCardItem(
-            listing: listing,
-            subtype: HubItemSubtype.structure,
-            subId: s.structure?.id ?? '',
-            subName: structName,
-            structureName: structName,
-            formattedTitle: '$structName 文书类型',
-            primaryDetail: slotOverview,
-            secondaryDetail: listing.readme.trim(),
-          ));
-          break;
-
-        case 'content':
-          if (s.contents.isNotEmpty) {
-            for (final ct in s.contents) {
-              final snippet = ct.sampleSnippet.isNotEmpty
-                  ? '示范：${ct.sampleSnippet}'
-                  : (ct.hasGlobalGuidance ? '已配置规范指南' : '示范文书');
-              items.add(HubCardItem(
-                listing: listing,
-                subtype: HubItemSubtype.content,
-                subId: ct.id,
-                subName: ct.name,
-                structureName: structName,
-                formattedTitle: '$structName 的 ${ct.name} 内容模板',
-                primaryDetail: snippet,
-                secondaryDetail: listing.readme.trim(),
-              ));
-            }
-          }
-          break;
-
-        case 'diagnosis':
-          final d = s.diagnoses;
-          final count = d?.count ?? listing.counts['diagnoses'] ?? 0;
-          final samples = d?.sampleNames.isNotEmpty == true
-              ? '词条包含：${d!.sampleNames.join("、")}'
-              : '常用标准词条';
-          final tags = d?.tags.isNotEmpty == true ? '标签：${d!.tags.join("、")}' : '';
-          items.add(HubCardItem(
-            listing: listing,
-            subtype: HubItemSubtype.diagnosis,
-            subId: 'diagnosis',
-            subName: listing.title,
-            structureName: '',
-            formattedTitle: listing.title.endsWith('标准词条库') ? listing.title : '${listing.title} 标准词条库',
-            primaryDetail: '$count 条词条 · $samples',
-            secondaryDetail: tags.isNotEmpty ? tags : listing.readme.trim(),
-          ));
-          break;
-
-        case 'typing':
-          if (s.profiles.isNotEmpty) {
-            for (final prof in s.profiles) {
-              final steps = prof.blockCount > 0
-                  ? '${prof.blockCount} 步按键动作流'
-                  : '标准按键流';
-              items.add(HubCardItem(
-                listing: listing,
-                subtype: HubItemSubtype.typing,
-                subId: prof.id,
-                subName: prof.name,
-                structureName: structName,
-                formattedTitle: '$structName 的 ${prof.name} 输入方案',
-                primaryDetail: steps,
-                secondaryDetail: listing.readme.trim(),
-              ));
-            }
-          }
-          break;
-
-        case 'pipeline':
-          final p = s.pipeline;
-          final flow = p?.stageLabels.isNotEmpty == true
-              ? '阶段推进：${p!.stageLabels.join(" → ")}'
-              : '${p?.nodeCount ?? 0} 个阶段节点';
-          items.add(HubCardItem(
-            listing: listing,
-            subtype: HubItemSubtype.pipeline,
-            subId: 'pipeline',
-            subName: '默认解析流程',
-            structureName: structName,
-            formattedTitle: '$structName 的默认解析流程',
-            primaryDetail: flow,
-            secondaryDetail: listing.readme.trim(),
-          ));
-          break;
+      if (mounted && sequence == _sequence) {
+        setState(() {
+          _error = _errorText(e);
+          _loading = false;
+          _loadingMore = false;
+        });
       }
     }
-    return items;
   }
 
-  Future<void> _openDetail(HubCardItem item) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => HubDetailSheet(item: item),
+  Future<void> _manage(HubListing listing) async {
+    final result = await manageHubPublication(context, _hub, listing);
+    if (mounted && result != HubManagementResult.cancelled) await _load();
+  }
+
+  Future<void> _open(HubCardItem item) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => HubDetailSheet(item: item)),
+    );
+    if (mounted) await _load();
+  }
+
+  Future<void> _settings() async {
+    final hub = _hub;
+    final url = await hub.getBaseUrl();
+    final token = await hub.getAdminToken();
+    if (!mounted) return;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _HubSettingsDialog(
+        service: hub,
+        initialUrl: url,
+        initialToken: token ?? '',
       ),
     );
-    _load();
+    if (saved == true && mounted) await _load();
   }
 
-  Future<void> _remove(HubListing listing) async {
-    if (listing.kind == 'structure') {
-      await _requestWithdrawal(listing);
-      return;
-    }
-    final ok = await showDialog<bool>(
+  Future<void> _publish() async {
+    final kind = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除发布'),
-        content: Text('确定从在线模板广场删除「${listing.title}」？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除', style: TextStyle(color: Colors.red)),
+      useSafeArea: true,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.schema_outlined),
+            title: const Text('发布文书及模板'),
+            onTap: () => Navigator.pop(ctx, 'structure'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.bookmark_outline),
+            title: const Text('发布标准词条库'),
+            onTap: () => Navigator.pop(ctx, 'diagnosis'),
           ),
         ],
       ),
     );
-    if (ok != true) return;
+    if (kind == null || !mounted) return;
     try {
-      await _hub.delete(listing.id);
-      if (!mounted) return;
-      showAppToast(context, '已删除发布');
-      _load();
-    } catch (e) {
-      if (!mounted) return;
-      showAppToast(context, '删除失败: $e');
-    }
-  }
-
-  Future<void> _requestWithdrawal(HubListing listing) async {
-    if (listing.visibility == 'private' || listing.withdrawalPending) return;
-    final reason = await showDialog<String>(context: context,
-      builder: (_) => _StructureWithdrawalDialog(name: listing.title));
-    if (reason == null || !mounted) return;
-    try {
-      await _hub.requestStructureWithdrawal(listing.structureId, reason);
-      if (!mounted) return;
-      showAppToast(context, '下架申请已提交');
-      await _load();
-    } on DioException catch (e) {
-      if (!mounted) return;
-      final message = e.response?.data is Map
-          ? e.response!.data['error']?.toString() : null;
-      showAppToast(context, message ?? '提交失败，请稍后重试');
-    }
-  }
-
-  void _showSettingsDialog() async {
-    final currentUrl = await _hub.getBaseUrl();
-    final currentAdminToken = await _hub.getAdminToken();
-
-    final urlCtrl = TextEditingController(text: currentUrl);
-    final adminCtrl = TextEditingController(text: currentAdminToken ?? '');
-    String testResult = '';
-
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('在线模板库设置'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: urlCtrl,
-                  onChanged: (_) => adminCtrl.clear(),
-                  decoration: InputDecoration(
-                    labelText: '服务器接口地址',
-                    hintText: HubService.defaultBaseUrl,
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.restore, size: 18),
-                      tooltip: '恢复默认官方源',
-                      onPressed: () {
-                        setDialogState(() {
-                          urlCtrl.text = HubService.defaultBaseUrl;
-                          adminCtrl.clear();
-                        });
-                      },
-                    ),
-                  ),
+      if (kind == 'diagnosis') {
+        final catalogs = await ref.read(catalogsProvider.future);
+        if (!mounted) return;
+        final id = await showModalBottomSheet<String>(
+          context: context,
+          useSafeArea: true,
+          builder: (ctx) => ListView(
+            shrinkWrap: true,
+            children: [
+              for (final c in catalogs.where((c) => c.isEnabled))
+                ListTile(
+                  title: Text(c.name),
+                  onTap: () => Navigator.pop(ctx, c.id),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.network_check, size: 16),
-                      label: const Text('测试连通性'),
-                      onPressed: () async {
-                        setDialogState(() => testResult = '测试中...');
-                        final ok = await _hub.testConnection(urlCtrl.text.trim());
-                        setDialogState(() {
-                          testResult = ok ? '✅ 连接成功' : '❌ 无法连接到此服务器';
-                        });
-                      },
-                    ),
-                    if (testResult.isNotEmpty)
-                      Expanded(
-                        child: Text(
-                          testResult,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: testResult.startsWith('✅') ? Colors.green : Colors.red,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                ),
-                const Divider(height: 24),
-                TextField(
-                  controller: adminCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: '管理员密钥 (自建源审核使用)',
-                    hintText: '留空表示普通用户身份',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '配置管理员密钥后，可直接在广场查阅与审核他人提交的待审内容。',
-                  style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
-                ),
-              ],
-            ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                await _hub.setBaseUrl(urlCtrl.text.trim());
-                await _hub.setAdminToken(adminCtrl.text.trim());
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                if (mounted) {
-                  showAppToast(context, '在线模板库设置已保存');
-                  _load();
-                }
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showNewPublishPicker() async {
-    final templates = await ref.read(templateRepositoryProvider).getAll();
-    if (!mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('发布到在线模板广场',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.schema_outlined, color: Colors.blue),
-              title: const Text('发布文书类型及下属模板'),
-              subtitle: const Text('选择本地已有的模板打包发布'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickTemplateToPublish(templates);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.bookmark_outline, color: Colors.teal),
-              title: const Text('发布标准词条库'),
-              subtitle: const Text('分享收藏的标准词条'),
-              onTap: () {
-                Navigator.pop(ctx);
-                EngineCExportSheet.showForDiagnoses(
-                  context,
-                  publishKind: 'diagnosis',
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _pickTemplateToPublish(List<Template> templates) {
-    if (templates.isEmpty) {
-      showAppToast(context, '本地暂无文书类型，请先创建');
-      return;
+        );
+        if (id != null && mounted) {
+          await EngineCExportSheet.showForDiagnoses(
+            context,
+            catalogType: id,
+            publishKind: 'diagnosis',
+          );
+        }
+      } else {
+        final templates = await ref.read(templateRepositoryProvider).getAll();
+        if (!mounted) return;
+        if (templates.isEmpty) {
+          showAppToast(context, '请先创建文书类型');
+          return;
+        }
+        final template = await showModalBottomSheet(
+          context: context,
+          useSafeArea: true,
+          builder: (ctx) => ListView(
+            shrinkWrap: true,
+            children: [
+              for (final t in templates)
+                ListTile(
+                  title: Text(t.name),
+                  onTap: () => Navigator.pop(ctx, t),
+                ),
+            ],
+          ),
+        );
+        if (template != null && mounted) {
+          await EngineCExportSheet.showForTemplate(
+            context,
+            template,
+            publishKind: 'structure',
+          );
+        }
+      }
+      if (mounted) await _load();
+    } catch (e) {
+      if (mounted) showAppToast(context, _errorText(e));
     }
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('选择要发布的模板',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            for (final t in templates)
-              ListTile(
-                title: Text(t.name),
-                subtitle: Text('${t.slots.length} 个字段 · ${t.typingProfiles.length} 个输入方案'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  EngineCExportSheet.showForTemplate(
-                    context,
-                    t,
-                    publishKind: 'structure',
-                  );
-                },
-              ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = _flattenItems();
-
+    final items = _cardItems(_listings, _kind);
     return Scaffold(
       appBar: AppBar(
         title: const Text('在线模板广场'),
         actions: [
           IconButton(
             tooltip: _mineOnly ? '查看全部' : '只看我的',
-            icon: Icon(
-              _mineOnly ? Icons.person : Icons.person_outline,
-              color: _mineOnly ? Theme.of(context).colorScheme.primary : null,
-            ),
+            icon: Icon(_mineOnly ? Icons.person : Icons.person_outline),
             onPressed: () {
               setState(() => _mineOnly = !_mineOnly);
               _load();
             },
           ),
           IconButton(
-            tooltip: '源与审核设置',
+            tooltip: '模板库设置',
             icon: const Icon(Icons.settings_outlined),
-            onPressed: _showSettingsDialog,
+            onPressed: _settings,
           ),
           IconButton(
-            tooltip: '发布新内容',
+            tooltip: '发布',
             icon: const Icon(Icons.cloud_upload_outlined),
-            onPressed: _showNewPublishPicker,
+            onPressed: _publish,
           ),
         ],
       ),
       body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. 左侧竖向分栏 (顺序：结构模板、内容模板、常用诊断、输入方案、解析流程)
-          _buildLeftRail(),
+          _rail(),
           const VerticalDivider(width: 1),
-
-          // 2. 右侧主内容区
           Expanded(
             child: Column(
               children: [
-                // 顶部搜索框
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
                   child: TextField(
-                    controller: _searchCtrl,
+                    controller: _search,
+                    textInputAction: TextInputAction.search,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) => _load(),
                     decoration: InputDecoration(
-                      hintText: '搜索文书、内容、方案、词条...',
+                      hintText: '搜索名称、内容、机构',
                       prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: _searchCtrl.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
+                      suffixIcon: _search.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.close, size: 18),
                               onPressed: () {
-                                _searchCtrl.clear();
+                                _search.clear();
                                 _load();
                               },
-                            )
-                          : null,
+                            ),
                       isDense: true,
                       filled: true,
-                      fillColor: Colors.grey.withAlpha(20),
+                      fillColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerLow,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
                     ),
-                    onSubmitted: (_) => _load(),
                   ),
                 ),
-
-                // 主内容列表
                 Expanded(
                   child: _loading
                       ? const Center(child: CircularProgressIndicator())
                       : _error != null
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(_error!, style: const TextStyle(color: Colors.red)),
-                                  const SizedBox(height: 12),
-                                  OutlinedButton(onPressed: _load, child: const Text('重试')),
-                                ],
-                              ),
-                            )
-                          : items.isEmpty
-                              ? Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        _mineOnly ? '你还没有在此分类发布过内容' : '暂无相关内容',
-                                        style: const TextStyle(color: Colors.grey),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : RefreshIndicator(
-                                  onRefresh: _load,
-                                  child: ListView.builder(
-                                    padding: const EdgeInsets.all(12),
-                                    itemCount: items.length + (_hasMore ? 1 : 0),
-                                    itemBuilder: (_, i) => i < items.length
-                                        ? _buildCard(items[i])
-                                        : TextButton(onPressed: _loadingMore ? null : () => _load(append: true),
-                                            child: Text(_loadingMore ? '加载中…' : '加载更多')),
-                                  ),
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_error!),
+                                TextButton(
+                                  onPressed: _load,
+                                  child: const Text('重试'),
                                 ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : items.isEmpty
+                      ? Center(child: Text(_mineOnly ? '暂无自己的发布' : '暂无相关内容'))
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: items.length + (_hasMore ? 1 : 0),
+                            itemBuilder: (_, i) {
+                              if (i == items.length) {
+                                return TextButton(
+                                  onPressed: _loadingMore
+                                      ? null
+                                      : () => _load(append: true),
+                                  child: Text(_loadingMore ? '加载中…' : '加载更多'),
+                                );
+                              }
+                              final item = items[i];
+                              return HubListingCard(
+                                item: item,
+                                onTap: () => _open(item),
+                                trailing: item.listing.isMine
+                                    ? HubPublicationMenu(
+                                        listing: item.listing,
+                                        onManage: () => _manage(item.listing),
+                                      )
+                                    : null,
+                              );
+                            },
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -629,260 +411,107 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
     );
   }
 
-  Widget _buildLeftRail() {
-    final width = _isRailExpanded ? 88.0 : 48.0;
-
+  Widget _rail() {
+    final scheme = Theme.of(context).colorScheme;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      width: width,
-      color: Theme.of(context).colorScheme.surface,
-      child: Column(
-        children: [
-          // 顶部折叠/展开开关
-          InkWell(
-            onTap: () => setState(() => _isRailExpanded = !_isRailExpanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Center(
-                child: Icon(
-                  _isRailExpanded ? Icons.chevron_left : Icons.chevron_right,
-                  size: 20,
-                  color: Colors.grey.shade600,
-                ),
+      duration: const Duration(milliseconds: 180),
+      width: _railExpanded ? 88 : 48,
+      color: scheme.surface,
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            IconButton(
+              tooltip: _railExpanded ? '收起分类' : '展开分类',
+              onPressed: () => setState(() => _railExpanded = !_railExpanded),
+              icon: Icon(
+                _railExpanded ? Icons.chevron_left : Icons.chevron_right,
+                size: 20,
               ),
             ),
-          ),
-          const Divider(height: 1),
-          const SizedBox(height: 4),
-          for (final entry in hubKinds)
-            _buildRailItem(
-              kind: entry.$1,
-              label: entry.$2,
-              icon: entry.$3,
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRailItem({
-    required String kind,
-    required String label,
-    required IconData icon,
-  }) {
-    final isSelected = _kind == kind;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      child: Tooltip(
-        message: !_isRailExpanded ? label : '',
-        child: Material(
-          color: isSelected ? primaryColor.withAlpha(25) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () {
-              if (_kind != kind) {
-                setState(() => _kind = kind);
-                _load();
-              }
-            },
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                vertical: _isRailExpanded ? 9 : 10,
-                horizontal: 2,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    icon,
-                    size: 20,
-                    color: isSelected ? primaryColor : Colors.grey.shade700,
-                  ),
-                  if (_isRailExpanded) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected ? primaryColor : Colors.grey.shade800,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCard(HubCardItem item) {
-    final listing = item.listing;
-    final isMine = listing.isMine;
-    final dateStr = DateFormat('MM-dd').format(listing.updatedAt.toLocal());
-    final theme = Theme.of(context);
-
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 8),
-      color: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-          color: isMine
-              ? theme.colorScheme.primary.withAlpha(120)
-              : theme.dividerColor.withAlpha(45),
-          width: isMine ? 1.4 : 1.0,
-        ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => _openDetail(item),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 顶行：标题与标签
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.formattedTitle,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.2,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (isMine || listing.visibility == 'private') ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                      decoration: BoxDecoration(
-                        color: listing.status == 'pending'
-                            ? Colors.orange.withAlpha(40)
-                            : theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        listing.publicationLabel,
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
-                          color: listing.status == 'pending'
-                              ? Colors.deepOrange
-                              : theme.colorScheme.onPrimaryContainer,
+            for (final kind in hubKinds)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                child: Tooltip(
+                  message: kind.$2,
+                  child: Material(
+                    color: _kind == kind.$1
+                        ? scheme.primaryContainer
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(9),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(9),
+                      onTap: () {
+                        if (_kind != kind.$1) {
+                          setState(() => _kind = kind.$1);
+                          _load();
+                        }
+                      },
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 11,
+                            horizontal: 2,
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                kind.$3,
+                                size: 20,
+                                color: _kind == kind.$1
+                                    ? scheme.onPrimaryContainer
+                                    : scheme.onSurfaceVariant,
+                              ),
+                              if (_railExpanded) ...[
+                                const SizedBox(height: 5),
+                                Text(
+                                  kind.$2,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: _kind == kind.$1
+                                        ? scheme.onPrimaryContainer
+                                        : scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ],
-                  if (isMine)
-                    PopupMenuButton<String>(
-                      icon: Icon(Icons.more_horiz, size: 18, color: Colors.grey.shade600),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onSelected: (action) {
-                        if (action == 'delete') _remove(listing);
-                      },
-                      itemBuilder: (_) => [
-                        if (listing.kind == 'structure')
-                          PopupMenuItem(value: 'delete',
-                            enabled: listing.visibility != 'private' && !listing.withdrawalPending,
-                            child: Text(listing.visibility == 'private' ? '已下架'
-                                : listing.withdrawalPending ? '下架审核中' : '申请下架'))
-                        else
-                          const PopupMenuItem(value: 'delete',
-                            child: Text('删除发布', style: TextStyle(color: Colors.red, fontSize: 13))),
-                      ],
-                    ),
-                ],
-              ),
-
-              const SizedBox(height: 7),
-              if (listing.institution.isNotEmpty) Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(listing.institution, style: Theme.of(context).textTheme.bodySmall)),
-
-              // 主细节胶囊卡片（字段清单、示范文本、或按键流）
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withAlpha(35),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  item.primaryDetail,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.blueGrey.shade800,
-                    height: 1.35,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-
-              // 说明文档摘要（如有）
-              if (item.secondaryDetail.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  item.secondaryDetail,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: Colors.grey.shade600,
                   ),
                 ),
-              ],
-
-              const SizedBox(height: 6),
-
-              // 底行：日期小标
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  dateStr,
-                  style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500),
-                ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// 模板详情页：查看专属说明、复用已有编辑页预览具体内容、定向导入到本地
 class HubDetailSheet extends ConsumerStatefulWidget {
   final HubCardItem item;
-
   const HubDetailSheet({super.key, required this.item});
-
   @override
   ConsumerState<HubDetailSheet> createState() => _HubDetailSheetState();
 }
 
 class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
-  HubListing? _fullListing;
+  HubListing? _listing;
   EngineCBundleEnvelope? _envelope;
+  List<HubListing> _related = const [];
   bool _loading = true;
   String? _error;
-  List<HubListing> _related = const [];
+  HubService get _hub => HubService(ref.read(secureStorageProvider));
+  HubCardItem get _item {
+    if (_listing == null) return widget.item;
+    return _cardItems(
+          [_listing!],
+          widget.item.subtype.name,
+        ).where((c) => c.subId == widget.item.subId).firstOrNull ??
+        widget.item;
+  }
 
   @override
   void initState() {
@@ -891,368 +520,374 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
   }
 
   Future<void> _fetch() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final detail = await HubService(ref.read(secureStorageProvider))
-          .get(widget.item.listing.id);
-      if (detail.structureId.isNotEmpty) {
-        _related = await HubService(ref.read(secureStorageProvider)).related(detail.structureId);
-      }
-      if (detail.payload != null) {
-        final decoded = jsonDecode(detail.payload!);
-        final env = await ref
-            .read(templateBundleEngineProvider)
-            .parseRawJsonToEnvelope(Map<String, dynamic>.from(decoded as Map));
-        if (!mounted) return;
-        setState(() {
-          _fullListing = detail;
-          _envelope = env;
-          _loading = false;
-        });
-        return;
+      final listing = await _hub.get(widget.item.listing.id);
+      if (listing.payload == null) throw const FormatException('缺少内容');
+      final envelope = await ref
+          .read(templateBundleEngineProvider)
+          .parseRawJsonToEnvelope(
+            Map<String, dynamic>.from(jsonDecode(listing.payload!) as Map),
+          );
+      List<HubListing> related = const [];
+      if (listing.structureId.isNotEmpty) {
+        try {
+          related = await _hub.related(listing.structureId);
+        } on DioException {
+          /* Older custom sources may not support related entries. */
+        }
       }
       if (!mounted) return;
       setState(() {
-        _fullListing = detail;
+        _listing = listing;
+        _envelope = envelope;
+        _related = related;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '读取详情失败: $e';
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = _errorText(e);
+          _loading = false;
+        });
+      }
     }
   }
 
-  void _previewStructureOrPipelineOrTyping() {
-    final env = _envelope;
-    if (env == null || env.units.isEmpty) return;
-    final unit = env.units.first;
-
-    int initialTab = 0;
-    if (widget.item.subtype == HubItemSubtype.pipeline) initialTab = 1;
-    if (widget.item.subtype == HubItemSubtype.typing) initialTab = 2;
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TemplateEditorPage(
-          previewTemplate: unit.structure,
-          initialTabIndex: initialTab,
-          initialProfileId: widget.item.subtype == HubItemSubtype.typing
-              ? widget.item.subId
-              : null,
-        ),
-      ),
+  Future<void> _manage() async {
+    final result = await manageHubPublication(
+      context,
+      _hub,
+      _listing ?? widget.item.listing,
     );
+    if (!mounted) return;
+    if (result == HubManagementResult.deleted) {
+      Navigator.pop(context);
+    } else if (result == HubManagementResult.requested) {
+      await _fetch();
+    }
   }
 
-  void _previewContentTemplate() {
-    final env = _envelope;
-    if (env == null || env.units.isEmpty) return;
-    final unit = env.units.first;
-    final ct = unit.contentTemplates
-            .where((c) => c.id == widget.item.subId)
-            .firstOrNull;
-    if (ct == null) {
-      showAppToast(context, '所选内容已变更，请刷新后重试');
+  void _preview() {
+    final envelope = _envelope;
+    if (envelope == null) return;
+    if (_item.subtype == HubItemSubtype.diagnosis) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.75,
+          builder: (_, scroll) => ListView.builder(
+            controller: scroll,
+            itemCount: envelope.diagnoses.length,
+            itemBuilder: (_, i) {
+              final e = envelope.diagnoses[i];
+              return ListTile(
+                title: Text(e.name),
+                subtitle: Text(
+                  [
+                    e.code,
+                    e.note,
+                    ...e.tags,
+                  ].where((s) => s.isNotEmpty).join(' · '),
+                ),
+              );
+            },
+          ),
+        ),
+      );
       return;
     }
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ContentTemplateEditorPage(
-          structureTemplateId: unit.structure.id,
-          previewStructure: unit.structure,
-          previewContentTemplate: ct,
-        ),
-      ),
-    );
+    final unit = envelope.units.firstOrNull;
+    if (unit == null) return;
+    Widget page;
+    if (_item.subtype == HubItemSubtype.content) {
+      final content = unit.contentTemplates
+          .where((c) => c.id == _item.subId)
+          .firstOrNull;
+      if (content == null) {
+        showAppToast(context, '所选内容已更新，请刷新');
+        return;
+      }
+      page = ContentTemplateEditorPage(
+        structureTemplateId: unit.structure.id,
+        previewStructure: unit.structure,
+        previewContentTemplate: content,
+      );
+    } else {
+      page = TemplateEditorPage(
+        previewTemplate: unit.structure,
+        initialTabIndex: _item.subtype == HubItemSubtype.pipeline
+            ? 1
+            : _item.subtype == HubItemSubtype.typing
+            ? 2
+            : 0,
+        initialProfileId: _item.subtype == HubItemSubtype.typing
+            ? _item.subId
+            : null,
+      );
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
   }
 
-  void _previewDiagnoses() {
-    final env = _envelope;
-    if (env == null) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        builder: (_, scrollCtrl) => ListView(
-          controller: scrollCtrl,
-          padding: const EdgeInsets.all(16),
-          children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('标准词条库预览',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(ctx),
-                ),
-              ],
-            ),
-            const Divider(),
-            for (final d in env.diagnoses)
-              ListTile(
-                dense: true,
-                title: Text('${d.code}  ${d.name}'),
-                subtitle: d.tags.isNotEmpty ? Text('标签: ${d.tags.join(", ")}') : null,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 定向导入：根据当前用户点击的具体子项，构建精准的定向 payload
-  Future<void> _startImport() async {
-    final env = _envelope;
-    final full = _fullListing;
-    if (env == null || full?.payload == null) return;
-
-    String targetedPayload;
+  Future<void> _import() async {
+    final envelope = _envelope;
+    if (envelope == null) return;
     try {
-      targetedPayload = _buildTargetedPayload(env);
+      final payload = selectHubPayload(
+        envelope.toJson(),
+        _item.subtype.name,
+        _item.subId,
+      );
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => EngineCImportSheet(
+          title: '导入 · ${_item.displayName}',
+          initialText: jsonEncode(payload),
+          readme: _listing?.readme ?? '',
+          preview: HubContentPreview(
+            envelope: envelope,
+            subtype: _item.subtype,
+            targetId: _item.subId,
+          ),
+        ),
+      );
     } on FormatException catch (e) {
-      showAppToast(context, e.message);
-      return;
+      if (mounted) showAppToast(context, e.message);
     }
+  }
 
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => EngineCImportSheet(
-        title: '导入 · ${widget.item.formattedTitle}',
-        initialText: targetedPayload,
-        readme: full?.readme ?? '',
-      ),
+  Future<void> _openRelated(HubCardItem item) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => HubDetailSheet(item: item)),
     );
-  }
-
-  String _buildTargetedPayload(EngineCBundleEnvelope original) {
-    return jsonEncode(selectHubPayload(original.toJson(),
-      widget.item.subtype.name, widget.item.subId));
-  }
-
-  void _openRelated(HubListing listing) {
-    final subtype = HubItemSubtype.values.where((v) => v.name == listing.kind).firstOrNull;
-    if (subtype == null) return;
-    final summary = listing.summary;
-    final targetId = subtype == HubItemSubtype.content ? summary.contents.firstOrNull?.id ?? ''
-        : subtype == HubItemSubtype.typing ? summary.profiles.firstOrNull?.id ?? ''
-        : summary.structure?.id ?? '';
-    final name = subtype == HubItemSubtype.content ? summary.contents.firstOrNull?.name ?? listing.title
-        : subtype == HubItemSubtype.typing ? summary.profiles.firstOrNull?.name ?? listing.title
-        : subtype == HubItemSubtype.pipeline ? '默认解析流程' : summary.structure?.name ?? listing.title;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => HubDetailSheet(item: HubCardItem(
-      listing: listing, subtype: subtype, subId: targetId, subName: name,
-      structureName: summary.structure?.name ?? '', formattedTitle: listing.title,
-      primaryDetail: '', secondaryDetail: listing.readme))));
+    if (mounted) await _fetch();
   }
 
   @override
   Widget build(BuildContext context) {
-    final item = widget.item;
-    final listing = _fullListing ?? item.listing;
-
+    final item = _item;
+    final listing = _listing ?? item.listing;
+    final related = [
+      for (final l in _related.where((l) => l.id != listing.id))
+        ..._cardItems([l], l.kind),
+    ];
     return Scaffold(
       appBar: AppBar(
-        title: Text(item.formattedTitle),
+        title: const Text('模板详情'),
+        actions: [
+          if (!_loading && _error == null && listing.isMine)
+            HubPublicationMenu(listing: listing, onManage: _manage),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!))
-              : ListView(
-                  padding: const EdgeInsets.all(16),
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!),
+                  TextButton(onPressed: _fetch, child: const Text('重试')),
+                ],
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.all(18),
+              children: [
+                HubEntryHeading(item: item, large: true),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
                   children: [
-                    // 头部卡片
-                    Card(
-                      elevation: 0,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withAlpha(50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                    if (listing.isMine || listing.visibility == 'private')
+                      Text(
+                        listing.publicationLabel,
+                        style: TextStyle(color: item.accent),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    item.formattedTitle,
-                                    style: const TextStyle(
-                                        fontSize: 17, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                if (listing.isMine || listing.visibility == 'private')
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primaryContainer,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      listing.publicationLabel,
-                                      style: TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.bold,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onPrimaryContainer,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            if (item.structureName.isNotEmpty &&
-                                item.subtype != HubItemSubtype.structure)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text('基于文书类型：${item.structureName}',
-                                    style: const TextStyle(
-                                        fontSize: 13, color: Colors.blueGrey)),
-                              ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '发布时间：${DateFormat("yyyy-MM-dd HH:mm").format(listing.updatedAt.toLocal())}',
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.grey.shade600),
-                            ),
-                          ],
-                        ),
-                      ),
+                    Text(
+                      DateFormat(
+                        'yyyy-MM-dd HH:mm',
+                      ).format(listing.updatedAt.toLocal()),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-
-                    const SizedBox(height: 14),
-                    if (listing.visibility == 'private') ...[
-                      const Text('已下架，仅发布者与管理员可见'),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // 说明文档 (Readme)
-                    if (listing.readme.trim().isNotEmpty) ...[
-                      const Text('使用说明',
-                          style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).cardColor,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: Theme.of(context).dividerColor.withAlpha(60)),
-                        ),
-                        child: Text(
-                          listing.readme.trim(),
-                          style: const TextStyle(fontSize: 13.5, height: 1.5),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // 深度预览卡片入口（复用真实编辑界面）
-                    const Text('内容详情预览',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-
-                    if (item.subtype == HubItemSubtype.content)
-                      ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(
-                              color: Theme.of(context).dividerColor.withAlpha(60)),
-                        ),
-                        leading: const Icon(Icons.article_outlined, color: Colors.indigo),
-                        title: Text('查看内容模板「${item.subName}」完整撰写规范与示例'),
-                        subtitle: const Text('进入内容模板排版视图进行深度查看'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: _previewContentTemplate,
-                      )
-                    else if (item.subtype == HubItemSubtype.diagnosis)
-                      ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(
-                              color: Theme.of(context).dividerColor.withAlpha(60)),
-                        ),
-                        leading: const Icon(Icons.bookmark_outline, color: Colors.teal),
-                        title: const Text('查看全部标准词条清单'),
-                        subtitle: Text(item.primaryDetail),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: _previewDiagnoses,
-                      )
-                    else
-                      ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(
-                              color: Theme.of(context).dividerColor.withAlpha(60)),
-                        ),
-                        leading: const Icon(Icons.schema_outlined, color: Colors.blue),
-                        title: Text(
-                          item.subtype == HubItemSubtype.pipeline
-                              ? '查看完整流程节点与连线'
-                              : (item.subtype == HubItemSubtype.typing
-                                  ? '查看输入方案「${item.subName}」按键动作序列'
-                                  : '查看字段定义与整套结构'),
-                        ),
-                        subtitle: const Text('进入结构编辑器排版视图进行深度查看'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: _previewStructureOrPipelineOrTyping,
-                      ),
-
-                    if (_related.any((r) => r.id != listing.id)) ...[
-                      const SizedBox(height: 24),
-                      const Text('同一文书类型下的内容', style: TextStyle(fontWeight: FontWeight.w500)),
-                      for (final related in _related.where((r) => r.id != listing.id))
-                        ListTile(contentPadding: EdgeInsets.zero, title: Text(related.title),
-                          subtitle: Text(related.isMine ? '我发布的' : '相关内容'),
-                          trailing: const Icon(Icons.chevron_right), onTap: () => _openRelated(related)),
-                    ],
-                    const SizedBox(height: 32),
                   ],
                 ),
+                if (listing.visibility == 'private')
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text('仅发布者与管理员可见'),
+                  ),
+                const SizedBox(height: 22),
+                if (_envelope != null)
+                  HubContentPreview(
+                    envelope: _envelope!,
+                    subtype: item.subtype,
+                    targetId: item.subId,
+                  ),
+                FilledButton.tonalIcon(
+                  onPressed: _preview,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: item.accent.withValues(alpha: 0.12),
+                    foregroundColor: item.accent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: const Text('查看完整内容'),
+                ),
+                if (listing.readme.trim().isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  HubPreviewSection(
+                    title: '使用说明',
+                    child: SelectableText(
+                      listing.readme,
+                      style: const TextStyle(height: 1.65),
+                    ),
+                  ),
+                ],
+                if (related.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '同一文书下的内容',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  for (final r in related)
+                    HubListingCard(item: r, onTap: () => _openRelated(r)),
+                ],
+              ],
+            ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
           child: FilledButton.icon(
-            icon: const Icon(Icons.download),
-            label: Text(_buildImportButtonLabel(item)),
-            onPressed: (_loading || _error != null) ? null : _startImport,
+            onPressed: _loading || _error != null ? null : _import,
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('导入到本地'),
           ),
         ),
       ),
     );
   }
+}
 
-  String _buildImportButtonLabel(HubCardItem item) {
-    switch (item.subtype) {
-      case HubItemSubtype.structure:
-        return '导入文书类型到本地';
-      case HubItemSubtype.pipeline:
-        return '导入此流程到本地';
-      case HubItemSubtype.typing:
-        return '导入输入方案「${item.subName}」到本地';
-      case HubItemSubtype.content:
-        return '导入内容模板「${item.subName}」到本地';
-      case HubItemSubtype.diagnosis:
-        return '导入标准词条库到本地';
+class _HubSettingsDialog extends StatefulWidget {
+  final HubService service;
+  final String initialUrl;
+  final String initialToken;
+  const _HubSettingsDialog({
+    required this.service,
+    required this.initialUrl,
+    required this.initialToken,
+  });
+  @override
+  State<_HubSettingsDialog> createState() => _HubSettingsDialogState();
+}
+
+class _HubSettingsDialogState extends State<_HubSettingsDialog> {
+  late final _url = TextEditingController(text: widget.initialUrl);
+  late final _token = TextEditingController(text: widget.initialToken);
+  bool _busy = false;
+  String? _message;
+  @override
+  void dispose() {
+    _url.dispose();
+    _token.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    try {
+      await widget.service.setBaseUrl(_url.text);
+      await widget.service.setAdminToken(_token.text);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _message = e is FormatException ? e.message : '保存失败';
+        });
+      }
     }
   }
+
+  Future<void> _test() async {
+    setState(() => _busy = true);
+    final ok = await widget.service.testConnection(_url.text);
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _message = ok ? '连接成功' : '连接失败';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('模板库设置'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _url,
+            enabled: !_busy,
+            onChanged: (_) => _token.clear(),
+            decoration: InputDecoration(
+              labelText: '服务器地址',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: '恢复默认',
+                onPressed: _busy
+                    ? null
+                    : () {
+                        _url.text = HubService.defaultBaseUrl;
+                        _token.clear();
+                      },
+                icon: const Icon(Icons.restore),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _busy ? null : _test,
+              child: const Text('测试连接'),
+            ),
+          ),
+          if (_message != null) Text(_message!),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _token,
+            enabled: !_busy,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: '管理员密钥（选填）',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _busy ? null : () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(onPressed: _busy ? null : _save, child: const Text('保存')),
+    ],
+  );
 }

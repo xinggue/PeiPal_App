@@ -183,6 +183,7 @@ class HubListing {
   final String id;
   final String kind;
   final String title;
+  final String name;
   final String readme;
   final Map<String, dynamic> counts;
   final HubListingSummary summary;
@@ -200,6 +201,7 @@ class HubListing {
     required this.id,
     required this.kind,
     required this.title,
+    this.name = '',
     required this.readme,
     required this.counts,
     required this.summary,
@@ -218,6 +220,7 @@ class HubListing {
     id: json['id'] as String,
     kind: json['kind'] as String? ?? '',
     title: json['title'] as String? ?? '',
+    name: json['name'] as String? ?? '',
     readme: json['readme'] as String? ?? '',
     counts: Map<String, dynamic>.from(json['counts'] as Map? ?? const {}),
     summary: json['summary'] is Map
@@ -512,12 +515,18 @@ class HubService {
     return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<void> delete(String id) async {
+  Future<int> delete(String id, {bool includeOwnChildren = false}) async {
     final base = await getBaseUrl();
-    await _dio.delete(
+    final result = await _dio.delete(
       '$base/v1/listings/$id',
-      data: {'ownerKey': await ownerKey(baseUrl: base)},
+      data: {
+        'ownerKey': await ownerKey(baseUrl: base),
+        if (includeOwnChildren) 'include_own_children': true,
+      },
     );
+    return result.data is Map
+        ? (result.data['deleted_count'] as num?)?.toInt() ?? 1
+        : 1;
   }
 
   Future<void> requestStructureWithdrawal(

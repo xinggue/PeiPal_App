@@ -132,7 +132,8 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
 
   String _suggestedFilePrefix() {
     if (widget.diagnosisOnlyMode) {
-      final name = ref
+      final name =
+          ref
               .read(catalogsProvider)
               .valueOrNull
               ?.where((c) => c.id == widget.catalogType)
@@ -156,22 +157,34 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
         return;
       }
       Navigator.pop(context);
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => HubBatchPublishPage(
-          diagnosisMode: true,
-          catalogType: widget.catalogType,
-          selectedDiagnosisTags: _selectedDiagTags.toList(),
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => HubBatchPublishPage(
+            diagnosisMode: true,
+            catalogType: widget.catalogType,
+            selectedDiagnosisTags: _selectedDiagTags.toList(),
+          ),
         ),
-      ));
+      );
       return;
     }
 
     if (t == null) return;
-    final allCts = (ref.read(contentTemplatesProvider(t.id)).valueOrNull ?? const <ContentTemplate>[]);
-    final selectedProfiles = t.typingProfiles.where((p) => _selectedProfileIds.contains(p.id)).toList();
-    final selectedCts = allCts.where((c) => _selectedCtIds.contains(c.id)).toList();
+    final allCts =
+        (ref.read(contentTemplatesProvider(t.id)).valueOrNull ??
+        const <ContentTemplate>[]);
+    final selectedProfiles = t.typingProfiles
+        .where((p) => _selectedProfileIds.contains(p.id))
+        .toList();
+    final selectedCts = allCts
+        .where((c) => _selectedCtIds.contains(c.id))
+        .toList();
 
-    final hasAny = _includeStructure || _includePipeline || selectedProfiles.isNotEmpty || selectedCts.isNotEmpty;
+    final hasAny =
+        _includeStructure ||
+        _includePipeline ||
+        selectedProfiles.isNotEmpty ||
+        selectedCts.isNotEmpty;
     if (!hasAny) {
       showAppToast(context, '请至少勾选一项要发布的内容');
       return;
@@ -187,9 +200,11 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
     );
 
     Navigator.pop(context);
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => HubBatchPublishPage(selection: selection),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HubBatchPublishPage(selection: selection),
+      ),
+    );
   }
 
   Future<void> _confirmExport(List<String> allLibraryTags) async {
@@ -220,15 +235,17 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final catalogName = ref
+    final catalogName =
+        ref
             .watch(catalogsProvider)
             .valueOrNull
             ?.where((c) => c.id == widget.catalogType)
             .firstOrNull
             ?.name ??
         widget.catalogType;
-    final allLibraryTags =
-        ref.watch(catalogTagsProviderFamily(widget.catalogType));
+    final allLibraryTags = ref.watch(
+      catalogTagsProviderFamily(widget.catalogType),
+    );
     final t = widget.focusTemplate;
     final cts = t != null
         ? (ref.watch(contentTemplatesProvider(t.id)).valueOrNull ?? const [])
@@ -272,7 +289,9 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
                         ? '导出词库 · $catalogName'
                         : '导出模板 · ${t?.name ?? ""}',
                     style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 TextButton(
@@ -288,10 +307,11 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
                         if (t.pipeline.nodes.isNotEmpty) {
                           _includePipeline = true;
                         }
-                        _selectedProfileIds
-                            .addAll(t.typingProfiles.map((p) => p.id));
+                        _selectedProfileIds.addAll(
+                          t.typingProfiles.map((p) => p.id),
+                        );
                         _selectedCtIds.addAll(cts.map((c) => c.id));
-                                      }
+                      }
                     });
                   },
                   child: const Text('全选'),
@@ -356,15 +376,15 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
     final bool? profilesParentState = profiles.isEmpty
         ? false
         : (_selectedProfileIds.length == profiles.length
-            ? true
-            : (_selectedProfileIds.isEmpty ? false : null));
+              ? true
+              : (_selectedProfileIds.isEmpty ? false : null));
 
     // 计算「内容模板」父级三态值：true (全选), false (全不选), null (半选)
     final bool? ctsParentState = cts.isEmpty
         ? false
         : (_selectedCtIds.length == cts.length
-            ? true
-            : (_selectedCtIds.isEmpty ? false : null));
+              ? true
+              : (_selectedCtIds.isEmpty ? false : null));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,8 +523,8 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
     final bool? parentState = allTags.isEmpty
         ? false
         : (_selectedDiagTags.length == allTags.length
-            ? true
-            : (_selectedDiagTags.isEmpty ? false : null));
+              ? true
+              : (_selectedDiagTags.isEmpty ? false : null));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -618,14 +638,19 @@ class _ExportPreviewPageState extends State<ExportPreviewPage> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: [
-                Text('共 $count 字',
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(
+                  '共 $count 字',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
                 if (!_canCopy) ...[
                   const SizedBox(width: 8),
-                  Text('超过 $_copyLimit 字，不能复制',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context).colorScheme.error)),
+                  Text(
+                    '超过 $_copyLimit 字，不能复制',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -668,7 +693,9 @@ class _ExportPreviewPageState extends State<ExportPreviewPage> {
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
                           : const Icon(Icons.save_alt, size: 18),
                       label: const Text('导出为配置文件'),
@@ -689,18 +716,17 @@ class EngineCImportSheet extends ConsumerStatefulWidget {
   final String title;
   final String? initialText;
   final String readme;
+  final Widget? preview;
 
   const EngineCImportSheet({
     super.key,
     this.title = '导入配置文本',
     this.initialText,
     this.readme = '',
+    this.preview,
   });
 
-  static Future<void> show(
-    BuildContext context, {
-    String title = '导入配置文本',
-  }) {
+  static Future<void> show(BuildContext context, {String title = '导入配置文本'}) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -778,8 +804,9 @@ class _EngineCImportSheetState extends ConsumerState<EngineCImportSheet> {
         throw const FormatException('内容格式不正确');
       }
       final map = Map<String, dynamic>.from(decoded);
-      final plan =
-          await ref.read(templateBundleEngineProvider).analyzeImport(map);
+      final plan = await ref
+          .read(templateBundleEngineProvider)
+          .analyzeImport(map);
 
       if (mounted) {
         setState(() {
@@ -812,8 +839,7 @@ class _EngineCImportSheetState extends ConsumerState<EngineCImportSheet> {
       for (final u in plan.unitPlans) {
         ref.invalidate(contentTemplatesProvider(u.unit.structure.id));
         if (u.matchedLocalStructure != null) {
-          ref.invalidate(
-              contentTemplatesProvider(u.matchedLocalStructure!.id));
+          ref.invalidate(contentTemplatesProvider(u.matchedLocalStructure!.id));
         }
       }
       ref.invalidate(favoriteDiagnosesProvider);
@@ -879,19 +905,23 @@ class _EngineCImportSheetState extends ConsumerState<EngineCImportSheet> {
                   child: Text(
                     widget.title,
                     style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                TextButton.icon(
-                  icon: const Icon(Icons.folder_open, size: 16),
-                  label: const Text('选择配置文件'),
-                  onPressed: _pickConfigFile,
-                ),
-                TextButton.icon(
-                  icon: const Icon(Icons.content_paste, size: 16),
-                  label: const Text('粘贴'),
-                  onPressed: _pasteFromClipboard,
-                ),
+                if (widget.preview == null)
+                  TextButton.icon(
+                    icon: const Icon(Icons.folder_open, size: 16),
+                    label: const Text('选择配置文件'),
+                    onPressed: _pickConfigFile,
+                  ),
+                if (widget.preview == null)
+                  TextButton.icon(
+                    icon: const Icon(Icons.content_paste, size: 16),
+                    label: const Text('粘贴'),
+                    onPressed: _pasteFromClipboard,
+                  ),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.pop(context),
@@ -899,36 +929,53 @@ class _EngineCImportSheetState extends ConsumerState<EngineCImportSheet> {
               ],
             ),
             const Divider(height: 8),
-            if (widget.readme.trim().isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(widget.readme.trim()),
-              ),
             Flexible(
               child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextField(
-                      controller: _textCtrl,
-                      maxLines: _plan == null ? 5 : 3,
-                      style: const TextStyle(
-                          fontFamily: 'monospace', fontSize: 11.5),
-                      decoration: InputDecoration(
-                        hintText: '选择上方配置文件，或直接在此粘贴配置文本...',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: _textCtrl.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  _textCtrl.clear();
-                                  _analyzeText('');
-                                },
-                              )
-                            : null,
+                    if (widget.preview != null) widget.preview!,
+                    if (widget.readme.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              '使用说明',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.readme.trim(),
+                              style: const TextStyle(height: 1.65),
+                            ),
+                          ],
+                        ),
                       ),
-                      onChanged: _analyzeText,
-                    ),
+                    if (widget.preview == null)
+                      TextField(
+                        controller: _textCtrl,
+                        maxLines: _plan == null ? 5 : 3,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11.5,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '选择上方配置文件，或直接在此粘贴配置文本...',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: _textCtrl.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _textCtrl.clear();
+                                    _analyzeText('');
+                                  },
+                                )
+                              : null,
+                        ),
+                        onChanged: _analyzeText,
+                      ),
                     const SizedBox(height: 10),
                     if (_isAnalyzing)
                       const Padding(
@@ -938,8 +985,10 @@ class _EngineCImportSheetState extends ConsumerState<EngineCImportSheet> {
                     if (_parseError != null)
                       Text(
                         _parseError!,
-                        style:
-                            const TextStyle(color: Colors.red, fontSize: 12.5),
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12.5,
+                        ),
                       ),
                     if (_plan != null)
                       EngineCPlanPreviewWidget(
@@ -952,8 +1001,10 @@ class _EngineCImportSheetState extends ConsumerState<EngineCImportSheet> {
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: (_plan != null &&
+              onPressed:
+                  (_plan != null &&
                       _plan!.hasAnyExecutable &&
+                      !_isAnalyzing &&
                       !_isExecuting)
                   ? _executePlan
                   : null,
@@ -1029,12 +1080,16 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
                       Text(
                         '${struct.name} (${struct.slots.length} 个字段)',
                         style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                       Text(
                         statusText,
                         style: const TextStyle(
-                            fontSize: 12, color: Colors.blueGrey),
+                          fontSize: 12,
+                          color: Colors.blueGrey,
+                        ),
                       ),
                     ],
                   ),
@@ -1061,7 +1116,10 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
                       ),
                       if (unitPlan.structureAction ==
                               StructureMatchAction.matchAndReuseLocal &&
-                          unitPlan.matchedLocalStructure!.pipeline.nodes
+                          unitPlan
+                              .matchedLocalStructure!
+                              .pipeline
+                              .nodes
                               .isNotEmpty &&
                           unitPlan.pipelineAction !=
                               PipelineMatchAction.unchanged)
@@ -1071,7 +1129,8 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                           ),
                           onPressed: () {
-                            unitPlan.pipelineAction = unitPlan.pipelineAction ==
+                            unitPlan.pipelineAction =
+                                unitPlan.pipelineAction ==
                                     PipelineMatchAction.replaceLocal
                                 ? PipelineMatchAction.keepLocal
                                 : PipelineMatchAction.replaceLocal;
@@ -1160,10 +1219,7 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
             value: StructureMatchAction.createNew,
             child: Text('导入'),
           ),
-          DropdownMenuItem(
-            value: StructureMatchAction.skip,
-            child: Text('跳过'),
-          ),
+          DropdownMenuItem(value: StructureMatchAction.skip, child: Text('跳过')),
         ],
         onChanged: (v) {
           if (v != null) {
@@ -1223,10 +1279,7 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
           value: ChildItemMatchAction.overwriteLocalChild,
           child: Text('覆盖同名项'),
         ),
-        PopupMenuItem(
-          value: ChildItemMatchAction.skip,
-          child: Text('跳过'),
-        ),
+        PopupMenuItem(value: ChildItemMatchAction.skip, child: Text('跳过')),
       ],
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1234,8 +1287,8 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
           current == ChildItemMatchAction.forkChildCopy
               ? '新建副本 ▾'
               : current == ChildItemMatchAction.overwriteLocalChild
-                  ? '覆盖 ▾'
-                  : '跳过 ▾',
+              ? '覆盖 ▾'
+              : '跳过 ▾',
           style: const TextStyle(fontSize: 12, color: Colors.blue),
         ),
       ),
@@ -1284,8 +1337,9 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
   Widget _buildDiagnosisCard(BuildContext context, WidgetRef ref) {
     final dp = plan.diagnosisPlan;
     final catalogNames = {
-      for (final c in (ref.watch(catalogsProvider).valueOrNull ??
-          const <CatalogDefinition>[]))
+      for (final c
+          in (ref.watch(catalogsProvider).valueOrNull ??
+              const <CatalogDefinition>[]))
         c.id: c.name,
     };
 
@@ -1308,8 +1362,10 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
         .where((entry) => entry.value.isNotEmpty)
         .toList();
     if (newTagEntries.isNotEmpty) {
-      final total =
-          newTagEntries.fold<int>(0, (sum, entry) => sum + entry.value.length);
+      final total = newTagEntries.fold<int>(
+        0,
+        (sum, entry) => sum + entry.value.length,
+      );
       if (newTagEntries.length == 1) {
         parts.add('新增标签 $total 个');
       } else {
@@ -1334,8 +1390,10 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
           dp.enabled = v ?? false;
           onChanged();
         },
-        title: const Text('标准词条库',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+        title: const Text(
+          '标准词条库',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+        ),
         subtitle: Text(
           parts.isEmpty ? '包含标准词条与分类标签' : parts.join(' · '),
           style: const TextStyle(fontSize: 12),
@@ -1373,8 +1431,10 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
                 onChanged();
               },
               title: const Text('Prompt 提示词配置'),
-              subtitle: const Text('AI 提示词模板与反推提取参数',
-                  style: TextStyle(fontSize: 12)),
+              subtitle: const Text(
+                'AI 提示词模板与反推提取参数',
+                style: TextStyle(fontSize: 12),
+              ),
             ),
           if (plan.envelope.deviceAndOutputConfigs != null)
             CheckboxListTile(
@@ -1385,8 +1445,10 @@ class EngineCPlanPreviewWidget extends ConsumerWidget {
                 onChanged();
               },
               title: const Text('外设时序与输出设置'),
-              subtitle: const Text('时序预设、按键兼容替换、悬浮窗与二维码设置',
-                  style: TextStyle(fontSize: 12)),
+              subtitle: const Text(
+                '时序预设、按键兼容替换、悬浮窗与二维码设置',
+                style: TextStyle(fontSize: 12),
+              ),
             ),
         ],
       ),
