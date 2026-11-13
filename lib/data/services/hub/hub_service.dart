@@ -192,6 +192,8 @@ class HubListing {
   final String structureId;
   final String institution;
   final String versionId;
+  final String visibility;
+  final bool withdrawalPending;
   final DateTime updatedAt;
 
   const HubListing({
@@ -208,6 +210,8 @@ class HubListing {
     this.structureId = '',
     this.institution = '',
     this.versionId = '',
+    this.visibility = 'public',
+    this.withdrawalPending = false,
   });
 
   factory HubListing.fromJson(Map<String, dynamic> json) => HubListing(
@@ -227,10 +231,20 @@ class HubListing {
     structureId: json['structure_id'] as String? ?? '',
     institution: json['institution'] as String? ?? '',
     versionId: json['version_id'] as String? ?? '',
+    visibility: json['visibility'] as String? ?? 'public',
+    withdrawalPending: json['withdrawal_pending'] == true,
     updatedAt:
         DateTime.tryParse(json['updated_at']?.toString() ?? '') ??
         DateTime.now(),
   );
+
+  String get publicationLabel {
+    if (visibility == 'private') return '已下架';
+    if (kind == 'structure' && withdrawalPending) return '下架审核中';
+    if (status == 'pending') return '审核中';
+    if (status == 'rejected') return '未通过';
+    return '我发布的';
+  }
 }
 
 class HubService {
@@ -503,6 +517,20 @@ class HubService {
     await _dio.delete(
       '$base/v1/listings/$id',
       data: {'ownerKey': await ownerKey(baseUrl: base)},
+    );
+  }
+
+  Future<void> requestStructureWithdrawal(
+    String structureId,
+    String reason,
+  ) async {
+    final base = await getBaseUrl();
+    await _dio.post(
+      '$base/v2/structures/$structureId/withdrawals',
+      data: {
+        'ownerKey': await ownerKey(baseUrl: base),
+        'reason': reason.trim(),
+      },
     );
   }
 

@@ -1,5 +1,6 @@
 import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -50,6 +51,44 @@ enum HubItemSubtype {
   diagnosis,
   typing,
   pipeline,
+}
+
+class _StructureWithdrawalDialog extends StatefulWidget {
+  final String name;
+  const _StructureWithdrawalDialog({required this.name});
+
+  @override
+  State<_StructureWithdrawalDialog> createState() => _StructureWithdrawalDialogState();
+}
+
+class _StructureWithdrawalDialogState extends State<_StructureWithdrawalDialog> {
+  final _reason = TextEditingController();
+  final _form = GlobalKey<FormState>();
+
+  @override
+  void dispose() { _reason.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('申请下架文书类型'),
+    content: SingleChildScrollView(child: Form(key: _form,
+      child: Column(mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(widget.name),
+          const SizedBox(height: 8),
+          const Text('审核通过后，该文书类型及全部关联内容仅各自发布者与管理员可见。'),
+          const SizedBox(height: 16),
+          TextFormField(controller: _reason, minLines: 2, maxLines: 5, maxLength: 1000,
+            decoration: const InputDecoration(labelText: '下架原因', border: OutlineInputBorder()),
+            validator: (v) => v == null || v.trim().isEmpty ? '请填写下架原因' : null),
+        ]))),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+      FilledButton(onPressed: () {
+        if (_form.currentState!.validate()) Navigator.pop(context, _reason.text.trim());
+      }, child: const Text('提交申请')),
+    ],
+  );
 }
 
 class TemplateHubPage extends ConsumerStatefulWidget {
@@ -234,6 +273,10 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
   }
 
   Future<void> _remove(HubListing listing) async {
+    if (listing.kind == 'structure') {
+      await _requestWithdrawal(listing);
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -259,6 +302,24 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
     } catch (e) {
       if (!mounted) return;
       showAppToast(context, '删除失败: $e');
+    }
+  }
+
+  Future<void> _requestWithdrawal(HubListing listing) async {
+    if (listing.visibility == 'private' || listing.withdrawalPending) return;
+    final reason = await showDialog<String>(context: context,
+      builder: (_) => _StructureWithdrawalDialog(name: listing.title));
+    if (reason == null || !mounted) return;
+    try {
+      await _hub.requestStructureWithdrawal(listing.structureId, reason);
+      if (!mounted) return;
+      showAppToast(context, '下架申请已提交');
+      await _load();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final message = e.response?.data is Map
+          ? e.response!.data['error']?.toString() : null;
+      showAppToast(context, message ?? '提交失败，请稍后重试');
     }
   }
 
@@ -705,7 +766,7 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (isMine) ...[
+                  if (isMine || listing.visibility == 'private') ...[
                     const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
@@ -716,7 +777,7 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        listing.status == 'pending' ? '审核中' : '我发布的',
+                        listing.publicationLabel,
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.bold,
@@ -735,11 +796,15 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                       onSelected: (action) {
                         if (action == 'delete') _remove(listing);
                       },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Text('删除发布', style: TextStyle(color: Colors.red, fontSize: 13)),
-                        ),
+                      itemBuilder: (_) => [
+                        if (listing.kind == 'structure')
+                          PopupMenuItem(value: 'delete',
+                            enabled: listing.visibility != 'private' && !listing.withdrawalPending,
+                            child: Text(listing.visibility == 'private' ? '已下架'
+                                : listing.withdrawalPending ? '下架审核中' : '申请下架'))
+                        else
+                          const PopupMenuItem(value: 'delete',
+                            child: Text('删除发布', style: TextStyle(color: Colors.red, fontSize: 13))),
                       ],
                     ),
                 ],
@@ -1030,7 +1095,7 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
                                         fontSize: 17, fontWeight: FontWeight.bold),
                                   ),
                                 ),
-                                if (listing.isMine)
+                                if (listing.isMine || listing.visibility == 'private')
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 8, vertical: 3),
@@ -1041,7 +1106,7 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
-                                      '我发布的',
+                                      listing.publicationLabel,
                                       style: TextStyle(
                                         fontSize: 11.5,
                                         fontWeight: FontWeight.bold,
@@ -1073,6 +1138,10 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
                     ),
 
                     const SizedBox(height: 14),
+                    if (listing.visibility == 'private') ...[
+                      const Text('已下架，仅发布者与管理员可见'),
+                      const SizedBox(height: 14),
+                    ],
 
                     // 说明文档 (Readme)
                     if (listing.readme.trim().isNotEmpty) ...[
