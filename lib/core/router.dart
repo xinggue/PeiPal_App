@@ -32,7 +32,8 @@ import '../presentation/pages/hub/template_hub_page.dart';
 import '../presentation/pages/settings/char_replacement_settings_page.dart';
 import '../presentation/pages/settings/about_page.dart';
 import '../presentation/pages/settings/disclaimer_page.dart';
-import '../presentation/pages/settings/zhipu_key_guide_page.dart';
+import '../presentation/pages/settings/api_key_guide_page.dart';
+import '../presentation/pages/settings/api_key_guides_page.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -270,9 +271,19 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const DisclaimerPage(),
       ),
       GoRoute(
+        path: '/settings/api-key-guides',
+        name: 'api_key_guides',
+        builder: (context, state) => const ApiKeyGuidesPage(),
+      ),
+      GoRoute(
+        path: '/settings/deepseek-key-guide',
+        name: 'deepseek_key_guide',
+        builder: (context, state) => const ApiKeyGuidePage(provider: ApiKeyGuideProvider.deepseek),
+      ),
+      GoRoute(
         path: '/settings/zhipu-key-guide',
         name: 'zhipu_key_guide',
-        builder: (context, state) => const ZhipuKeyGuidePage(),
+        builder: (context, state) => const ApiKeyGuidePage(provider: ApiKeyGuideProvider.zhipu),
       ),
     ],
   );

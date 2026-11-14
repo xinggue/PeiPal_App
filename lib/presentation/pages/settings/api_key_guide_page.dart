@@ -15,6 +15,17 @@ import '../../../providers/providers.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/common/app_toast.dart';
 
+final apiKeyGuideDioProvider = Provider<Dio>((ref) {
+  final dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 25),
+    ),
+  );
+  ref.onDispose(() => dio.close());
+  return dio;
+});
+
 class _GuideStep {
   final int number;
   final String title;
@@ -29,19 +40,86 @@ class _GuideStep {
   });
 }
 
-class ZhipuKeyGuidePage extends ConsumerStatefulWidget {
-  const ZhipuKeyGuidePage({super.key});
+enum ApiKeyGuideProvider {
+  deepseek,
+  zhipu;
 
-  @override
-  ConsumerState<ZhipuKeyGuidePage> createState() => _ZhipuKeyGuidePageState();
+  String get label => this == deepseek ? 'DeepSeek' : '智谱';
 }
 
-class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
-  static const String _bigModelUrl = 'https://bigmodel.cn';
-  static const String _zhipuBaseUrl = 'https://open.bigmodel.cn/api/paas/v4';
-  static const String _defaultLlmModel = 'glm-5.3-flashx';
-  static const String _defaultOcrModel = 'glm-ocr';
-  static const String _defaultAsrModel = 'glm-asr-2512';
+class ApiKeyGuidePage extends ConsumerStatefulWidget {
+  final ApiKeyGuideProvider provider;
+
+  const ApiKeyGuidePage({super.key, required this.provider});
+
+  @override
+  ConsumerState<ApiKeyGuidePage> createState() => _ApiKeyGuidePageState();
+}
+
+class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
+  bool get _isDeepSeek => widget.provider == ApiKeyGuideProvider.deepseek;
+  String get _providerId => widget.provider.name;
+  String get _providerName => widget.provider.label;
+  String get _website =>
+      _isDeepSeek ? 'https://www.deepseek.com' : 'https://bigmodel.cn';
+  LlmProviderConfig get _llmPreset =>
+      LlmProviderPresets.builtIn.firstWhere((p) => p.id == _providerId);
+  OcrProviderConfig get _ocrPreset =>
+      OcrProviderPresets.builtIn.firstWhere((p) => p.id == _providerId);
+  AsrProviderConfig get _asrPreset =>
+      AsrProviderPresets.builtIn.firstWhere((p) => p.id == _providerId);
+  String get _defaultLlmModel => _llmPreset.selectedModel;
+  String get _defaultOcrModel => _ocrPreset.selectedModel;
+  String get _defaultAsrModel => _asrPreset.selectedModel;
+
+  static const List<_GuideStep> _deepSeekSteps = [
+    _GuideStep(
+      number: 1,
+      title: '用电脑打开 DeepSeek 官网',
+      description: '用电脑浏览器打开 https://www.deepseek.com，点击「API 开放平台」。',
+      assetPath: 'assets/tutorial/deepseek_key/01_home.webp',
+    ),
+    _GuideStep(
+      number: 2,
+      title: '注册或登录',
+      description: '请在电脑上完成注册：用手机号验证码或微信扫码登录，未注册的手机号会自动注册。',
+      assetPath: 'assets/tutorial/deepseek_key/02_register.webp',
+    ),
+    _GuideStep(
+      number: 3,
+      title: '完成实名认证',
+      description: '在「用量信息」页点击「去认证」，按提示完成个人或企业实名认证，再继续使用 API。',
+      assetPath: 'assets/tutorial/deepseek_key/03_verification.webp',
+    ),
+    _GuideStep(
+      number: 4,
+      title: '确认余额并按需充值',
+      description:
+          '在「用量信息」查看余额，不足时点「去充值」。可以先充 10 元，日常少量使用通常能用很久，用完再充；实际花费以调用量为准。网页版免费聊天与 API 余额分开。',
+      assetPath: 'assets/tutorial/deepseek_key/04_balance.webp',
+    ),
+    _GuideStep(
+      number: 5,
+      title: '创建 API Key',
+      description: '点击左侧「API keys」，再点击右侧「创建 API key」。',
+      assetPath: 'assets/tutorial/deepseek_key/05_create_key.webp',
+    ),
+    _GuideStep(
+      number: 6,
+      title: '给 Key 起个名字',
+      description: '填写一个便于辨认的名称（如「PeiPal」），方便以后找到这个 Key，再点击「创建」。',
+      assetPath: 'assets/tutorial/deepseek_key/06_name_key.webp',
+    ),
+    _GuideStep(
+      number: 7,
+      title: '复制并妥善保存 Key',
+      description:
+          'Key 只在这里显示这一次！点「复制」，建议先发到电脑微信「文件传输助手」并妥善保存，再到本页下方粘贴。核对原始 Key 的前 4 位与末 4 位，确认复制完整、没有漏字符。',
+      assetPath: 'assets/tutorial/deepseek_key/07_copy_key.webp',
+    ),
+  ];
+
+  List<_GuideStep> get _guideSteps => _isDeepSeek ? _deepSeekSteps : _steps;
 
   static const List<_GuideStep> _steps = [
     _GuideStep(
@@ -53,8 +131,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
     _GuideStep(
       number: 2,
       title: '注册账号并领免费额度',
-      description:
-          '务必在电脑上完成注册：用手机号验证码或微信扫码登录（未注册会自动建号），新用户会赠送免费 Tokens 体验包。',
+      description: '务必在电脑上完成注册：用手机号验证码或微信扫码登录（未注册会自动建号），新用户会赠送免费 Tokens 体验包。',
       assetPath: 'assets/tutorial/zhipu_key/02_register.webp',
     ),
     _GuideStep(
@@ -139,7 +216,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
       final existing = ref
           .read(llmProvidersProvider)
           .providers
-          .where((p) => p.id == 'zhipu')
+          .where((p) => p.id == _providerId)
           .firstOrNull;
       if (existing != null &&
           existing.apiKey.trim().isNotEmpty &&
@@ -156,9 +233,9 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
   }
 
   Future<void> _copyWebsite() async {
-    await Clipboard.setData(const ClipboardData(text: _bigModelUrl));
+    await Clipboard.setData(ClipboardData(text: _website));
     if (mounted) {
-      showAppToast(context, '已复制 https://bigmodel.cn，请发到电脑浏览器打开');
+      showAppToast(context, '已复制 $_website');
     }
   }
 
@@ -188,10 +265,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
               minScale: 1.0,
               maxScale: 5.0,
               child: Center(
-                child: Image.asset(
-                  step.assetPath,
-                  fit: BoxFit.contain,
-                ),
+                child: Image.asset(step.assetPath, fit: BoxFit.contain),
               ),
             ),
           ),
@@ -214,7 +288,10 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
             child: IgnorePointer(
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(16),
@@ -235,7 +312,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
   Future<void> _verifyAndSaveAll() async {
     final apiKey = _keyController.text.trim();
     if (apiKey.isEmpty) {
-      setState(() => _verifyError = '请先粘贴或输入智谱 API Key');
+      setState(() => _verifyError = '请先粘贴或输入$_providerName API Key');
       return;
     }
 
@@ -245,19 +322,20 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
     });
 
     try {
-      final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 25),
-      ));
+      final dio = ref.read(apiKeyGuideDioProvider);
 
       final resp = await dio.post(
-        '$_zhipuBaseUrl/chat/completions',
+        '${_llmPreset.baseUrl}/chat/completions',
         data: {
           'model': _defaultLlmModel,
           'messages': [
             {'role': 'user', 'content': 'hi'},
           ],
-          'max_tokens': 1,
+          'max_tokens': _isDeepSeek ? 16 : 1,
+          if (_isDeepSeek) ...{
+            'thinking': {'type': 'enabled'},
+            'reasoning_effort': 'low',
+          },
         },
         options: Options(
           headers: {
@@ -267,6 +345,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
           validateStatus: (_) => true,
         ),
       );
+      if (!mounted) return;
 
       final ok = resp.statusCode == 200;
       if (!ok) {
@@ -278,8 +357,14 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
           final code = err['code']?.toString() ?? '';
           if (resp.statusCode == 401) {
             detail = 'API Key 无效或未复制完整 (401)';
-          } else if (code == '1113' || msg.contains('余额') || msg.contains('欠费')) {
-            detail = '账号余额或免费额度不足，请先确认是否已完成第 10 步实名认证或第 11 步充值（$msg）';
+          } else if (code == '1113' ||
+              msg.contains('余额') ||
+              msg.contains('欠费')) {
+            detail = _isDeepSeek
+                ? '余额不足，请到 DeepSeek 开放平台确认余额并充值。'
+                : '账号余额或免费额度不足，请先确认是否已完成第 10 步实名认证或第 11 步充值（$msg）';
+          } else if (resp.statusCode == 402) {
+            detail = '余额不足，请到$_providerName开放平台确认余额并充值。';
           } else if (msg.isNotEmpty) {
             detail = '$msg${code.isNotEmpty ? " ($code)" : ""}';
           }
@@ -295,59 +380,60 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
         return;
       }
 
-      // 1. 写入并激活 LLM（智谱 glm-5.3-flashx）
+      // 写入并激活所选服务商的文本、识图和语音服务。
       final llmNotifier = ref.read(llmProvidersProvider.notifier);
       final existingLlm = ref
           .read(llmProvidersProvider)
           .providers
-          .where((p) => p.id == 'zhipu')
+          .where((p) => p.id == _providerId)
           .firstOrNull;
-      final baseLlm = existingLlm ??
-          LlmProviderPresets.builtIn.firstWhere((p) => p.id == 'zhipu');
+      final baseLlm = existingLlm ?? _llmPreset;
       await llmNotifier.updateProvider(
         baseLlm.copyWith(
-          baseUrl: _zhipuBaseUrl,
+          baseUrl: _llmPreset.baseUrl,
           apiKey: apiKey,
           selectedModel: _defaultLlmModel,
+          isEnabled: true,
+          reasoningEfforts: _isDeepSeek
+              ? {...baseLlm.reasoningEfforts, _defaultLlmModel: 'low'}
+              : baseLlm.reasoningEfforts,
         ),
       );
-      await llmNotifier.setActiveProvider('zhipu', model: _defaultLlmModel);
+      await llmNotifier.setActiveProvider(_providerId, model: _defaultLlmModel);
 
-      // 2. 写入并激活 OCR（智谱 glm-ocr）
       final ocrNotifier = ref.read(ocrProvidersProvider.notifier);
       final existingOcr = ref
           .read(ocrProvidersProvider)
           .providers
-          .where((p) => p.id == 'zhipu')
+          .where((p) => p.id == _providerId)
           .firstOrNull;
-      final baseOcr = existingOcr ??
-          OcrProviderPresets.builtIn.firstWhere((p) => p.id == 'zhipu');
+      final baseOcr = existingOcr ?? _ocrPreset;
       await ocrNotifier.updateProvider(
         baseOcr.copyWith(
-          baseUrl: _zhipuBaseUrl,
+          baseUrl: _ocrPreset.baseUrl,
           apiKey: apiKey,
           selectedModel: _defaultOcrModel,
+          isEnabled: true,
         ),
       );
-      await ocrNotifier.setActiveProvider('zhipu', model: _defaultOcrModel);
+      await ocrNotifier.setActiveProvider(_providerId, model: _defaultOcrModel);
 
-      // 3. 写入并激活 ASR（智谱 glm-asr-2512）
       final asrNotifier = ref.read(asrProvidersProvider.notifier);
       final existingAsr = ref
           .read(asrProvidersProvider)
           .providers
-          .where((p) => p.id == 'zhipu')
+          .where((p) => p.id == _providerId)
           .firstOrNull;
-      final baseAsr = existingAsr ??
-          AsrProviderPresets.builtIn.firstWhere((p) => p.id == 'zhipu');
+      final baseAsr = existingAsr ?? _asrPreset;
       await asrNotifier.updateProvider(
         baseAsr.copyWith(
-          baseUrl: _zhipuBaseUrl,
+          baseUrl: _asrPreset.baseUrl,
           apiKey: apiKey,
           selectedModel: _defaultAsrModel,
+          isEnabled: true,
         ),
       );
-      await asrNotifier.setActiveProvider('zhipu', model: _defaultAsrModel);
+      await asrNotifier.setActiveProvider(_providerId, model: _defaultAsrModel);
 
       // 4. 确保示例会话存在，并从第 4 步（文书生成按钮）重开生成教程
       await ref.read(sampleDataServiceProvider).ensureSampleData();
@@ -384,13 +470,18 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final providersLoading = [
+      ref.watch(llmProvidersProvider).isLoading,
+      ref.watch(ocrProvidersProvider).isLoading,
+      ref.watch(asrProvidersProvider).isLoading,
+    ].any((loading) => loading);
 
     return Scaffold(
       appBar: AppBar(
-        title: const FittedBox(
+        title: FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
-          child: Text('获取智谱 API Key', maxLines: 1),
+          child: Text('获取$_providerName API Key', maxLines: 1),
         ),
       ),
       body: ListView(
@@ -409,7 +500,11 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.devices_rounded, color: Colors.amber.shade900, size: 22),
+                    Icon(
+                      Icons.devices_rounded,
+                      color: Colors.amber.shade900,
+                      size: 22,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: FittedBox(
@@ -430,7 +525,9 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '智谱开放平台同时提供大语言模型、图片 OCR 识别和语音转文字，新用户有免费额度。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。',
+                  _isDeepSeek
+                      ? 'DeepSeek 同时提供大语言模型、图片 OCR 识别和语音转文字。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。'
+                      : '智谱开放平台同时提供大语言模型、图片 OCR 识别和语音转文字，新用户有免费额度。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。',
                   style: TextStyle(
                     fontSize: 13.5,
                     height: 1.5,
@@ -450,7 +547,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                       ),
                     ),
                     icon: const Icon(Icons.copy_rounded, size: 16),
-                    label: const Text('复制网址 https://bigmodel.cn（发到电脑打开）'),
+                    label: Text('复制网址 $_website'),
                   ),
                 ),
               ],
@@ -463,7 +560,9 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+              color: colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.35,
+              ),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: theme.dividerColor.withValues(alpha: 0.25),
@@ -478,15 +577,21 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                 ),
                 _buildIntroLine(
                   'API Key 是什么',
-                  '一串只属于你的访问密钥。本应用用它代表你调用智谱的 AI（文本 / 识图 / 语音）。按用量计费，新用户有免费额度。',
+                  _isDeepSeek
+                      ? '用于调用 DeepSeek 的文本、识图和语音服务，费用按平台实际用量结算。'
+                      : '一串只属于你的访问密钥。本应用用它代表你调用智谱的 AI（文本 / 识图 / 语音）。按用量计费，新用户有免费额度。',
                 ),
                 _buildIntroLine(
-                  '智谱是谁',
-                  '智谱（BigModel）源自清华大学技术团队，是国内头部大模型公司，GLM 系列模型在国际评测中位居前列。',
+                  _isDeepSeek ? '在哪里申请' : '智谱是谁',
+                  _isDeepSeek
+                      ? '在 DeepSeek 开放平台（platform.deepseek.com）申请。'
+                      : '智谱（BigModel）源自清华大学技术团队，是国内头部大模型公司，GLM 系列模型在国际评测中位居前列。',
                 ),
                 _buildIntroLine(
                   '总共要做的事',
-                  '用电脑打开官网 → 注册登录 → 创建并复制 Key → 实名认证 → 回到本页粘贴验证。',
+                  _isDeepSeek
+                      ? '注册登录 → 实名认证 → 确认余额 → 创建并复制 Key → 回到本页配置。'
+                      : '用电脑打开官网 → 注册登录 → 创建并复制 Key → 实名认证 → 回到本页粘贴验证。',
                 ),
               ],
             ),
@@ -495,7 +600,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
           const SizedBox(height: 16),
 
           // 11 步图文流程
-          ..._steps.map((step) => _buildStepCard(theme, step)),
+          ..._guideSteps.map((step) => _buildStepCard(theme, step)),
 
           const SizedBox(height: 8),
 
@@ -515,12 +620,19 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.key_rounded, color: colorScheme.primary, size: 22),
+                    Icon(
+                      Icons.key_rounded,
+                      color: colorScheme.primary,
+                      size: 22,
+                    ),
                     const SizedBox(width: 8),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        '最后一步：贴入智谱 API Key',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        '最后一步：贴入$_providerName API Key',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -541,10 +653,18 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
-                    children: const [
+                    children: [
                       _ModelBadge(label: '大语言模型', model: _defaultLlmModel),
-                      _ModelBadge(label: '图像识别', model: _defaultOcrModel),
-                      _ModelBadge(label: '语音识别', model: _defaultAsrModel),
+                      if (_isDeepSeek)
+                        const _ModelBadge(label: '思考强度', model: '低'),
+                      _ModelBadge(
+                        label: '图像识别',
+                        model: _isDeepSeek ? 'DeepSeek OCR' : _defaultOcrModel,
+                      ),
+                      _ModelBadge(
+                        label: '语音识别',
+                        model: _isDeepSeek ? 'DeepSeek ASR' : _defaultAsrModel,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -553,7 +673,7 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                     obscureText: _obscureKey,
                     onChanged: (_) => setState(() => _verifyError = null),
                     decoration: InputDecoration(
-                      labelText: '智谱 API Key',
+                      labelText: '$_providerName API Key',
                       hintText: '粘贴第 7 步复制的 Key',
                       filled: true,
                       fillColor: colorScheme.surface,
@@ -565,11 +685,14 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                         children: [
                           IconButton(
                             icon: Icon(
-                              _obscureKey ? Icons.visibility_off : Icons.visibility,
+                              _obscureKey
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                               size: 19,
                             ),
                             tooltip: _obscureKey ? '显示' : '隐藏',
-                            onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                            onPressed: () =>
+                                setState(() => _obscureKey = !_obscureKey),
                           ),
                           IconButton(
                             icon: const Icon(Icons.paste_rounded, size: 19),
@@ -583,7 +706,9 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                   if (_keyPreview.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
-                      '已输入：$_keyPreview（前 4 位 … 末 4 位），请与第 8 步列表里的 Key 核对一致',
+                      _isDeepSeek
+                          ? '已输入：$_keyPreview（前 4 位 … 末 4 位），请与第 7 步保存的原始 Key 核对一致，确认没有漏字符'
+                          : '已输入：$_keyPreview（前 4 位 … 末 4 位），请与第 8 步列表里的 Key 核对一致',
                       style: TextStyle(
                         fontSize: 12,
                         color: colorScheme.onSurfaceVariant,
@@ -603,7 +728,11 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+                          Icon(
+                            Icons.error_outline,
+                            color: Colors.red.shade700,
+                            size: 18,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -623,7 +752,9 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                   SizedBox(
                     height: 50,
                     child: FilledButton.icon(
-                      onPressed: _isVerifying ? null : _verifyAndSaveAll,
+                      onPressed: _isVerifying || providersLoading
+                          ? null
+                          : _verifyAndSaveAll,
                       icon: _isVerifying
                           ? const SizedBox(
                               width: 18,
@@ -636,7 +767,10 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                           : const Icon(Icons.verified_rounded, size: 18),
                       label: Text(
                         _isVerifying ? '正在验证 Key 是否可用…' : '验证并一键配置',
-                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       style: FilledButton.styleFrom(
                         shape: RoundedRectangleBorder(
@@ -839,7 +973,10 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                     right: 8,
                     bottom: 8,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.58),
                         borderRadius: BorderRadius.circular(12),
@@ -847,7 +984,11 @@ class _ZhipuKeyGuidePageState extends ConsumerState<ZhipuKeyGuidePage> {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.zoom_in_rounded, color: Colors.white, size: 14),
+                          Icon(
+                            Icons.zoom_in_rounded,
+                            color: Colors.white,
+                            size: 14,
+                          ),
                           SizedBox(width: 3),
                           Text(
                             '点图放大',
@@ -871,10 +1012,7 @@ class _ModelBadge extends StatelessWidget {
   final String label;
   final String model;
 
-  const _ModelBadge({
-    required this.label,
-    required this.model,
-  });
+  const _ModelBadge({required this.label, required this.model});
 
   @override
   Widget build(BuildContext context) {

@@ -67,13 +67,13 @@ Future<void> showAsrKeyPromptDialog(
                 icon: Icons.menu_book_rounded,
                 title: '没有 Key，查看教程',
                 badge: '去获取',
-                subtitle: '智谱图文教程，注册实名后 1 个 Key 配齐文本 / 识图 / 语音。',
+                subtitle: '选择 DeepSeek 或智谱，查看获取教程并一键配置。',
                 bgColor: Colors.indigo.shade50,
                 borderColor: Colors.indigo.shade300,
                 accentColor: Colors.indigo.shade700,
                 onTap: () {
                   Navigator.pop(ctx);
-                  context.push('/settings/zhipu-key-guide');
+                  context.push('/settings/api-key-guides');
                 },
               ),
             ],

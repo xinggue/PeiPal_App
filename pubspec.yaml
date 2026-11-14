@@ -77,5 +77,8 @@ flutter:
   assets:
     - assets/data/icd_knowledge.db
     - assets/icons/app_icon.png
+    - assets/icons/deepseek.png
+    - assets/icons/zhipu.png
     - assets/sample/
     - assets/tutorial/zhipu_key/
+    - assets/tutorial/deepseek_key/
