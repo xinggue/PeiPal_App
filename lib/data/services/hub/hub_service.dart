@@ -250,6 +250,30 @@ class HubListing {
   }
 }
 
+class HubDocumentGroup {
+  final String id;
+  final String name;
+  final List<HubListing> items;
+  final Map<String, int> counts;
+  const HubDocumentGroup({
+    required this.id,
+    required this.name,
+    required this.items,
+    required this.counts,
+  });
+  factory HubDocumentGroup.fromJson(Map<String, dynamic> json) =>
+      HubDocumentGroup(
+        id: json['id'] as String,
+        name: json['name'] as String? ?? '',
+        items: (json['items'] as List)
+            .map((v) => HubListing.fromJson(Map<String, dynamic>.from(v)))
+            .toList(),
+        counts: (json['counts'] as Map).map(
+          (k, v) => MapEntry(k.toString(), (v as num).toInt()),
+        ),
+      );
+}
+
 class HubService {
   static const defaultBaseUrl = 'https://xlearning.website/hub';
   // Local publishing credentials are deliberately outside all backup formats.
@@ -379,6 +403,8 @@ class HubService {
     required List<Map<String, dynamic>> targets,
     String scope = '',
     String institution = '',
+    bool skipAssistance = false,
+    CancelToken? cancelToken,
   }) async {
     final base = await getBaseUrl();
     final response = await _dio.post(
@@ -389,7 +415,9 @@ class HubService {
         'targets': targets,
         'scope': scope,
         'institution': institution,
+        'skip_assistance': skipAssistance,
       },
+      cancelToken: cancelToken,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -440,6 +468,68 @@ class HubService {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<({List<HubDocumentGroup> groups, bool hasMore})> groups({
+    required String kind,
+    String q = '',
+    bool mineOnly = false,
+    int offset = 0,
+    String structureId = '',
+  }) async {
+    final base = await getBaseUrl();
+    final token = await getAdminToken(baseUrl: base);
+    final res = await _dio.get(
+      '$base/v2/document-groups',
+      queryParameters: {
+        'kind': kind,
+        'q': q,
+        'mine': mineOnly ? '1' : '0',
+        'offset': offset,
+        if (structureId.isNotEmpty) 'structure_id': structureId,
+      },
+      options: Options(
+        headers: {
+          'X-Owner-Key': await ownerKey(baseUrl: base),
+          'X-Admin-Token': ?token,
+        },
+      ),
+    );
+    return (
+      groups: (res.data['groups'] as List)
+          .map((v) => HubDocumentGroup.fromJson(Map<String, dynamic>.from(v)))
+          .toList(),
+      hasMore: res.data['has_more'] == true,
+    );
+  }
+
+  Future<List<HubListing>> groupItems(
+    String id, {
+    required String kind,
+    String q = '',
+    bool mineOnly = false,
+    int offset = 0,
+  }) async {
+    final base = await getBaseUrl();
+    final token = await getAdminToken(baseUrl: base);
+    final res = await _dio.get(
+      '$base/v2/document-groups/$id/items',
+      queryParameters: {
+        'kind': kind,
+        'q': q,
+        'mine': mineOnly ? '1' : '0',
+        'offset': offset,
+      },
+      options: Options(
+        headers: {
+          'X-Owner-Key': await ownerKey(baseUrl: base),
+          'X-Admin-Token': ?token,
+        },
+      ),
+    );
+    return (res.data['listings'] as List)
+        .map((v) => HubListing.fromJson(Map<String, dynamic>.from(v)))
+        .toList();
   }
 
   Future<List<HubListing>> list({

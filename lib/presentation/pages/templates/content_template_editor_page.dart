@@ -16,11 +16,7 @@ import '../../widgets/common/inline_diff_box.dart';
 import '../../widgets/common/mention_text_editing_controller.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 
-enum _SlotFilterMode {
-  all,
-  unfilled,
-  changes,
-}
+enum _SlotFilterMode { all, unfilled, changes }
 
 class ContentTemplateEditorPage extends ConsumerStatefulWidget {
   final String structureTemplateId;
@@ -28,6 +24,8 @@ class ContentTemplateEditorPage extends ConsumerStatefulWidget {
   final String? initialMigrateFromId;
   final Template? previewStructure;
   final ContentTemplate? previewContentTemplate;
+  final Template? initialMigrateStructure;
+  final ContentTemplate? initialMigrateContent;
 
   const ContentTemplateEditorPage({
     super.key,
@@ -36,6 +34,8 @@ class ContentTemplateEditorPage extends ConsumerStatefulWidget {
     this.initialMigrateFromId,
     this.previewStructure,
     this.previewContentTemplate,
+    this.initialMigrateStructure,
+    this.initialMigrateContent,
   });
 
   bool get isReadOnly => previewContentTemplate != null;
@@ -72,10 +72,7 @@ class _FieldControllers {
 
   PendingTextDiff? get guidanceDiff => beforeGuidance == null
       ? null
-      : PendingTextDiff(
-          beforeText: beforeGuidance!,
-          afterText: guidance.text,
-        );
+      : PendingTextDiff(beforeText: beforeGuidance!, afterText: guidance.text);
 
   DiffChangeKind get overallDiffKind {
     final td = textDiff;
@@ -83,7 +80,8 @@ class _FieldControllers {
     if ((td == null || !td.hasChange) && (gd == null || !gd.hasChange)) {
       return DiffChangeKind.none;
     }
-    final wasEmpty = (beforeTemplateText?.trim().isEmpty ?? true) &&
+    final wasEmpty =
+        (beforeTemplateText?.trim().isEmpty ?? true) &&
         (beforeGuidance?.trim().isEmpty ?? true);
     final nowEmpty = !isFilled;
     if (wasEmpty && !nowEmpty) return DiffChangeKind.added;
@@ -177,10 +175,16 @@ class _ContentTemplateEditorPageState
         _initSlotControllers(st, ct);
       });
 
-      if (widget.initialMigrateFromId != null && !_isEditing) {
+      if ((widget.initialMigrateFromId != null ||
+              widget.initialMigrateContent != null) &&
+          !_isEditing) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            _openMigrateSheet(preselectedId: widget.initialMigrateFromId);
+            _openMigrateSheet(
+              preselectedId: widget.initialMigrateFromId,
+              externalStructure: widget.initialMigrateStructure,
+              externalContent: widget.initialMigrateContent,
+            );
           }
         });
       }
@@ -200,8 +204,9 @@ class _ContentTemplateEditorPageState
       if (refs.isNotEmpty) {
         final fallbackType = slot.catalogType ?? 'diagnosis';
         for (final ref in refs) {
-          final type =
-              ref.catalogType.trim().isEmpty ? fallbackType : ref.catalogType;
+          final type = ref.catalogType.trim().isEmpty
+              ? fallbackType
+              : ref.catalogType;
           final token = '\uFFFC[CATALOG:$type:${ref.tag}]\uFFFC';
           if (!guidance.contains(token)) {
             guidance = guidance.isEmpty ? token : '$guidance $token';
@@ -550,7 +555,9 @@ class _ContentTemplateEditorPageState
       await ref.read(extractorConfigProvider.notifier).ready;
       if (!mounted) return;
 
-      final result = await ref.read(contentTemplateExtractorProvider).refine(
+      final result = await ref
+          .read(contentTemplateExtractorProvider)
+          .refine(
             slots: targetSlots,
             targetStructureName: _structure!.name,
             currentGlobalGuidance: _globalGuidanceCtrl.text,
@@ -568,10 +575,7 @@ class _ContentTemplateEditorPageState
         return;
       }
 
-      _applyAiResult(
-        result,
-        sampleRecord: req.sampleRecord,
-      );
+      _applyAiResult(result, sampleRecord: req.sampleRecord);
     } catch (e) {
       if (mounted) {
         showAppToast(context, 'AI 处理失败: $e');
@@ -586,7 +590,13 @@ class _ContentTemplateEditorPageState
     }
   }
 
-  Future<void> _openMigrateSheet({String? preselectedId}) async {
+  Future<void> _openMigrateSheet({
+    String? preselectedId,
+    Template? externalStructure,
+    ContentTemplate? externalContent,
+  }) async {
+    externalStructure ??= widget.initialMigrateStructure;
+    externalContent ??= widget.initialMigrateContent;
     if (_structure == null || _isAiBusy) return;
 
     if (!ref.read(llmConfigProvider).isConfigured) {
@@ -594,10 +604,12 @@ class _ContentTemplateEditorPageState
       return;
     }
 
-    final allStructures =
-        await ref.read(templateRepositoryProvider).getAll();
-    final allContents =
-        await ref.read(contentTemplateRepositoryProvider).getAll();
+    final allStructures = externalStructure != null
+        ? [externalStructure]
+        : await ref.read(templateRepositoryProvider).getAll();
+    final allContents = externalContent != null
+        ? [externalContent]
+        : await ref.read(contentTemplateRepositoryProvider).getAll();
 
     if (!mounted) return;
 
@@ -625,7 +637,7 @@ class _ContentTemplateEditorPageState
         filledTargetSlotKeys: filledSlotKeys,
         structures: allStructures,
         contentTemplates: candidates,
-        preselectedContentId: preselectedId,
+        preselectedContentId: externalContent?.id ?? preselectedId,
       ),
     );
 
@@ -645,7 +657,9 @@ class _ContentTemplateEditorPageState
       await ref.read(extractorConfigProvider.notifier).ready;
       if (!mounted) return;
 
-      final result = await ref.read(contentTemplateExtractorProvider).migrate(
+      final result = await ref
+          .read(contentTemplateExtractorProvider)
+          .migrate(
             sourceStructureName: req.sourceStructure.name,
             sourceSlots: req.sourceStructure.sortedSlots,
             sourceContent: req.sourceContent,
@@ -663,10 +677,7 @@ class _ContentTemplateEditorPageState
         return;
       }
 
-      _applyAiResult(
-        result,
-        suggestedName: req.sourceContent.name,
-      );
+      _applyAiResult(result, suggestedName: req.sourceContent.name);
     } catch (e) {
       if (mounted) {
         showAppToast(context, 'AI 迁移失败: $e');
@@ -701,9 +712,7 @@ class _ContentTemplateEditorPageState
   @override
   Widget build(BuildContext context) {
     if (_structure == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     // Rebuild chips when catalog metadata finishes loading.
@@ -712,9 +721,8 @@ class _ContentTemplateEditorPageState
     final st = _structure!;
     final cs = Theme.of(context).colorScheme;
     final validKeys = st.slots.map((s) => s.key).toSet();
-    final staleKeys = _existing?.slots.keys
-            .where((k) => !validKeys.contains(k))
-            .toList() ??
+    final staleKeys =
+        _existing?.slots.keys.where((k) => !validKeys.contains(k)).toList() ??
         const [];
 
     final titleText = widget.isReadOnly
@@ -776,8 +784,10 @@ class _ContentTemplateEditorPageState
                         height: 15,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('保存',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    : const Text(
+                        '保存',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
               ),
             ),
         ],
@@ -806,7 +816,9 @@ class _ContentTemplateEditorPageState
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: cs.primaryContainer.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(6),
@@ -814,8 +826,11 @@ class _ContentTemplateEditorPageState
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.schema_outlined,
-                              size: 14, color: cs.primary),
+                          Icon(
+                            Icons.schema_outlined,
+                            size: 14,
+                            color: cs.primary,
+                          ),
                           const SizedBox(width: 5),
                           Text(
                             st.name,
@@ -831,9 +846,12 @@ class _ContentTemplateEditorPageState
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
-                        color: _filledFieldCount == st.slots.length &&
+                        color:
+                            _filledFieldCount == st.slots.length &&
                                 st.slots.isNotEmpty
                             ? Colors.green.withValues(alpha: 0.12)
                             : cs.surfaceContainerHighest.withValues(alpha: 0.6),
@@ -844,7 +862,8 @@ class _ContentTemplateEditorPageState
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
-                          color: _filledFieldCount == st.slots.length &&
+                          color:
+                              _filledFieldCount == st.slots.length &&
                                   st.slots.isNotEmpty
                               ? Colors.green.shade700
                               : cs.onSurfaceVariant,
@@ -869,9 +888,10 @@ class _ContentTemplateEditorPageState
                     const Text(
                       ' *',
                       style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
                     ),
                   ],
                 ),
@@ -880,7 +900,9 @@ class _ContentTemplateEditorPageState
                   controller: _nameCtrl,
                   readOnly: widget.isReadOnly,
                   style: const TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w600),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
                   decoration: InputDecoration(
                     hintText: '例如：冠心病、糖尿病、常规模板…',
                     hintStyle: TextStyle(
@@ -893,16 +915,20 @@ class _ContentTemplateEditorPageState
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(9),
                       borderSide: BorderSide(
-                          color: cs.outlineVariant.withValues(alpha: 0.6)),
+                        color: cs.outlineVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(9),
                       borderSide: BorderSide(
-                          color: cs.outlineVariant.withValues(alpha: 0.6)),
+                        color: cs.outlineVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -910,8 +936,11 @@ class _ContentTemplateEditorPageState
                 // Global Guidance
                 Row(
                   children: [
-                    Icon(Icons.tune_rounded,
-                        size: 14, color: cs.onSurfaceVariant),
+                    Icon(
+                      Icons.tune_rounded,
+                      size: 14,
+                      color: cs.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       '全文撰写要求（可选）',
@@ -964,16 +993,20 @@ class _ContentTemplateEditorPageState
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(9),
                       borderSide: BorderSide(
-                          color: cs.outlineVariant.withValues(alpha: 0.6)),
+                        color: cs.outlineVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(9),
                       borderSide: BorderSide(
-                          color: cs.outlineVariant.withValues(alpha: 0.6)),
+                        color: cs.outlineVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                 ),
               ],
@@ -985,14 +1018,15 @@ class _ContentTemplateEditorPageState
           if (!widget.isReadOnly) ...[
             if (_isAiBusy)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 margin: const EdgeInsets.only(bottom: 14),
                 decoration: BoxDecoration(
                   color: cs.primaryContainer.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: cs.primary.withValues(alpha: 0.25)),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.25)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1030,7 +1064,9 @@ class _ContentTemplateEditorPageState
                         label: Text(
                           _hasAnyContent ? 'AI 补充与细化' : 'AI 范文拆分 / 生成',
                           style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w600),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 11),
@@ -1049,7 +1085,9 @@ class _ContentTemplateEditorPageState
                         label: const Text(
                           '从其他模板迁移',
                           style: TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w600),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 11),
@@ -1093,8 +1131,11 @@ class _ContentTemplateEditorPageState
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.warning_amber_rounded,
-                      color: Colors.red, size: 20),
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.red,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1104,8 +1145,10 @@ class _ContentTemplateEditorPageState
                   ),
                   TextButton(
                     onPressed: _pruneStaleSlots,
-                    child: const Text('一键清理',
-                        style: TextStyle(color: Colors.red, fontSize: 12.5)),
+                    child: const Text(
+                      '一键清理',
+                      style: TextStyle(color: Colors.red, fontSize: 12.5),
+                    ),
                   ),
                 ],
               ),
@@ -1120,13 +1163,16 @@ class _ContentTemplateEditorPageState
                 Text(
                   '字段内容配置 (${visibleSlots.length}/${st.slots.length})',
                   style: const TextStyle(
-                      fontSize: 14.5, fontWeight: FontWeight.bold),
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const Spacer(),
                 _buildFilterChip(
                   label: '全部',
                   selected: _filterMode == _SlotFilterMode.all,
-                  onTap: () => setState(() => _filterMode = _SlotFilterMode.all),
+                  onTap: () =>
+                      setState(() => _filterMode = _SlotFilterMode.all),
                 ),
                 const SizedBox(width: 6),
                 _buildFilterChip(
@@ -1218,7 +1264,8 @@ class _ContentTemplateEditorPageState
     final textDiff = ctrl.textDiff;
     final guidanceDiff = ctrl.guidanceDiff;
 
-    final isGuidanceVisible = ctrl.showGuidance ||
+    final isGuidanceVisible =
+        ctrl.showGuidance ||
         ctrl.guidance.text.trim().isNotEmpty ||
         (guidanceDiff != null && guidanceDiff.hasChange);
 
@@ -1272,7 +1319,9 @@ class _ContentTemplateEditorPageState
                         const Text(
                           ' *',
                           style: TextStyle(
-                              color: Colors.red, fontWeight: FontWeight.bold),
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                     ],
                   ),
@@ -1293,7 +1342,9 @@ class _ContentTemplateEditorPageState
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1346,7 +1397,9 @@ class _ContentTemplateEditorPageState
                     onTap: () => setState(() => ctrl.showGuidance = true),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 1),
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
                       child: Text(
                         '+ 撰写要求',
                         style: TextStyle(
@@ -1385,17 +1438,21 @@ class _ContentTemplateEditorPageState
                 fillColor: cs.surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                  borderSide: BorderSide(
+                    color: cs.outlineVariant.withValues(alpha: 0.5),
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                  borderSide: BorderSide(
+                    color: cs.outlineVariant.withValues(alpha: 0.5),
+                  ),
                 ),
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 9,
+                ),
               ),
             ),
 
@@ -1404,8 +1461,11 @@ class _ContentTemplateEditorPageState
               const SizedBox(height: 9),
               Row(
                 children: [
-                  Icon(Icons.rule_rounded,
-                      size: 13, color: cs.primary.withValues(alpha: 0.85)),
+                  Icon(
+                    Icons.rule_rounded,
+                    size: 13,
+                    color: cs.primary.withValues(alpha: 0.85),
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     '撰写要求',
@@ -1427,7 +1487,9 @@ class _ContentTemplateEditorPageState
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
                         child: Text(
                           '移除要求',
                           style: TextStyle(
@@ -1469,27 +1531,32 @@ class _ContentTemplateEditorPageState
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide(
-                            color: cs.primary.withValues(alpha: 0.25)),
+                          color: cs.primary.withValues(alpha: 0.25),
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide(
-                            color: cs.primary.withValues(alpha: 0.22)),
+                          color: cs.primary.withValues(alpha: 0.22),
+                        ),
                       ),
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 11, vertical: 8),
+                        horizontal: 11,
+                        vertical: 8,
+                      ),
                     ),
                     onChanged: (text) {
                       final sel = ctrl.guidance.selection;
                       if (sel.start > 0 &&
                           text.isNotEmpty &&
                           text[sel.start - 1] == '@') {
-                        final renderBox = fieldContext.findRenderObject()
-                            as RenderBox?;
+                        final renderBox =
+                            fieldContext.findRenderObject() as RenderBox?;
                         final offset = renderBox != null
                             ? renderBox.localToGlobal(
-                                Offset(0, renderBox.size.height + 4))
+                                Offset(0, renderBox.size.height + 4),
+                              )
                             : const Offset(40, 200);
                         CatalogMentionPickerOverlay.show(
                           context: context,
@@ -1528,9 +1595,14 @@ class _ContentTemplateEditorPageState
         color: Colors.blue.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(label,
-          style: const TextStyle(
-              fontSize: 10.5, fontWeight: FontWeight.w600, color: Colors.blue)),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          color: Colors.blue,
+        ),
+      ),
     );
   }
 }
@@ -1602,14 +1674,16 @@ class _GenerationScopeSelector extends StatelessWidget {
             Text(
               '填充字段 (${selectedSlotKeys.length}/${slots.length})',
               style: const TextStyle(
-                  fontSize: 13.5, fontWeight: FontWeight.w600),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const Spacer(),
             _miniActionBtn(
               context,
               label: '全选',
-              onTap: () => onSelectedSlotsChanged(
-                  slots.map((s) => s.key).toSet()),
+              onTap: () =>
+                  onSelectedSlotsChanged(slots.map((s) => s.key).toSet()),
             ),
             if (unfilledKeys.isNotEmpty &&
                 unfilledKeys.length < slots.length) ...[
@@ -1635,9 +1709,7 @@ class _GenerationScopeSelector extends StatelessWidget {
           decoration: BoxDecoration(
             color: cs.surfaceContainerLowest,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: 0.5),
-            ),
+            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
           ),
           child: Wrap(
             spacing: 6,
@@ -1645,10 +1717,7 @@ class _GenerationScopeSelector extends StatelessWidget {
             children: [
               for (final s in slots)
                 FilterChip(
-                  label: Text(
-                    s.label,
-                    style: const TextStyle(fontSize: 12),
-                  ),
+                  label: Text(s.label, style: const TextStyle(fontSize: 12)),
                   selected: selectedSlotKeys.contains(s.key),
                   visualDensity: VisualDensity.compact,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1780,8 +1849,9 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
     });
 
     try {
-      final text =
-          await widget.ref.read(apiServiceProvider).extractTextFromImages(paths);
+      final text = await widget.ref
+          .read(apiServiceProvider)
+          .extractTextFromImages(paths);
       if (!mounted) return;
 
       var clean = text;
@@ -1823,13 +1893,15 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
     bool continueShooting = true;
 
     while (continueShooting) {
-      final photoPath =
-          await AppImagePicker.pickSingleImage(source: ImageSource.camera);
+      final photoPath = await AppImagePicker.pickSingleImage(
+        source: ImageSource.camera,
+      );
       if (photoPath == null) break;
       pages.add(photoPath);
 
       if (!mounted) break;
-      continueShooting = await showModalBottomSheet<bool>(
+      continueShooting =
+          await showModalBottomSheet<bool>(
             context: context,
             builder: (ctx) => SafeArea(
               child: Padding(
@@ -1837,8 +1909,10 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('当前材料：第 ${pages.length} 页已拍',
-                        style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      '当前材料：第 ${pages.length} 页已拍',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -1924,7 +1998,9 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
                 Text(
                   widget.hasExistingContent ? 'AI 补充与细化' : 'AI 范文拆分与提炼',
                   style: const TextStyle(
-                      fontSize: 16.5, fontWeight: FontWeight.bold),
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const Spacer(),
                 IconButton(
@@ -1975,8 +2051,7 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
                         _sampleCtrl.text = widget.initialSample;
                       });
                     },
-                    child:
-                        const Text('载入上次范文', style: TextStyle(fontSize: 12)),
+                    child: const Text('载入上次范文', style: TextStyle(fontSize: 12)),
                   ),
               ],
             ),
@@ -1985,15 +2060,19 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
               children: [
                 ActionChip(
                   avatar: const Icon(Icons.camera_alt_outlined, size: 14),
-                  label:
-                      const Text('拍照识别 (OCR)', style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    '拍照识别 (OCR)',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   onPressed: _isOcrRunning ? null : _takePhotos,
                 ),
                 const SizedBox(width: 8),
                 ActionChip(
                   avatar: const Icon(Icons.photo_library_outlined, size: 14),
-                  label:
-                      const Text('相册选图 (OCR)', style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    '相册选图 (OCR)',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   onPressed: _isOcrRunning ? null : _pickFromGallery,
                 ),
               ],
@@ -2009,9 +2088,13 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(_ocrStatus,
-                        style: const TextStyle(
-                            fontSize: 12, color: Colors.blueGrey)),
+                    child: Text(
+                      _ocrStatus,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.blueGrey,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -2049,22 +2132,28 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
                     onTap: () {
                       final cur = _instructionCtrl.text.trim();
                       setState(() {
-                        _instructionCtrl.text =
-                            cur.isEmpty ? chip : '$cur；$chip';
+                        _instructionCtrl.text = cur.isEmpty
+                            ? chip
+                            : '$cur；$chip';
                       });
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 9, vertical: 4),
+                        horizontal: 9,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
-                        color:
-                            cs.surfaceContainerHighest.withValues(alpha: 0.55),
+                        color: cs.surfaceContainerHighest.withValues(
+                          alpha: 0.55,
+                        ),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Text(
                         '+ $chip',
                         style: TextStyle(
-                            fontSize: 11.5, color: cs.onSurfaceVariant),
+                          fontSize: 11.5,
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ),
@@ -2091,8 +2180,7 @@ class _RefineBottomSheetState extends State<_RefineBottomSheet> {
               child: FilledButton.icon(
                 onPressed: _isOcrRunning ? null : _submit,
                 icon: const Icon(Icons.auto_awesome, size: 17),
-                label: Text(
-                    widget.hasExistingContent ? '开始补充细化' : '开始拆分生成'),
+                label: Text(widget.hasExistingContent ? '开始补充细化' : '开始拆分生成'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
@@ -2156,11 +2244,13 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
   @override
   void initState() {
     super.initState();
-    _selectedSlotKeys =
-        widget.targetStructure.sortedSlots.map((s) => s.key).toSet();
+    _selectedSlotKeys = widget.targetStructure.sortedSlots
+        .map((s) => s.key)
+        .toSet();
     if (widget.preselectedContentId != null &&
-        widget.contentTemplates
-            .any((c) => c.id == widget.preselectedContentId)) {
+        widget.contentTemplates.any(
+          (c) => c.id == widget.preselectedContentId,
+        )) {
       _selectedContentId = widget.preselectedContentId;
     } else if (widget.contentTemplates.isNotEmpty) {
       _selectedContentId = widget.contentTemplates.first.id;
@@ -2186,8 +2276,9 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
       showAppToast(context, '请至少选择一个需要填充的字段');
       return;
     }
-    final ct = widget.contentTemplates
-        .firstWhere((c) => c.id == _selectedContentId);
+    final ct = widget.contentTemplates.firstWhere(
+      (c) => c.id == _selectedContentId,
+    );
     final st = widget.structures.firstWhere(
       (s) => s.id == ct.structureTemplateId,
       orElse: () => widget.targetStructure,
@@ -2211,9 +2302,7 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
     final cs = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
-    final structureMap = {
-      for (final s in widget.structures) s.id: s,
-    };
+    final structureMap = {for (final s in widget.structures) s.id: s};
 
     // Group content templates by structure
     final grouped = <String, List<ContentTemplate>>{};
@@ -2237,7 +2326,9 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
                   child: Text(
                     '迁移到「${widget.targetStructure.name}」',
                     style: const TextStyle(
-                        fontSize: 16.5, fontWeight: FontWeight.bold),
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -2260,7 +2351,8 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
               child: Container(
                 decoration: BoxDecoration(
                   border: Border.all(
-                      color: cs.outlineVariant.withValues(alpha: 0.6)),
+                    color: cs.outlineVariant.withValues(alpha: 0.6),
+                  ),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: ListView(
@@ -2269,9 +2361,12 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
                     for (final entry in grouped.entries) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        color:
-                            cs.surfaceContainerHighest.withValues(alpha: 0.4),
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        color: cs.surfaceContainerHighest.withValues(
+                          alpha: 0.4,
+                        ),
                         child: Text(
                           structureMap[entry.key]?.name ?? '未知文书类型',
                           style: TextStyle(
@@ -2299,12 +2394,16 @@ class _MigrateBottomSheetState extends State<_MigrateBottomSheet> {
                           title: Text(
                             ct.name,
                             style: const TextStyle(
-                                fontSize: 13.5, fontWeight: FontWeight.w600),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           subtitle: Text(
                             '已填 ${ct.filledSlotCount} 个字段${ct.globalGuidance.trim().isNotEmpty ? " · 含全文要求" : ""}',
                             style: TextStyle(
-                                fontSize: 11.5, color: cs.onSurfaceVariant),
+                              fontSize: 11.5,
+                              color: cs.onSurfaceVariant,
+                            ),
                           ),
                         ),
                     ],

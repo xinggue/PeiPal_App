@@ -9,6 +9,81 @@ import '../../../domain/models/typing_action_block.dart';
 
 enum HubItemSubtype { structure, content, diagnosis, typing, pipeline }
 
+String hubCountUnit(String kind) => switch (kind) {
+  'content' || 'typing' || 'diagnosis' => '套',
+  'pipeline' => '条',
+  'structure' => '份',
+  _ => '项',
+};
+
+class HubCountLabel extends StatelessWidget {
+  final String label;
+  final String kind;
+  final int count;
+  final bool compact;
+  final bool shortLabel;
+  const HubCountLabel({
+    super.key,
+    required this.label,
+    required this.kind,
+    required this.count,
+    this.compact = false,
+    this.shortLabel = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final unit = hubCountUnit(kind);
+    final name = shortLabel
+        ? switch (kind) {
+            'content' => '模板',
+            'typing' => '方案',
+            'pipeline' => '流程',
+            'diagnosis' => '词库',
+            _ => label,
+          }
+        : label;
+    final style =
+        (compact ? theme.textTheme.labelMedium : theme.textTheme.labelLarge)
+            ?.copyWith(
+              fontSize: compact ? 11 : 13,
+              fontWeight: FontWeight.w500,
+              color: compact
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+            );
+    return Semantics(
+      label: '$label：$count$unit',
+      child: ExcludeSemantics(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('$name：', style: style),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.11),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '$count',
+                style: style?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            Text(unit, style: style),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class HubCardItem {
   final HubListing listing;
   final HubItemSubtype subtype;

@@ -111,7 +111,17 @@ String _errorText(Object error) {
 }
 
 class TemplateHubPage extends ConsumerStatefulWidget {
-  const TemplateHubPage({super.key});
+  final String initialKind;
+  final String structureId;
+  final String initialQuery;
+  final bool initialMineOnly;
+  const TemplateHubPage({
+    super.key,
+    this.initialKind = 'structure',
+    this.structureId = '',
+    this.initialQuery = '',
+    this.initialMineOnly = false,
+  });
   @override
   ConsumerState<TemplateHubPage> createState() => _TemplateHubPageState();
 }
@@ -126,12 +136,17 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
   bool _hasMore = false;
   int _sequence = 0;
   String? _error;
-  List<HubListing> _listings = const [];
+  List<HubDocumentGroup> _groups = const [];
+  String _loadedQuery = '';
+  int _generation = 0;
   HubService get _hub => HubService(ref.read(secureStorageProvider));
 
   @override
   void initState() {
     super.initState();
+    _kind = widget.initialKind;
+    _search.text = widget.initialQuery;
+    _mineOnly = widget.initialMineOnly;
     Future.microtask(_load);
   }
 
@@ -149,20 +164,24 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
         _loadingMore = true;
       } else {
         _loading = true;
+        _generation++;
       }
       _error = null;
     });
     try {
-      final listings = await _hub.list(
+      final query = _search.text.trim();
+      final result = await _hub.groups(
         kind: _kind,
-        q: _search.text,
+        q: query,
         mineOnly: _mineOnly,
-        offset: append ? _listings.length : 0,
+        offset: append ? _groups.length : 0,
+        structureId: widget.structureId,
       );
       if (!mounted || sequence != _sequence) return;
       setState(() {
-        _listings = append ? [..._listings, ...listings] : listings;
-        _hasMore = listings.length == 50;
+        _groups = append ? [..._groups, ...result.groups] : result.groups;
+        _loadedQuery = query;
+        _hasMore = result.hasMore;
         _loading = false;
         _loadingMore = false;
       });
@@ -289,10 +308,9 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
 
   @override
   Widget build(BuildContext context) {
-    final items = _cardItems(_listings, _kind);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('在线模板广场'),
+        title: Text(widget.structureId.isEmpty ? '在线模板广场' : '文书内容'),
         actions: [
           IconButton(
             tooltip: _mineOnly ? '查看全部' : '只看我的',
@@ -317,8 +335,10 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _rail(),
-          const VerticalDivider(width: 1),
+          if (widget.structureId.isEmpty) ...[
+            _rail(),
+            const VerticalDivider(width: 1),
+          ],
           Expanded(
             child: Column(
               children: [
@@ -372,15 +392,15 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                             ),
                           ),
                         )
-                      : items.isEmpty
+                      : _groups.isEmpty
                       ? Center(child: Text(_mineOnly ? '暂无自己的发布' : '暂无相关内容'))
                       : RefreshIndicator(
                           onRefresh: _load,
                           child: ListView.builder(
                             padding: const EdgeInsets.all(12),
-                            itemCount: items.length + (_hasMore ? 1 : 0),
+                            itemCount: _groups.length + (_hasMore ? 1 : 0),
                             itemBuilder: (_, i) {
-                              if (i == items.length) {
+                              if (i == _groups.length) {
                                 return TextButton(
                                   onPressed: _loadingMore
                                       ? null
@@ -388,16 +408,28 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
                                   child: Text(_loadingMore ? '加载中…' : '加载更多'),
                                 );
                               }
-                              final item = items[i];
-                              return HubListingCard(
-                                item: item,
-                                onTap: () => _open(item),
-                                trailing: item.listing.isMine
-                                    ? HubPublicationMenu(
-                                        listing: item.listing,
-                                        onManage: () => _manage(item.listing),
-                                      )
-                                    : null,
+                              final group = _groups[i];
+                              return HubDocumentGroupCard(
+                                key: ValueKey('$_generation:${group.id}'),
+                                group: group,
+                                query: _loadedQuery,
+                                mineOnly: _mineOnly,
+                                onGroupClosed: () => _load(),
+                                overview:
+                                    _kind == 'structure' &&
+                                    widget.structureId.isEmpty,
+                                showFields:
+                                    _kind == 'structure' &&
+                                    widget.structureId.isNotEmpty,
+                                onOpen: _open,
+                                onManage: _manage,
+                                loadMore: (kind, offset) => _hub.groupItems(
+                                  group.id,
+                                  kind: kind,
+                                  offset: offset,
+                                  q: _loadedQuery,
+                                  mineOnly: _mineOnly,
+                                ),
                               );
                             },
                           ),
@@ -490,6 +522,285 @@ class _TemplateHubPageState extends ConsumerState<TemplateHubPage> {
   }
 }
 
+class HubDocumentGroupCard extends StatefulWidget {
+  final HubDocumentGroup group;
+  final ValueChanged<HubCardItem> onOpen;
+  final ValueChanged<HubListing> onManage;
+  final Future<List<HubListing>> Function(String kind, int offset) loadMore;
+  final bool overview;
+  final bool showFields;
+  final String query;
+  final bool mineOnly;
+  final VoidCallback? onGroupClosed;
+  const HubDocumentGroupCard({
+    super.key,
+    required this.group,
+    required this.onOpen,
+    required this.onManage,
+    required this.loadMore,
+    this.overview = false,
+    this.showFields = false,
+    this.query = '',
+    this.mineOnly = false,
+    this.onGroupClosed,
+  });
+  @override
+  State<HubDocumentGroupCard> createState() => _HubDocumentGroupCardState();
+}
+
+class _HubDocumentGroupCardState extends State<HubDocumentGroupCard> {
+  late final List<HubListing> _items = [...widget.group.items];
+  final _loading = <String>{};
+  final _finished = <String>{};
+
+  Future<void> _openContents(String kind) async {
+    final group = widget.group;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TemplateHubPage(
+          initialKind: kind,
+          structureId: group.id,
+          initialQuery: widget.query,
+          initialMineOnly: widget.mineOnly,
+        ),
+      ),
+    );
+    if (mounted) widget.onGroupClosed?.call();
+  }
+
+  Future<void> _more(String kind) async {
+    setState(() => _loading.add(kind));
+    try {
+      final rows = await widget.loadMore(
+        kind,
+        _items.where((v) => v.kind == kind).length,
+      );
+      if (!mounted) return;
+      setState(() {
+        final ids = _items.map((v) => v.id).toSet();
+        _items.addAll(rows.where((v) => ids.add(v.id)));
+        if (rows.length < 50) _finished.add(kind);
+      });
+    } catch (_) {
+      if (mounted) showAppToast(context, '加载失败，请重试');
+    } finally {
+      if (mounted) setState(() => _loading.remove(kind));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final group = widget.group;
+    if (_items.isEmpty) return const SizedBox.shrink();
+    final first = _items.first;
+    if (first.structureId.isEmpty) {
+      final item = _cardItems([first], first.kind).first;
+      return HubListingCard(
+        item: item,
+        onTap: () => widget.onOpen(item),
+        trailing: first.isMine
+            ? HubPublicationMenu(
+                listing: first,
+                onManage: () => widget.onManage(first),
+              )
+            : null,
+      );
+    }
+    final primary = _cardItems([first], first.kind).first;
+    final heading = HubCardItem(
+      listing: first,
+      subtype: HubItemSubtype.structure,
+      subId: '',
+      subName: group.name,
+      structureName: group.name,
+      formattedTitle: '',
+      primaryDetail: '',
+      secondaryDetail: '',
+    );
+    final fields = first.summary.structure;
+    final theme = Theme.of(context);
+    final childKinds = hubKinds
+        .where((k) => k.$1 != 'structure' && (group.counts[k.$1] ?? 0) > 0)
+        .toList();
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 16),
+      clipBehavior: Clip.antiAlias,
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.16)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: () => widget.onOpen(primary),
+              child: HubEntryHeading(
+                item: heading,
+                trailing: first.kind == 'structure' && first.isMine
+                    ? HubPublicationMenu(
+                        listing: first,
+                        onManage: () => widget.onManage(first),
+                      )
+                    : const Icon(Icons.chevron_right, size: 20),
+              ),
+            ),
+            if ((widget.overview || widget.showFields) &&
+                fields != null &&
+                fields.slotLabels.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  '含${fields.slotCount}个字段：${fields.slotLabels.join('、')}${fields.slotCount > fields.slotLabels.length ? '……' : ''}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    height: 1.7,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            if (first.kind == 'structure' &&
+                first.readme.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('使用说明', style: theme.textTheme.labelLarge),
+              const SizedBox(height: 4),
+              Text(
+                first.readme,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(height: 1.6),
+              ),
+            ],
+            if (widget.overview) ...[
+              if (childKinds.isNotEmpty) const Divider(height: 24),
+              LayoutBuilder(
+                builder: (_, constraints) => Row(
+                  children: [
+                    for (var i = 0; i < childKinds.length; i++)
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: i < childKinds.length - 1 ? 6 : 0,
+                          ),
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 32),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 6,
+                              ),
+                              shape: const StadiumBorder(),
+                              backgroundColor: theme.colorScheme.primary
+                                  .withValues(alpha: 0.04),
+                              side: BorderSide(
+                                color: theme.colorScheme.primary.withValues(
+                                  alpha: 0.18,
+                                ),
+                              ),
+                            ),
+                            onPressed: () => _openContents(childKinds[i].$1),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: HubCountLabel(
+                                label: childKinds[i].$2,
+                                kind: childKinds[i].$1,
+                                count: group.counts[childKinds[i].$1]!,
+                                compact: true,
+                                shortLabel:
+                                    constraints.maxWidth / childKinds.length <
+                                    92,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ] else
+              for (final kind in hubKinds.where(
+                (k) =>
+                    (group.counts[k.$1] ?? 0) > 0 &&
+                    !(k.$1 == 'structure' && group.counts[k.$1] == 1),
+              )) ...[
+                const Divider(height: 28),
+                HubCountLabel(
+                  label: kind.$1 == 'structure' ? '文书说明' : kind.$2,
+                  kind: kind.$1,
+                  count: group.counts[kind.$1]!,
+                ),
+                const SizedBox(height: 4),
+                for (final row in _items.where((v) => v.kind == kind.$1))
+                  for (final item in _cardItems([row], kind.$1))
+                    InkWell(
+                      onTap: () => widget.onOpen(item),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.subName,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (item.primaryDetail.isNotEmpty &&
+                                      item.subtype != HubItemSubtype.structure)
+                                    Text(
+                                      item.primaryDetail,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(height: 1.6),
+                                    ),
+                                  if (item.listing.isMine ||
+                                      item.listing.visibility == 'private')
+                                    Text(
+                                      item.listing.publicationLabel,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(color: item.accent),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (item.listing.isMine)
+                              HubPublicationMenu(
+                                listing: item.listing,
+                                onManage: () => widget.onManage(item.listing),
+                              )
+                            else
+                              const Icon(Icons.chevron_right, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                if (!_finished.contains(kind.$1) &&
+                    _items.where((v) => v.kind == kind.$1).length <
+                        group.counts[kind.$1]!)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: _loading.contains(kind.$1)
+                          ? null
+                          : () => _more(kind.$1),
+                      child: Text(_loading.contains(kind.$1) ? '加载中…' : '查看更多'),
+                    ),
+                  ),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class HubDetailSheet extends ConsumerStatefulWidget {
   final HubCardItem item;
   const HubDetailSheet({super.key, required this.item});
@@ -500,7 +811,6 @@ class HubDetailSheet extends ConsumerStatefulWidget {
 class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
   HubListing? _listing;
   EngineCBundleEnvelope? _envelope;
-  List<HubListing> _related = const [];
   bool _loading = true;
   String? _error;
   HubService get _hub => HubService(ref.read(secureStorageProvider));
@@ -532,19 +842,10 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
           .parseRawJsonToEnvelope(
             Map<String, dynamic>.from(jsonDecode(listing.payload!) as Map),
           );
-      List<HubListing> related = const [];
-      if (listing.structureId.isNotEmpty) {
-        try {
-          related = await _hub.related(listing.structureId);
-        } on DioException {
-          /* Older custom sources may not support related entries. */
-        }
-      }
       if (!mounted) return;
       setState(() {
         _listing = listing;
         _envelope = envelope;
-        _related = related;
         _loading = false;
       });
     } catch (e) {
@@ -664,22 +965,51 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
     }
   }
 
-  Future<void> _openRelated(HubCardItem item) async {
+  Future<void> _migrate() async {
+    final unit = _envelope?.units.firstOrNull;
+    final content = unit?.contentTemplates
+        .where((c) => c.id == _item.subId)
+        .firstOrNull;
+    if (unit == null || content == null) return;
+    final templates = await ref.read(templateRepositoryProvider).getAll();
+    if (!mounted) return;
+    if (templates.isEmpty) {
+      showAppToast(context, '请先创建本地文书类型');
+      return;
+    }
+    final target = await showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(padding: EdgeInsets.all(16), child: Text('迁移到本地文书')),
+          for (final t in templates)
+            ListTile(
+              title: Text(t.name),
+              subtitle: Text('${t.slots.length} 个字段'),
+              onTap: () => Navigator.pop(ctx, t),
+            ),
+        ],
+      ),
+    );
+    if (target == null || !mounted) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => HubDetailSheet(item: item)),
+      MaterialPageRoute(
+        builder: (_) => ContentTemplateEditorPage(
+          structureTemplateId: target.id,
+          initialMigrateStructure: unit.structure,
+          initialMigrateContent: content,
+        ),
+      ),
     );
-    if (mounted) await _fetch();
   }
 
   @override
   Widget build(BuildContext context) {
     final item = _item;
     final listing = _listing ?? item.listing;
-    final related = [
-      for (final l in _related.where((l) => l.id != listing.id))
-        ..._cardItems([l], l.kind),
-    ];
     return Scaffold(
       appBar: AppBar(
         title: const Text('模板详情'),
@@ -757,25 +1087,29 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
                     ),
                   ),
                 ],
-                if (related.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    '同一文书下的内容',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 12),
-                  for (final r in related)
-                    HubListingCard(item: r, onTap: () => _openRelated(r)),
-                ],
               ],
             ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-          child: FilledButton.icon(
-            onPressed: _loading || _error != null ? null : _import,
-            icon: const Icon(Icons.download, size: 18),
-            label: const Text('导入到本地'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (item.subtype == HubItemSubtype.content) ...[
+                OutlinedButton.icon(
+                  onPressed: _loading || _error != null ? null : _migrate,
+                  icon: const Icon(Icons.drive_file_move_outline, size: 18),
+                  label: const Text('迁移到本地文书'),
+                ),
+                const SizedBox(height: 8),
+              ],
+              FilledButton.icon(
+                onPressed: _loading || _error != null ? null : _import,
+                icon: const Icon(Icons.download, size: 18),
+                label: const Text('导入到本地'),
+              ),
+            ],
           ),
         ),
       ),

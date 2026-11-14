@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -31,6 +32,10 @@ class HubPublishItemSelection {
     required this.includeLinkedDiagnoses,
   });
 }
+
+final hubPublishServiceProvider = Provider<HubService>(
+  (ref) => HubService(ref.read(secureStorageProvider)),
+);
 
 class HubBatchPublishPage extends ConsumerStatefulWidget {
   final HubPublishItemSelection? selection;
@@ -66,8 +71,14 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
   bool _busy = true;
   bool _submitting = false;
   bool _institutionChanged = false;
+  Timer? _debounce;
+  Timer? _clock;
+  CancelToken? _matchToken;
+  int _matchSequence = 0;
+  int _elapsed = 0;
+  String _activity = '正在准备发布内容…';
 
-  HubService get _hub => HubService(ref.read(secureStorageProvider));
+  HubService get _hub => ref.read(hubPublishServiceProvider);
   List<Map<String, dynamic>> get _items =>
       ((_analysis?['items'] as List?) ?? const [])
           .whereType<Map>()
@@ -87,6 +98,9 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _clock?.cancel();
+    _matchToken?.cancel();
     _institution.dispose();
     for (final c in _descriptions.values) {
       c.dispose();
@@ -95,6 +109,11 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
   }
 
   Future<void> _prepare() async {
+    _startClock();
+    setState(() {
+      _busy = true;
+      _activity = '正在准备发布内容…';
+    });
     try {
       final sel = widget.selection;
       final request = widget.diagnosisMode
@@ -158,9 +177,11 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
           if (sel.includePipeline) {'kind': 'pipeline'},
         ];
       }
-      await _match();
+      if (!mounted) return;
+      await _match(withAssistance: true);
     } catch (e) {
       if (mounted) {
+        _clock?.cancel();
         setState(() {
           _busy = false;
           _error = _message(e);
@@ -169,10 +190,17 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
     }
   }
 
-  Future<void> _match() async {
+  Future<void> _match({bool withAssistance = false}) async {
+    _startClock();
+    _debounce?.cancel();
+    _matchToken?.cancel();
+    final token = _matchToken = CancelToken();
+    final sequence = ++_matchSequence;
     setState(() {
       _busy = true;
       _error = null;
+      _elapsed = 0;
+      _activity = withAssistance ? '正在匹配文书、整理使用说明…' : '正在更新文书归属…';
     });
     try {
       final result = await _hub.analyzeUpload(
@@ -180,8 +208,11 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
         targets: _targets,
         scope: _scope,
         institution: _institution.text.trim(),
+        skipAssistance: !withAssistance,
+        cancelToken: token,
       );
-      if (!mounted) return;
+      if (!mounted || sequence != _matchSequence) return;
+      _clock?.cancel();
       for (final raw in (result['items'] as List)) {
         final item = Map<String, dynamic>.from(raw as Map);
         final key = item['key'] as String;
@@ -189,7 +220,8 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
           key,
           () => TextEditingController(text: item['readme'] as String? ?? ''),
         );
-        if (!_editedDescriptions.contains(key)) {
+        if (!_editedDescriptions.contains(key) &&
+            (withAssistance || (_descriptions[key]!.text.trim().isEmpty))) {
           _descriptions[key]!.text = item['readme'] as String? ?? '';
         }
       }
@@ -203,7 +235,8 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
         _requestId = const Uuid().v4();
       });
     } catch (e) {
-      if (mounted) {
+      if (mounted && sequence == _matchSequence && !token.isCancelled) {
+        _clock?.cancel();
         setState(() {
           _busy = false;
           _error = _message(e);
@@ -218,13 +251,66 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
         _structureId = '';
         _scope = '';
         _institution.clear();
+        _institutionChanged = true;
       });
+      _invalidateMatch();
       return;
     }
     final candidate = _candidates.firstWhere((c) => c['id'] == id);
     _scope = candidate['scope'] as String? ?? '';
     _institution.text = candidate['institution'] as String? ?? '';
     _match();
+  }
+
+  void _invalidateMatch() {
+    _debounce?.cancel();
+    _matchToken?.cancel();
+    _matchSequence++;
+    _clock?.cancel();
+    setState(() {
+      _institutionChanged = true;
+      _busy = false;
+      _error = null;
+    });
+    if (_scope.isEmpty ||
+        (_scope == 'institution' && _institution.text.trim().isEmpty)) {
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 650), () => _match());
+  }
+
+  void _startClock() {
+    _clock?.cancel();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _busy) setState(() => _elapsed++);
+    });
+  }
+
+  Widget _progress() => Padding(
+    padding: const EdgeInsets.all(20),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(height: 14),
+        Text(_activity, textAlign: TextAlign.center),
+        if (_elapsed > 0) ...[
+          const SizedBox(height: 6),
+          Text('已等待 $_elapsed 秒', style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ],
+    ),
+  );
+
+  String get _matchSummary {
+    if (_institutionChanged) return '适用范围已修改，等待更新匹配';
+    if (_scope.isEmpty) return '请选择适用范围';
+    final owner = _scope == 'general' ? '通用' : _institution.text.trim();
+    return '${_structureId.isEmpty ? '将新建' : '将加入'}：$owner · ${widget.selection?.template.name ?? ''}';
   }
 
   String _message(Object e) {
@@ -254,7 +340,6 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
       return;
     }
     if (_institutionChanged) {
-      await _match();
       return;
     }
     setState(() => _submitting = true);
@@ -324,8 +409,8 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
     final sel = widget.selection;
     return Scaffold(
       appBar: AppBar(title: const Text('确认上传')),
-      body: _busy
-          ? const Center(child: CircularProgressIndicator())
+      body: _busy && _analysis == null
+          ? Center(child: _progress())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -348,7 +433,7 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
                 if (_analysis != null) ...[
                   if (sel != null) ...[
                     Text(
-                      '基于 结构模板：${sel.template.name}',
+                      sel.template.name,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 16),
@@ -394,10 +479,13 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
                         emptySelectionAllowed: true,
                         onSelectionChanged: _submitting
                             ? null
-                            : (s) => setState(() {
-                                _scope = s.firstOrNull ?? '';
-                                _institutionChanged = true;
-                              }),
+                            : (s) {
+                                setState(() {
+                                  _scope = s.firstOrNull ?? '';
+                                  if (_scope == 'general') _institution.clear();
+                                });
+                                _invalidateMatch();
+                              },
                       ),
                       if (_scope == 'institution')
                         Padding(
@@ -410,26 +498,44 @@ class _HubBatchPublishPageState extends ConsumerState<HubBatchPublishPage> {
                               labelText: '机构名称',
                               border: OutlineInputBorder(),
                             ),
-                            onChanged: (_) => _institutionChanged = true,
+                            onChanged: (_) => _invalidateMatch(),
                           ),
                         ),
                     ],
+                    if (_busy)
+                      _progress()
+                    else
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          _matchSummary,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
                     const SizedBox(height: 20),
                   ],
                   for (final item in _items) _itemCard(item),
                   const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: Text(
-                      _submitting
-                          ? '提交中…'
-                          : _institutionChanged
-                          ? '检查归属'
-                          : '确认提交',
-                    ),
-                  ),
                 ],
               ],
+            ),
+      bottomNavigationBar: _analysis == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: FilledButton(
+                  onPressed:
+                      _submitting ||
+                          _busy ||
+                          _institutionChanged ||
+                          (!widget.diagnosisMode && _scope.isEmpty) ||
+                          _error != null
+                      ? null
+                      : _submit,
+                  child: Text(_submitting ? '提交中…' : '提交审核'),
+                ),
+              ),
             ),
     );
   }
