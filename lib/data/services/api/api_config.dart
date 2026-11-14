@@ -2,21 +2,28 @@ class LlmConfig {
   final String baseUrl;
   final String apiKey;
   final String model;
+  final String reasoningEffort;
 
   const LlmConfig({
     this.baseUrl = 'https://api.openai.com/v1',
     this.apiKey = '',
     this.model = 'gpt-4o',
+    this.reasoningEffort = '',
   });
 
   bool get isConfigured => apiKey.isNotEmpty;
 
-  LlmConfig copyWith({String? baseUrl, String? apiKey, String? model}) =>
-      LlmConfig(
-        baseUrl: baseUrl ?? this.baseUrl,
-        apiKey: apiKey ?? this.apiKey,
-        model: model ?? this.model,
-      );
+  LlmConfig copyWith({
+    String? baseUrl,
+    String? apiKey,
+    String? model,
+    String? reasoningEffort,
+  }) => LlmConfig(
+    baseUrl: baseUrl ?? this.baseUrl,
+    apiKey: apiKey ?? this.apiKey,
+    model: model ?? this.model,
+    reasoningEffort: reasoningEffort ?? this.reasoningEffort,
+  );
 }
 
 enum AsrProvider {
@@ -31,6 +38,10 @@ enum AsrProvider {
   zhipuAsr(
     defaultUrl: 'https://open.bigmodel.cn/api/paas/v4',
     defaultModel: 'glm-asr-2512',
+  ),
+  deepseek(
+    defaultUrl: 'https://api.deepseek.com/v1',
+    defaultModel: '',
   );
 
   final String defaultUrl;
@@ -62,14 +73,13 @@ class AsrConfig {
     String? apiKey,
     String? model,
     String? language,
-  }) =>
-      AsrConfig(
-        provider: provider ?? this.provider,
-        baseUrl: baseUrl ?? this.baseUrl,
-        apiKey: apiKey ?? this.apiKey,
-        model: model ?? this.model,
-        language: language ?? this.language,
-      );
+  }) => AsrConfig(
+    provider: provider ?? this.provider,
+    baseUrl: baseUrl ?? this.baseUrl,
+    apiKey: apiKey ?? this.apiKey,
+    model: model ?? this.model,
+    language: language ?? this.language,
+  );
 }
 
 enum OcrProvider {
@@ -80,6 +90,7 @@ enum OcrProvider {
   paddleLocal,
   zhipu,
   modelbest,
+  deepseek,
 }
 
 class OcrConfig {
@@ -111,11 +122,10 @@ class OcrConfig {
     String? baseUrl,
     String? apiKey,
     String? model,
-  }) =>
-      OcrConfig(
-        provider: provider ?? this.provider,
-        baseUrl: baseUrl ?? this.baseUrl,
-        apiKey: apiKey ?? this.apiKey,
-        model: model ?? this.model,
-      );
+  }) => OcrConfig(
+    provider: provider ?? this.provider,
+    baseUrl: baseUrl ?? this.baseUrl,
+    apiKey: apiKey ?? this.apiKey,
+    model: model ?? this.model,
+  );
 }

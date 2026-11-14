@@ -90,6 +90,7 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
       final oldUrl = await _storage.read(key: 'llm_base_url');
       final oldKey = await _storage.read(key: 'llm_api_key');
       final oldModel = await _storage.read(key: 'llm_model');
+      final oldEffort = await _storage.read(key: 'llm_reasoning_effort');
 
       if (oldKey != null && oldKey.trim().isNotEmpty) {
         final targetId = _matchProviderIdByUrl(oldUrl ?? '');
@@ -99,6 +100,10 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
             baseUrl: oldUrl ?? loaded[idx].baseUrl,
             apiKey: oldKey,
             selectedModel: oldModel ?? loaded[idx].selectedModel,
+            reasoningEfforts: {
+              if (oldModel != null && oldEffort != null)
+                oldModel.trim().toLowerCase(): oldEffort,
+            },
           );
         } else {
           // 放入自定义端点
@@ -156,6 +161,7 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
       baseUrl: active.baseUrl.trim(),
       apiKey: active.apiKey.trim(),
       model: active.selectedModel.trim(),
+      reasoningEffort: active.reasoningEffort,
     );
     _ref.read(llmConfigProvider.notifier).save(config);
   }

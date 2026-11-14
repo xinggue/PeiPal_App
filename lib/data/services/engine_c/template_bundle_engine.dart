@@ -214,6 +214,7 @@ class TemplateBundleEngine {
           'baseUrl': await secureStorage.read(key: 'llm_base_url') ?? '',
           'apiKey': await secureStorage.read(key: 'llm_api_key') ?? '',
           'model': await secureStorage.read(key: 'llm_model') ?? '',
+          'reasoningEffort': await secureStorage.read(key: 'llm_reasoning_effort') ?? '',
           'providers': ?llmDecoded,
           if (providersMatrix != null && providersMatrix.isNotEmpty)
             'providersMatrix': providersMatrix,
@@ -1399,6 +1400,12 @@ class TemplateBundleEngine {
           if (inc.containsKey('isEnabled')) {
             merged['isEnabled'] = inc['isEnabled'] == true;
           }
+          if (inc['reasoningEfforts'] is Map) {
+            merged['reasoningEfforts'] = {
+              ...LlmProviderConfig.parseReasoningEfforts(existing['reasoningEfforts']),
+              ...LlmProviderConfig.parseReasoningEfforts(inc['reasoningEfforts']),
+            };
+          }
           currentList[idx] = merged;
           if (merged['apiKey'] != null &&
               merged['apiKey'].toString().trim().isNotEmpty) {
@@ -1441,6 +1448,9 @@ class TemplateBundleEngine {
         await secureStorage.write(
             key: 'llm_model',
             value: activeConfig['selectedModel']?.toString() ?? '');
+        await secureStorage.write(
+            key: 'llm_reasoning_effort',
+            value: LlmProviderConfig.fromJson(activeConfig).reasoningEffort);
       }
     } else {
       if (legacyUrl != null) {
@@ -1453,6 +1463,8 @@ class TemplateBundleEngine {
         await secureStorage.write(key: 'llm_model', value: legacyModel);
       }
       await secureStorage.write(key: 'llm_providers_matrix_v1', value: '');
+      await secureStorage.write(
+          key: 'llm_reasoning_effort', value: llm['reasoningEffort']?.toString() ?? '');
       await secureStorage.write(key: 'llm_active_provider_id_v1', value: '');
       configuredCount = legacyKey != null && legacyKey.trim().isNotEmpty ? 1 : 0;
     }
@@ -1491,6 +1503,13 @@ class TemplateBundleEngine {
           final idx = currentMap[id]!;
           final existing = currentList[idx];
           final merged = Map<String, dynamic>.from(existing);
+
+          if (AsrProtocol.values.any((p) => p.name == inc['protocol'])) {
+            merged['protocol'] = inc['protocol'];
+          }
+          if (merged['protocol'] == AsrProtocol.deepseek.name) {
+            merged['selectedModel'] = '';
+          }
 
           if (inc['apiKey'] != null &&
               inc['apiKey'].toString().trim().isNotEmpty) {
@@ -1554,7 +1573,8 @@ class TemplateBundleEngine {
         final activeConfig = currentList[activeIdx];
         await secureStorage.write(
             key: 'asr_provider',
-            value: activeConfig['id']?.toString() ?? '');
+            value: activeConfig['protocol'] == AsrProtocol.deepseek.name
+                ? 'deepseek' : activeConfig['id']?.toString() ?? '');
         await secureStorage.write(
             key: 'asr_base_url',
             value: activeConfig['baseUrl']?.toString() ?? '');
@@ -1622,6 +1642,13 @@ class TemplateBundleEngine {
           final existing = currentList[idx];
           final merged = Map<String, dynamic>.from(existing);
 
+          if (OcrProtocol.values.any((p) => p.name == inc['protocol'])) {
+            merged['protocol'] = inc['protocol'];
+          }
+          if (merged['protocol'] == OcrProtocol.deepseek.name) {
+            merged['selectedModel'] = '';
+          }
+
           if (inc['apiKey'] != null &&
               inc['apiKey'].toString().trim().isNotEmpty) {
             merged['apiKey'] = inc['apiKey'].toString();
@@ -1680,7 +1707,8 @@ class TemplateBundleEngine {
         final activeConfig = currentList[activeIdx];
         await secureStorage.write(
             key: 'ocr_provider',
-            value: activeConfig['id']?.toString() ?? '');
+            value: activeConfig['protocol'] == OcrProtocol.deepseek.name
+                ? 'deepseek' : activeConfig['id']?.toString() ?? '');
         await secureStorage.write(
             key: 'ocr_base_url',
             value: activeConfig['baseUrl']?.toString() ?? '');

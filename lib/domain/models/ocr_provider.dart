@@ -20,6 +20,9 @@ enum OcrProtocol {
 
   /// Android 本地 PP-OCRv5 离线识别
   paddleLocal,
+
+  /// DeepSeek 文件文字识别 (/v1/tools/ocr)
+  deepseek,
 }
 
 /// OCR 服务商配置与预设列表
@@ -63,6 +66,8 @@ class OcrProviderConfig {
   bool get requiresApiKey => !isLocal && !isNoAuthCloud;
 
   bool get isConfigured => !requiresApiKey || apiKey.trim().isNotEmpty;
+
+  bool get requiresModel => protocol != OcrProtocol.deepseek;
 
   /// 是否支持从服务端 GET /models 获取模型列表或拥有多个可选模型
   bool get supportsModelFetch =>
@@ -160,6 +165,17 @@ class OcrProviderConfig {
 /// 内置的 OCR 供应商预设矩阵
 class OcrProviderPresets {
   static List<OcrProviderConfig> get builtIn => const [
+        OcrProviderConfig(
+          id: 'deepseek',
+          name: 'DeepSeek 文字识别',
+          description: '按页识别图片文字与表格',
+          protocol: OcrProtocol.deepseek,
+          defaultBaseUrl: 'https://api.deepseek.com/v1',
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: '',
+          selectedModel: '',
+          websiteUrl: 'https://platform.deepseek.com',
+        ),
         OcrProviderConfig(
           id: 'modelbest',
           name: '面壁智能 (ModelBest 文档解析)',

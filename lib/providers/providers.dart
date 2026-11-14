@@ -247,11 +247,13 @@ class LlmConfigNotifier extends StateNotifier<LlmConfig> {
       _storage.read(key: 'llm_base_url'),
       _storage.read(key: 'llm_api_key'),
       _storage.read(key: 'llm_model'),
+      _storage.read(key: 'llm_reasoning_effort'),
     ]);
     state = LlmConfig(
       baseUrl: values[0] ?? 'https://api.openai.com/v1',
       apiKey: values[1] ?? '',
       model: values[2] ?? 'gpt-4o',
+      reasoningEffort: values[3] ?? '',
     );
     _apiService.updateLlmConfig(state);
   }
@@ -260,6 +262,7 @@ class LlmConfigNotifier extends StateNotifier<LlmConfig> {
     await _storage.write(key: 'llm_base_url', value: config.baseUrl);
     await _storage.write(key: 'llm_api_key', value: config.apiKey);
     await _storage.write(key: 'llm_model', value: config.model);
+    await _storage.write(key: 'llm_reasoning_effort', value: config.reasoningEffort);
     state = config;
     _apiService.updateLlmConfig(config);
   }
@@ -295,7 +298,9 @@ class AsrConfigNotifier extends StateNotifier<AsrConfig> {
       _storage.read(key: 'asr_language'),
     ]);
     final providerStr = values[0];
-    final provider = providerStr == 'mimoV25' ? AsrProvider.mimoV25 : AsrProvider.openaiWhisper;
+    final provider = AsrProvider.values
+        .where((p) => p.name == providerStr).firstOrNull ??
+        (providerStr == 'zhipu' ? AsrProvider.zhipuAsr : AsrProvider.openaiWhisper);
     final url = values[1];
     final key = values[2];
     final model = values[3];
@@ -367,6 +372,7 @@ class OcrConfigNotifier extends StateNotifier<OcrConfig> {
     state = OcrConfig(
       provider: ocrProvider,
       baseUrl: url ??
+          (ocrProvider == OcrProvider.deepseek ? 'https://api.deepseek.com/v1' : null) ??
           (ocrProvider == OcrProvider.paddleOcr
               ? 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs'
               : ocrProvider == OcrProvider.mineru
@@ -382,6 +388,7 @@ class OcrConfigNotifier extends StateNotifier<OcrConfig> {
                                   : 'https://api.openai.com/v1'),
       apiKey: key ?? '',
       model: model ??
+          (ocrProvider == OcrProvider.deepseek ? '' : null) ??
           (ocrProvider == OcrProvider.paddleOcr
               ? 'PaddleOCR-VL-1.6'
               : ocrProvider == OcrProvider.mineru

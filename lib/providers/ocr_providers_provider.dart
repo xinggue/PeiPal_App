@@ -168,6 +168,9 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
 
   String _matchProviderId(String oldProviderName, String url) {
     final lowerUrl = url.toLowerCase();
+    if (oldProviderName == 'deepseek' || lowerUrl.contains('api.deepseek.com')) {
+      return 'deepseek';
+    }
     if (oldProviderName == 'paddleOcr' || lowerUrl.contains('aistudio-app')) {
       return 'paddleOcr';
     }
@@ -191,6 +194,8 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
 
   OcrProvider _mapProtocolToLegacyEnum(OcrProtocol protocol) {
     switch (protocol) {
+      case OcrProtocol.deepseek:
+        return OcrProvider.deepseek;
       case OcrProtocol.openaiVision:
         return OcrProvider.openai;
       case OcrProtocol.paddleOcr:

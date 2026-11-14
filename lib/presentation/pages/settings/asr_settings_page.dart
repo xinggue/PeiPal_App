@@ -129,7 +129,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
       showAppToast(
           context,
           setAsActive
-              ? '已保存，并已选用 ${p.name} ($model)'
+              ? '已保存，并已选用 ${p.name}${p.requiresModel ? " ($model)" : ""}'
               : '${p.name} 配置已保存');
     }
   }
@@ -562,7 +562,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  active?.selectedModel.isNotEmpty == true
+                  active?.requiresModel == false ? '自动识别语言' : active?.selectedModel.isNotEmpty == true
                       ? active!.selectedModel
                       : '未选择模型',
                   style: const TextStyle(
@@ -700,7 +700,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
               ],
             ),
             subtitle: Text(
-              '当前模型: ${p.selectedModel.isNotEmpty ? p.selectedModel : "未指定"}',
+              p.requiresModel ? '当前模型: ${p.selectedModel.isNotEmpty ? p.selectedModel : "未指定"}' : p.description,
               style: const TextStyle(fontSize: 12),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -766,7 +766,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                   const SizedBox(height: 10),
 
                   // 3. 【直达按钮】保存 Key 并获取模型列表
-                  if (p.protocol != AsrProtocol.mimoV25) ...[
+                  if (p.requiresModel && p.protocol != AsrProtocol.mimoV25) ...[
                     FilledButton.tonalIcon(
                       icon: isLoadingModel
                           ? const SizedBox(
@@ -785,6 +785,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                   ],
 
                   // 4. 选用模型名称行（输入框 + 从列表选择按钮）
+                  if (p.requiresModel) ...[
                   Row(
                     children: [
                       Expanded(
@@ -820,6 +821,10 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
+                  ] else ...[
+                    const Text('自动识别语言 · 最长 120 秒 · 最大 8 MiB'),
+                    const SizedBox(height: 14),
+                  ],
 
                   // 6. 底部操作按钮：仅保存 / 确认选用该模型
                   Row(
@@ -837,7 +842,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                           ),
                           icon:
                               const Icon(Icons.check_circle_outline, size: 16),
-                          label: Text(isActive ? '已选用 (点击更新)' : '确认选用该模型'),
+                          label: Text(isActive ? '已选用 (点击更新)' : p.requiresModel ? '确认选用该模型' : '确认选用该服务'),
                           onPressed: () =>
                               _onSaveProvider(p, setAsActive: true),
                         ),

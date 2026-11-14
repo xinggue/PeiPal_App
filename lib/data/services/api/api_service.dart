@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'api_config.dart';
+import 'deepseek_tools_service.dart';
 import '../media/apple_vision_ocr.dart';
 import '../media/ocr_image_optimizer.dart';
 import '../media/paddle_local_ocr.dart';
@@ -144,6 +145,8 @@ class ApiService {
         final dio = _llmDio();
         final body = <String, dynamic>{
           'model': _llmConfig.model,
+          if (_llmConfig.reasoningEffort.isNotEmpty)
+            'reasoning_effort': _llmConfig.reasoningEffort,
           'messages': [
             {'role': 'system', 'content': systemPrompt},
             {'role': 'user', 'content': userPrompt},
@@ -284,6 +287,13 @@ class ApiService {
   }
 
   Future<String> transcribeAudio(String filePath) async {
+    if (_asrConfig.provider == AsrProvider.deepseek) {
+      return DeepSeekToolsService(dio: _rawDio).transcribe(
+        baseUrl: _asrConfig.baseUrl,
+        apiKey: _asrConfig.apiKey,
+        filePath: filePath,
+      );
+    }
     if (_asrConfig.provider == AsrProvider.mimoV25) {
       return _transcribeMimo(filePath);
     }
@@ -485,6 +495,18 @@ class ApiService {
     final optimizedPaths = await OcrImageOptimizer.prepareForOcr(imagePaths);
 
     try {
+      if (_ocrConfig.provider == OcrProvider.deepseek) {
+        final config = _ocrConfig;
+        return await _processMultiPagesWithPacing(
+          imagePaths: optimizedPaths,
+          headerTitle: 'DeepSeek OCR',
+          pageWorker: (path, _) => DeepSeekToolsService(dio: _rawDio).recognize(
+            baseUrl: config.baseUrl,
+            apiKey: config.apiKey,
+            filePath: path,
+          ),
+        );
+      }
       if (_ocrConfig.provider == OcrProvider.paddleOcr) {
         return await _extractPaddleOcr(optimizedPaths);
       }
@@ -860,6 +882,9 @@ class ApiService {
         base = base.substring(0, base.length - 1);
       }
       String modelsEndpoint = '$base/models';
+      if (_asrConfig.provider == AsrProvider.deepseek) {
+        modelsEndpoint = DeepSeekToolsService.modelsEndpoint(base);
+      }
       if (base.endsWith('/audio/transcriptions')) {
         modelsEndpoint =
             '${base.substring(0, base.length - '/audio/transcriptions'.length)}/models';
@@ -931,6 +956,9 @@ class ApiService {
         base = base.substring(0, base.length - 1);
       }
       String modelsUrl = '$base/models';
+      if (_ocrConfig.provider == OcrProvider.deepseek) {
+        modelsUrl = DeepSeekToolsService.modelsEndpoint(base);
+      }
       if (base.endsWith('/layout_parsing')) {
         modelsUrl =
             '${base.substring(0, base.length - '/layout_parsing'.length)}/models';

@@ -160,6 +160,7 @@ class BackupService {
           'baseUrl': await secureStorage.read(key: 'llm_base_url') ?? '',
           'apiKey': await secureStorage.read(key: 'llm_api_key') ?? '',
           'model': await secureStorage.read(key: 'llm_model') ?? '',
+          'reasoningEffort': await secureStorage.read(key: 'llm_reasoning_effort') ?? '',
           'providers': ?llmDecoded,
           if (providersMatrix != null && providersMatrix.isNotEmpty)
             'providersMatrix': providersMatrix,
@@ -388,6 +389,8 @@ class BackupService {
 
         if (apis.containsKey('llm') && apis['llm'] is Map) {
           final llm = apis['llm'] as Map;
+          await secureStorage.write(
+              key: 'llm_reasoning_effort', value: llm['reasoningEffort']?.toString() ?? '');
           if (llm['baseUrl'] != null) {
             await secureStorage.write(
                 key: 'llm_base_url', value: llm['baseUrl'].toString());

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/llm_provider.dart';
+import '../../../domain/models/llm_reasoning_effort.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/providers.dart';
 
@@ -97,7 +98,8 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
     final key = _getKeyCtrl(p).text.trim();
     final model = _getModelCtrl(p).text.trim();
 
-    final updated = p.copyWith(
+    final latest = ref.read(llmProvidersProvider).providers.firstWhere((item) => item.id == p.id);
+    final updated = latest.copyWith(
       baseUrl: url,
       apiKey: key,
       selectedModel: model,
@@ -463,13 +465,15 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
                 active?.name ?? '未选择',
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
@@ -498,7 +502,9 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
             ),
           ],
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               OutlinedButton.icon(
                 icon: _isTestingActive
@@ -511,7 +517,6 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
                 label: const Text('测试当前连接', style: TextStyle(fontSize: 12)),
                 onPressed: _isTestingActive ? null : _testActiveConnection,
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
                 icon: _isCheckingActiveBalance
                     ? const SizedBox(
@@ -709,6 +714,60 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
+
+                  if (p.id == 'deepseek' || p.id == 'zhipu')
+                    ExpansionTile(
+                      key: PageStorageKey('effort-${p.id}'),
+                      title: const Text('高级'),
+                      tilePadding: EdgeInsets.zero,
+                      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                      childrenPadding: const EdgeInsets.only(top: 8, bottom: 14),
+                      children: [
+                        ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _getModelCtrl(p),
+                          builder: (context, value, _) {
+                            final model = value.text.trim().toLowerCase();
+                            final options = LlmReasoningEffort.options(p.id, model);
+                            final effort = LlmReasoningEffort.resolve(
+                              p.id, model, p.reasoningEfforts[model]);
+                            return DropdownButtonFormField<String>(
+                              key: ValueKey('${p.id}:$model:$effort'),
+                              initialValue: effort,
+                              isExpanded: true,
+                              isDense: false,
+                              decoration: InputDecoration(
+                                labelText: '推理强度',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 16),
+                                helperText: options.isEmpty
+                                    ? '当前模型不支持推理强度设置'
+                                    : null,
+                              ),
+                              items: [
+                                for (final option in options.isEmpty ? [''] : options)
+                                  DropdownMenuItem(
+                                    value: option,
+                                    child: Text(LlmReasoningEffort.labels[option]!),
+                                  ),
+                              ],
+                              onChanged: options.isEmpty ? null : (selected) {
+                                if (selected == null) return;
+                                final latest = ref.read(llmProvidersProvider)
+                                    .providers.firstWhere((item) => item.id == p.id);
+                                ref.read(llmProvidersProvider.notifier).updateProvider(
+                                  latest.copyWith(reasoningEfforts: {
+                                    ...latest.reasoningEfforts,
+                                    model: selected,
+                                  }),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
 
                   // 5. 底部操作按钮：仅保存 / 确认选用该模型
                   Row(

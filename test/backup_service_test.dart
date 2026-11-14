@@ -244,6 +244,10 @@ void main() {
 
     await sec.write(key: 'llm_api_key', value: 'sk-test123456');
     await sec.write(key: 'llm_model', value: 'gpt-4o');
+    await sec.write(key: 'llm_reasoning_effort', value: 'max');
+    await sec.write(key: 'llm_providers_matrix_v1', value: jsonEncode([
+      {'id': 'deepseek', 'reasoningEfforts': {'deepseek-v4-pro': 'max'}},
+    ]));
 
     // 2. Export all
     final bundle = await service.exportBundle(const BackupExportOptions());
@@ -252,6 +256,8 @@ void main() {
     expect(bundle['content_templates'], hasLength(1));
     expect(bundle['favorite_diagnoses'], hasLength(1));
     expect(bundle['api_configs']['llm']['apiKey'], 'sk-test123456');
+    expect(bundle['api_configs']['llm']['providers'][0]['reasoningEfforts'],
+        {'deepseek-v4-pro': 'max'});
 
     // 3. Clear repositories and re-import
     final tRepo2 = InMemoryTemplateRepo();
@@ -285,6 +291,9 @@ void main() {
 
     final importedKey = await sec2.read(key: 'llm_api_key');
     expect(importedKey, 'sk-test123456');
+    expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
+    expect(jsonDecode((await sec2.read(key: 'llm_providers_matrix_v1'))!)[0]['reasoningEfforts'],
+        {'deepseek-v4-pro': 'max'});
   });
 
   test('BackupService selective export only packs requested items', () async {

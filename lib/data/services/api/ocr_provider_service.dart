@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../../../domain/models/ocr_provider.dart';
+import 'deepseek_tools_service.dart';
 import '../media/apple_vision_ocr.dart';
 import '../media/paddle_local_ocr.dart';
 
@@ -22,6 +23,7 @@ class OcrProviderService {
 
   /// 从服务商端点获取可用的 OCR / 视觉模型列表
   Future<List<String>> fetchModels(OcrProviderConfig provider) async {
+    if (!provider.requiresModel) return const [];
     if (provider.protocol == OcrProtocol.appleVision) {
       return const ['apple-vision'];
     }
@@ -72,6 +74,9 @@ class OcrProviderService {
 
     // 处理用户可能直接填入完整路径（如 /paas/v4/layout_parsing 或 /v1/document-parse）的情况
     String modelsEndpoint = '$baseUrl/models';
+    if (provider.protocol == OcrProtocol.deepseek) {
+      modelsEndpoint = DeepSeekToolsService.modelsEndpoint(baseUrl);
+    }
     if (baseUrl.endsWith('/layout_parsing')) {
       modelsEndpoint =
           '${baseUrl.substring(0, baseUrl.length - '/layout_parsing'.length)}/models';
@@ -250,6 +255,9 @@ class OcrProviderService {
 
     // 2. 通用端点：通过 GET /models 测试连通性与 RTT 延迟
     String modelsEndpoint = '$baseUrl/models';
+    if (provider.protocol == OcrProtocol.deepseek) {
+      modelsEndpoint = DeepSeekToolsService.modelsEndpoint(baseUrl);
+    }
     if (baseUrl.endsWith('/layout_parsing')) {
       modelsEndpoint =
           '${baseUrl.substring(0, baseUrl.length - '/layout_parsing'.length)}/models';

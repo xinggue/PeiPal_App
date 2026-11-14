@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../../../domain/models/asr_provider.dart';
+import 'deepseek_tools_service.dart';
 
 class AsrProviderService {
   final Dio _dio = Dio(BaseOptions(
@@ -20,6 +21,7 @@ class AsrProviderService {
 
   /// 从服务商端点获取可用的语音识别模型列表
   Future<List<String>> fetchModels(AsrProviderConfig provider) async {
+    if (!provider.requiresModel) return const [];
     if (provider.protocol == AsrProtocol.mimoV25) {
       return const ['mimo-v2.5-asr'];
     }
@@ -35,6 +37,9 @@ class AsrProviderService {
     }
 
     String modelsEndpoint = '$baseUrl/models';
+    if (provider.protocol == AsrProtocol.deepseek) {
+      modelsEndpoint = DeepSeekToolsService.modelsEndpoint(baseUrl);
+    }
     if (baseUrl.endsWith('/audio/transcriptions')) {
       modelsEndpoint =
           '${baseUrl.substring(0, baseUrl.length - '/audio/transcriptions'.length)}/models';
@@ -132,6 +137,9 @@ class AsrProviderService {
 
     // 通用端点：通过 GET /models 测试连通性与 RTT 延迟
     String modelsEndpoint = '$baseUrl/models';
+    if (provider.protocol == AsrProtocol.deepseek) {
+      modelsEndpoint = DeepSeekToolsService.modelsEndpoint(baseUrl);
+    }
     if (baseUrl.endsWith('/audio/transcriptions')) {
       modelsEndpoint =
           '${baseUrl.substring(0, baseUrl.length - '/audio/transcriptions'.length)}/models';

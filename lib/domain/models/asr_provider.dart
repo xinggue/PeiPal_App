@@ -8,6 +8,9 @@ enum AsrProtocol {
 
   /// 智谱 GLM-ASR 语音转文本 (/paas/v4/audio/transcriptions)
   zhipuAsr,
+
+  /// DeepSeek 文件语音识别 (/v1/tools/asr)
+  deepseek,
 }
 
 /// ASR 服务商配置与预设列表
@@ -45,6 +48,8 @@ class AsrProviderConfig {
   });
 
   bool get isConfigured => apiKey.trim().isNotEmpty;
+
+  bool get requiresModel => protocol != AsrProtocol.deepseek;
 
   /// 全部可用模型列表（去重保留顺序）
   List<String> get allModels {
@@ -139,6 +144,17 @@ class AsrProviderConfig {
 /// 内置的 ASR 供应商预设矩阵
 class AsrProviderPresets {
   static List<AsrProviderConfig> get builtIn => const [
+        AsrProviderConfig(
+          id: 'deepseek',
+          name: 'DeepSeek 语音识别',
+          description: '自动识别语言，单次最长 120 秒、最大 8 MiB',
+          protocol: AsrProtocol.deepseek,
+          defaultBaseUrl: 'https://api.deepseek.com/v1',
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: '',
+          selectedModel: '',
+          websiteUrl: 'https://platform.deepseek.com',
+        ),
         AsrProviderConfig(
           id: 'zhipu',
           name: '智谱 AI (GLM-ASR 语音转文本)',

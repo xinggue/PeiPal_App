@@ -125,7 +125,8 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
       } else if (loaded.any((p) => p.isConfigured)) {
         targetActiveId = loaded.firstWhere((p) => p.isConfigured).id;
       } else {
-        targetActiveId = loaded.isNotEmpty ? loaded.first.id : 'zhipu';
+        targetActiveId = loaded.any((p) => p.id == 'zhipu')
+            ? 'zhipu' : loaded.isNotEmpty ? loaded.first.id : 'zhipu';
       }
     }
 
@@ -140,6 +141,9 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
 
   String _matchProviderId(String oldProviderName, String url) {
     final lowerUrl = url.toLowerCase();
+    if (oldProviderName == 'deepseek' || lowerUrl.contains('api.deepseek.com')) {
+      return 'deepseek';
+    }
     if (oldProviderName == 'zhipuAsr' || lowerUrl.contains('bigmodel.cn')) {
       return 'zhipu';
     }
@@ -151,6 +155,8 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
 
   AsrProvider _mapProtocolToLegacyEnum(AsrProtocol protocol) {
     switch (protocol) {
+      case AsrProtocol.deepseek:
+        return AsrProvider.deepseek;
       case AsrProtocol.zhipuAsr:
         return AsrProvider.zhipuAsr;
       case AsrProtocol.mimoV25:

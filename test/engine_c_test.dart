@@ -880,7 +880,8 @@ void main() {
         'name': 'DeepSeek',
         'apiKey': 'sk-deepseek-test',
         'baseUrl': 'https://api.deepseek.com/v1',
-        'selectedModel': 'deepseek-chat',
+        'selectedModel': 'deepseek-v4-pro',
+        'reasoningEfforts': {'deepseek-v4-pro': 'max', 'deepseek-flash': ''},
       },
     ];
     final asrMatrix = [
@@ -917,12 +918,22 @@ void main() {
     final apis = map['api_configs'] as Map<String, dynamic>;
     expect(apis['llm']['providers'], isList);
     expect((apis['llm']['providers'] as List).first['id'], 'deepseek');
+    expect((apis['llm']['providers'] as List).first['reasoningEfforts'],
+        {'deepseek-v4-pro': 'max', 'deepseek-flash': ''});
     expect(apis['ocr']['ocr_concurrency'], '4');
 
     // 导入到本地已有其他供应商 (如 kimi) 的设备中，测试智能合并
     final sec2 = _FakeSecureStorage();
     final sRepo2 = _MemSettingsRepo();
     final localKimi = [
+      {
+        'id': 'deepseek',
+        'reasoningEfforts': {
+          'deepseek-v4-pro': 'low',
+          'deepseek-flash': 'high',
+          'another-model': 'high',
+        },
+      },
       {
         'id': 'moonshot',
         'name': 'Kimi',
@@ -953,9 +964,60 @@ void main() {
     expect(mergedList.any((p) => p['id'] == 'moonshot' && p['apiKey'] == 'sk-kimi-local'), isTrue);
     expect(mergedList.any((p) => p['id'] == 'deepseek' && p['apiKey'] == 'sk-deepseek-test'), isTrue);
     expect(await sec2.read(key: 'llm_active_provider_id_v1'), 'deepseek');
+    expect(mergedList.firstWhere((p) => p['id'] == 'deepseek')['reasoningEfforts'], {
+      'deepseek-v4-pro': 'max',
+      'deepseek-flash': '',
+      'another-model': 'high',
+    });
+    expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
+
+    // Older exports omit effort; they must retain the locally configured levels.
+    final legacyProvider = Map<String, dynamic>.from(llmMatrix.first)
+      ..remove('reasoningEfforts');
+    final legacyPlan = await engine2.analyzeImport({
+      ...map,
+      'api_configs': {
+        'llm': {'providers': [legacyProvider], 'activeProviderId': 'deepseek'},
+      },
+    });
+    await engine2.executeImportPlan(legacyPlan);
+    expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
 
     final importedConcurrency = await sRepo2.get('ocr_concurrency');
     expect(importedConcurrency, '4');
+  });
+
+  test('DeepSeek OCR and ASR protocols survive export and merge import', () async {
+    for (final kind in ['asr', 'ocr']) {
+      await sec.write(key: '${kind}_providers_matrix_v1', value: jsonEncode([
+        {
+          'id': 'deepseek',
+          'name': 'DeepSeek',
+          'protocol': 'deepseek',
+          'baseUrl': 'https://api.deepseek.com/v1',
+          'apiKey': 'test-$kind-key',
+          'selectedModel': '',
+        },
+      ]));
+      await sec.write(key: '${kind}_active_provider_id_v1', value: 'deepseek');
+    }
+    final exported = await engine.exportJsonString(
+      const EngineCExportRequest(includeApiConfigs: true));
+    for (final kind in ['asr', 'ocr']) {
+      await sec.write(key: '${kind}_providers_matrix_v1', value: jsonEncode([
+        {'id': 'deepseek', 'protocol': 'openaiVision', 'selectedModel': 'old-model'},
+      ]));
+    }
+    final plan = await engine.analyzeImport(jsonDecode(exported) as Map<String, dynamic>);
+    await engine.executeImportPlan(plan);
+    for (final kind in ['asr', 'ocr']) {
+      final raw = await sec.read(key: '${kind}_providers_matrix_v1');
+      final restored = (jsonDecode(raw!) as List).firstWhere((p) => p['id'] == 'deepseek');
+      expect(restored['protocol'], 'deepseek');
+      expect(restored['selectedModel'], '');
+      expect(restored['apiKey'], 'test-$kind-key');
+      expect(await sec.read(key: '${kind}_provider'), 'deepseek');
+    }
   });
 
   test('Engine C: exports and imports device and UI settings seamlessly',
