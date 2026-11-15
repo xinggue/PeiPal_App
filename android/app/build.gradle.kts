@@ -74,6 +74,7 @@ android {
 
     packaging {
         jniLibs {
+            useLegacyPackaging = true
             excludes += setOf(
                 "lib/armeabi-v7a/**",
                 "lib/x86/**",
