@@ -11,6 +11,7 @@ import '../../../domain/models/message.dart';
 import '../../../providers/providers.dart';
 import '../../widgets/common/typing_done_feedback.dart';
 import '../../widgets/chat/qr_code_display_sheet.dart';
+import '../../widgets/ble/draggable_typing_overlay.dart';
 
 class PatientRecordsPage extends ConsumerStatefulWidget {
   final String patientId;
@@ -78,7 +79,14 @@ class _PatientRecordsPageState extends ConsumerState<PatientRecordsPage> {
     setState(() => _outstanding++);
     showAppToast(context, '已加入发送队列（${text.length} 字符）');
 
-    final ok = await ble.sendTextDone(text);
+    final typingCtrl = ref.read(typingProgressControllerProvider);
+    typingCtrl.startTyping(title: '文书', text: text);
+    bool ok;
+    try {
+      ok = await ble.sendTextDone(text);
+    } finally {
+      typingCtrl.finishTyping();
+    }
     if (!mounted) return;
     setState(() => _outstanding--);
 

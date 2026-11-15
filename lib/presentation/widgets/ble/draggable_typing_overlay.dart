@@ -141,6 +141,7 @@ class _DraggableTypingOverlayState
   Offset _ballPosition = const Offset(12, 140);
   int _dockedSide = 1; // 默认贴在右侧边缘
   bool _isPositionInitialized = false;
+  Size? _lastScreenSize;
 
   void _ensurePositionInitialized(Size screenSize) {
     if (_isPositionInitialized) return;
@@ -206,6 +207,33 @@ class _DraggableTypingOverlayState
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
       reverseCurve: const Interval(0.3, 1.0, curve: Curves.easeIn),
     ));
+
+    ref.listenManual(
+      typingProgressControllerProvider.select((ctrl) => ctrl.isTyping),
+      (_, isTyping) {
+        if (!isTyping) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !ref.read(typingProgressControllerProvider).isTyping) {
+            return;
+          }
+          if (_isExpanded) {
+            // 输入开始时可能正处于收起动画或关闭确认中。
+            if (_animController.status == AnimationStatus.reverse) {
+              _animController.forward();
+            }
+            if (_isConfirmingClose) {
+              setState(() => _isConfirmingClose = false);
+            }
+            return;
+          }
+          _isMaximized = false;
+          _isHandleMenuOpen = false;
+          _isConfirmingClose = false;
+          _expandPanel(MediaQuery.sizeOf(context));
+        });
+      },
+      fireImmediately: true,
+    );
   }
 
   @override
@@ -219,8 +247,14 @@ class _DraggableTypingOverlayState
   double _effectiveWidth(Size screenSize) =>
       _isMaximized ? (screenSize.width * 0.80).clamp(280.0, 700.0) : _panelWidth;
 
-  double _effectiveHeight(Size screenSize) =>
-      _isMaximized ? (screenSize.height * 0.70).clamp(380.0, 840.0) : _panelHeight;
+  double _effectiveHeight(Size screenSize) {
+    if (_isMaximized) {
+      return (screenSize.height * 0.70).clamp(380.0, 840.0);
+    }
+    // 急停和计时出现时增加高度，速度选项展开后仍保留输入区。
+    final isTyping = ref.read(typingProgressControllerProvider).isTyping;
+    return _panelHeight + (isTyping ? 80.0 : 0.0);
+  }
 
   void _toggleMaximize(Size screenSize) {
     setState(() {
@@ -237,7 +271,7 @@ class _DraggableTypingOverlayState
         _isMaximized = false;
         if (_savedFloatingPosition != null) {
           final maxLeft = screenSize.width - _panelWidth - 10.0;
-          final maxTop = screenSize.height - _panelHeight - 16.0;
+          final maxTop = screenSize.height - _effectiveHeight(screenSize) - 16.0;
           _panelPosition = Offset(
             _savedFloatingPosition!.dx.clamp(10.0, maxLeft > 10.0 ? maxLeft : 10.0),
             _savedFloatingPosition!.dy.clamp(36.0, maxTop > 36.0 ? maxTop : 36.0),
@@ -270,8 +304,13 @@ class _DraggableTypingOverlayState
   }
 
   Future<void> _performCloseOverlay() async {
+    if (ref.read(typingProgressControllerProvider).isTyping) return;
     await _animController.reverse();
     if (mounted) {
+      if (ref.read(typingProgressControllerProvider).isTyping) {
+        _animController.forward();
+        return;
+      }
       setState(() {
         _isExpanded = false;
         _isMaximized = false;
@@ -314,8 +353,13 @@ class _DraggableTypingOverlayState
   }
 
   Future<void> _collapsePanel() async {
+    if (ref.read(typingProgressControllerProvider).isTyping) return;
     await _animController.reverse();
     if (mounted) {
+      if (ref.read(typingProgressControllerProvider).isTyping) {
+        _animController.forward();
+        return;
+      }
       setState(() {
         _isExpanded = false;
         _isMaximized = false;
@@ -499,13 +543,15 @@ class _DraggableTypingOverlayState
 
     _ensurePositionInitialized(screenSize);
 
-    // 当贴边时，若屏幕尺寸变动（如旋转或调整窗口），保持贴边
-    if (_dockedSide == 1) {
+    // 只在视口尺寸改变时重新贴边；普通重建不能覆盖手指累积的横向位移。
+    final screenSizeChanged = _lastScreenSize != screenSize;
+    _lastScreenSize = screenSize;
+    if (screenSizeChanged && _dockedSide == 1) {
       _ballPosition = Offset(
         screenSize.width - _ballSize / 2,
         _ballPosition.dy.clamp(36.0, screenSize.height - 100.0),
       );
-    } else if (_dockedSide == -1) {
+    } else if (screenSizeChanged && _dockedSide == -1) {
       _ballPosition = Offset(
         -_ballSize / 2,
         _ballPosition.dy.clamp(36.0, screenSize.height - 100.0),
@@ -518,6 +564,10 @@ class _DraggableTypingOverlayState
     const bubbleHeight = 36.0;
     final curW = _effectiveWidth(screenSize);
     final curH = _effectiveHeight(screenSize);
+    final panelTop = _panelPosition.dy.clamp(
+      36.0,
+      math.max(36.0, screenSize.height - curH - 16.0),
+    ).toDouble();
 
     return Stack(
       clipBehavior: Clip.none,
@@ -531,7 +581,7 @@ class _DraggableTypingOverlayState
                       : const Duration(milliseconds: 300),
                   curve: Curves.fastOutSlowIn,
                   left: _panelPosition.dx,
-                  top: _panelPosition.dy,
+                  top: panelTop,
                   width: curW,
                   height: curH,
                   child: Material(
@@ -543,8 +593,23 @@ class _DraggableTypingOverlayState
                         alignment: _calcPanelPivot(screenSize),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          child: _buildExpandedPanel(
-                              typingCtrl, colorScheme, screenSize),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              // 增高动画的首帧就按目标高度排版，再由外框逐渐展开，
+                              // 避免急停已出现、外框尚未长高时发生临时溢出。
+                              final contentHeight = math.max(
+                                curH, constraints.maxHeight,
+                              );
+                              return OverflowBox(
+                                alignment: Alignment.topCenter,
+                                minHeight: contentHeight,
+                                maxHeight: contentHeight,
+                                child: _buildExpandedPanel(
+                                  typingCtrl, colorScheme, screenSize,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -563,7 +628,7 @@ class _DraggableTypingOverlayState
         if (shouldShow && _isExpanded && _isHandleMenuOpen)
           Positioned(
             left: _panelPosition.dx + (curW - 200) / 2,
-            top: (_panelPosition.dy - bubbleHeight - 6).clamp(24.0, double.infinity),
+            top: (panelTop - bubbleHeight - 6).clamp(24.0, double.infinity),
             child: Material(
               color: Colors.transparent,
               child: Container(
@@ -591,10 +656,12 @@ class _DraggableTypingOverlayState
                     _buildHandleActionChip(
                       icon: Icons.remove_rounded,
                       label: '最小化',
-                      onTap: () {
-                        setState(() => _isHandleMenuOpen = false);
-                        _collapsePanel();
-                      },
+                      onTap: typingCtrl.isTyping
+                          ? null
+                          : () {
+                              setState(() => _isHandleMenuOpen = false);
+                              _collapsePanel();
+                            },
                       color: Colors.blueGrey.shade800,
                     ),
                     Container(
@@ -651,6 +718,8 @@ class _DraggableTypingOverlayState
 
     return MediaQuery.withNoTextScaling(
       child: GestureDetector(
+        key: const ValueKey('typing-floating-ball'),
+        behavior: HitTestBehavior.opaque,
         onPanUpdate: (details) {
           setState(() {
             // 允许向左右边缘外侧多滑半个球（-28 到 width - 28），以便滑进边缘变成半圆
@@ -659,13 +728,8 @@ class _DraggableTypingOverlayState
             final newY = (_ballPosition.dy + details.delta.dy)
                 .clamp(36.0, screenSize.height - 100.0);
             _ballPosition = Offset(newX, newY);
-            if (newX < -4.0) {
-              _dockedSide = -1;
-            } else if (newX > screenSize.width - _ballSize + 4.0) {
-              _dockedSide = 1;
-            } else {
-              _dockedSide = 0;
-            }
+            // 拖动期间自由移动，松手时再决定是否吸附到边缘。
+            _dockedSide = 0;
           });
         },
         onPanEnd: (_) {
@@ -768,6 +832,7 @@ class _DraggableTypingOverlayState
         final isWide = constraints.maxWidth >= 260;
 
         return Container(
+          key: const ValueKey('typing-workbench'),
           decoration: BoxDecoration(
             color: colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
@@ -884,7 +949,7 @@ class _DraggableTypingOverlayState
                           _buildWindowButton(
                             icon: Icons.remove_rounded,
                             tooltip: '最小化',
-                            onTap: _collapsePanel,
+                            onTap: ctrl.isTyping ? null : _collapsePanel,
                             color: Colors.grey.shade700,
                             size: isWide ? 24 : 22,
                             iconSize: isWide ? 14 : 13,
@@ -1114,8 +1179,6 @@ class _DraggableTypingOverlayState
     }
 
     final elapsedSec = ctrl.elapsedMs ~/ 1000;
-    final remainingMs = math.max(0, ctrl.estimatedDurationMs - ctrl.elapsedMs);
-    final remainSec = (remainingMs / 1000).ceil();
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isWide ? 10 : 6, vertical: isWide ? 8 : 5),
@@ -1147,7 +1210,7 @@ class _DraggableTypingOverlayState
                 ),
               ),
               Text(
-                '${ctrl.totalChars}字 · 已用${elapsedSec}s · 剩余约${remainSec}s',
+                '已用${elapsedSec}s',
                 style: TextStyle(
                   fontSize: isWide ? 10 : 10,
                   color: colorScheme.primary,
@@ -1157,27 +1220,7 @@ class _DraggableTypingOverlayState
             ],
           ),
           const SizedBox(height: 5),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: colorScheme.error,
-              foregroundColor: colorScheme.onError,
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.symmetric(vertical: isWide ? 8 : 6),
-              minimumSize: Size(double.infinity, isWide ? 40 : 32),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            icon: Icon(Icons.stop_circle_outlined, size: isWide ? 18 : 16),
-            label: Text(
-              '紧急停止',
-              style: TextStyle(fontSize: isWide ? 14 : 12.5, fontWeight: FontWeight.bold),
-            ),
-            onPressed: () async {
-              await ctrl.emergencyStop();
-              if (mounted) {
-                showAppToast(context, '已发送急停指令，打字已中断');
-              }
-            },
-          ),
+          _buildQuickStopButton(ctrl),
         ],
       ),
     );
@@ -1448,35 +1491,35 @@ class _DraggableTypingOverlayState
     );
   }
 
-  /// 发送中：发送按钮替换为同尺寸急停按钮
-  Widget _buildQuickStopButton(
-    TypingProgressController ctrl, {
-    required bool isWide,
-  }) {
+  /// 上下两处急停使用相同的尺寸、样式和操作。
+  Widget _buildQuickStopButton(TypingProgressController ctrl) {
     final colorScheme = Theme.of(context).colorScheme;
-    return FilledButton.icon(
-      style: FilledButton.styleFrom(
-        backgroundColor: colorScheme.error,
-        foregroundColor: colorScheme.onError,
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.symmetric(vertical: isWide ? 9 : 0),
-        minimumSize: Size(double.infinity, isWide ? 40 : 30),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(isWide ? 8 : 6),
+    return SizedBox(
+      height: 36,
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: colorScheme.error,
+          foregroundColor: colorScheme.onError,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(double.infinity, 36),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+          ),
         ),
-      ),
-      icon: Icon(Icons.stop_circle_outlined, size: isWide ? 17 : 15),
-      label: Text(
-        '紧急停止',
-        style: TextStyle(
-          fontSize: isWide ? 13.5 : 12.5,
-          fontWeight: FontWeight.bold,
+        icon: const Icon(Icons.stop_circle_outlined, size: 16),
+        label: const Text(
+          '紧急停止',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        onPressed: () async {
+          await ctrl.emergencyStop();
+          if (mounted) showAppToast(context, '已发送急停指令，打字已中断');
+        },
       ),
-      onPressed: () async {
-        await ctrl.emergencyStop();
-        if (mounted) showAppToast(context, '已发送急停指令，打字已中断');
-      },
     );
   }
 
@@ -1508,11 +1551,11 @@ class _DraggableTypingOverlayState
             ),
           ),
           const SizedBox(height: 5),
-          SizedBox(
-            height: 30,
-            child: isTyping
-                ? _buildQuickStopButton(typingCtrl, isWide: false)
-                : FilledButton(
+          isTyping
+              ? _buildQuickStopButton(typingCtrl)
+              : SizedBox(
+                  height: 30,
+                  child: FilledButton(
                     style: FilledButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
@@ -1524,7 +1567,7 @@ class _DraggableTypingOverlayState
                       style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
                     ),
                   ),
-          ),
+                ),
         ],
       );
     }
@@ -1551,7 +1594,7 @@ class _DraggableTypingOverlayState
         ),
         const SizedBox(height: 8),
         isTyping
-            ? _buildQuickStopButton(typingCtrl, isWide: true)
+            ? _buildQuickStopButton(typingCtrl)
             : FilledButton.icon(
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
