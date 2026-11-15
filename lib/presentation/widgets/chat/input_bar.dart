@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -231,9 +232,23 @@ class ChatInputBarState extends State<ChatInputBar> {
 
   /// 选择并发送文件 (PDF, Word, TXT等)
   Future<void> _pickDocumentFile() async {
-    const typeGroup = XTypeGroup(
+    final typeGroup = XTypeGroup(
       label: '文档',
-      extensions: <String>['pdf', 'docx', 'doc', 'txt', 'text', 'md', 'csv', 'json'],
+      extensions: <String>['pdf', 'docx', 'doc', 'ppt', 'pptx', 'xls', 'xlsx', 'wps', 'html', 'htm', 'txt', 'text', 'md', 'markdown', 'csv', 'json'],
+      uniformTypeIdentifiers: defaultTargetPlatform == TargetPlatform.iOS
+          ? const <String>[
+              'com.adobe.pdf',
+              'org.openxmlformats.wordprocessingml.document',
+               'com.microsoft.word.doc',
+               'org.openxmlformats.presentationml.presentation',
+               'com.microsoft.powerpoint.ppt',
+               'org.openxmlformats.spreadsheetml.sheet',
+               'com.microsoft.excel.xls',
+               'public.data',
+              'public.text',
+              'public.json',
+            ]
+          : null,
     );
     final file = await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
     if (file == null) return;

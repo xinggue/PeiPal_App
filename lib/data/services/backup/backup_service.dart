@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../api/document_parser_config_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -156,6 +157,7 @@ class BackupService {
       final ocrDecoded = decodeMatrix(ocrProvidersMatrix);
 
       bundle['api_configs'] = {
+        'document_parser': (await DocumentParserConfigStore(secureStorage).load()).toJson(),
         'llm': {
           'baseUrl': await secureStorage.read(key: 'llm_base_url') ?? '',
           'apiKey': await secureStorage.read(key: 'llm_api_key') ?? '',
@@ -500,6 +502,9 @@ class BackupService {
             await secureStorage.write(
                 key: 'ocr_active_provider_id_v1', value: '');
           }
+        }
+        if (apis['document_parser'] is Map) {
+          await DocumentParserConfigStore(secureStorage).importSettings(apis['document_parser'] as Map);
         }
         result.importedApiConfigs = true;
       } catch (e) {

@@ -7,6 +7,7 @@ import '../../../data/services/qr/qr_pack_service.dart';
 import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
+import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
@@ -134,6 +135,15 @@ class SettingsPage extends ConsumerWidget {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/ocr'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('文件解析', style: _title),
+              subtitle: Text(ref.watch(documentParserProvider).valueOrNull?.activeProvider?.isConfigured == true
+                  ? ref.watch(documentParserProvider).requireValue.activeProvider!.name : '未配置'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/document-parser'),
             ),
             const Divider(height: 1),
             ListTile(

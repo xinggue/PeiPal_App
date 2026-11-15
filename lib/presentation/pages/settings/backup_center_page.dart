@@ -11,6 +11,7 @@ import '../../../data/services/engine_c/template_bundle_engine.dart';
 import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
+import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 
@@ -200,6 +201,7 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
       ref.invalidate(asrProvidersProvider);
       ref.invalidate(ocrConfigProvider);
       ref.invalidate(ocrProvidersProvider);
+      ref.invalidate(documentParserProvider);
       ref.invalidate(ocrConcurrencyProvider);
       ref.invalidate(llmPromptConfigProvider);
       ref.invalidate(extractorConfigProvider);

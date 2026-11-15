@@ -1,178 +1,72 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:archive/archive.dart';
-import 'package:path/path.dart' as p;
-import 'package:pdfx/pdfx.dart' as pdfx;
-import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:enough_convert/gbk.dart';
+import '../../../domain/models/document_parser_provider.dart';
 
-/// 常见医疗文件（PDF、Word docx、纯文本 txt/md/csv/json）的本地快速文本提取服务
+/// Local reading is deliberately limited to text files. All office documents
+/// (including PDFs with a text layer) go through the selected document service.
 class DocumentParserService {
-  /// 单个 PDF 文档允许解析的最大页数上限，防止数百页大文件引起内存溢出 (OOM) 或无响应闪退
-  static const int kMaxPdfParsePages = 20;
+  static const maxTextBytes = 10 * 1024 * 1024;
 
-  /// 根据文件路径解析提取纯文本（对图文混排与纯图扫描 PDF 自动分流并支持导出图片）
-  static Future<String> parseFileText(String filePath) async {
-    final file = File(filePath);
-    if (!await file.exists()) {
-      throw const FileSystemException('文件不存在');
+  static Future<String> parseFileText(String path) async {
+    if (!DocumentParserProviderConfig.isLocalFile(path)) {
+      throw const FormatException('该文件需要配置文件解析服务');
     }
-
-    final ext = filePath.split('.').last.toLowerCase();
-
-    switch (ext) {
-      case 'txt':
-      case 'text':
-      case 'md':
-      case 'markdown':
-      case 'csv':
-      case 'json':
-        return _parsePlainText(file);
-
-      case 'docx':
-        return _parseDocx(file);
-
-      case 'pdf':
-        return _parsePdf(file);
-
-      default:
-        try {
-          return await _parsePlainText(file);
-        } catch (_) {
-          throw UnsupportedError('暂不支持解析 .$ext 格式的文件');
-        }
+    final file = File(path);
+    if (await file.length() > maxTextBytes) {
+      throw const FormatException('文本文件不能超过 10 MiB，请拆分后发送');
     }
+    return decodeText(await file.readAsBytes());
   }
 
-  /// 纯文本类文件解析（支持 UTF-8 与 GBK 宽松容错）
-  static Future<String> _parsePlainText(File file) async {
-    final bytes = await file.readAsBytes();
-    try {
-      return utf8.decode(bytes);
-    } catch (_) {
-      return String.fromCharCodes(bytes);
+  static String decodeText(List<int> bytes) {
+    if (bytes.length >= 4 &&
+        ((bytes[0] == 0x50 && bytes[1] == 0x4b) ||
+            (bytes[0] == 0x25 &&
+                bytes[1] == 0x50 &&
+                bytes[2] == 0x44 &&
+                bytes[3] == 0x46) ||
+            (bytes[0] == 0xd0 && bytes[1] == 0xcf))) {
+      throw const FormatException('文件内容与文本格式不符，请使用原始文件后缀');
     }
-  }
-
-  /// Word (.docx) 文件解析
-  static Future<String> _parseDocx(File file) async {
-    final bytes = await file.readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
-
-    for (final archiveFile in archive) {
-      if (archiveFile.name == 'word/document.xml') {
-        final xmlContent = utf8.decode(archiveFile.content as List<int>, allowMalformed: true);
-        return _extractTextFromDocxXml(xmlContent);
-      }
-    }
-
-    throw const FormatException('未在 docx 文件中找到正文内容');
-  }
-
-  static String _extractTextFromDocxXml(String xml) {
-    final buffer = StringBuffer();
-    final paragraphRegex = RegExp(r'<w:p[\s>](.*?)<\/w:p>', dotAll: true);
-    final textRegex = RegExp(r'<w:t[^>]*>(.*?)<\/w:t>', dotAll: true);
-
-    final paragraphs = paragraphRegex.allMatches(xml);
-    for (final p in paragraphs) {
-      final pContent = p.group(1) ?? '';
-      final texts = textRegex.allMatches(pContent);
-      final pText = texts.map((m) => m.group(1) ?? '').join('');
-      if (pText.trim().isNotEmpty) {
-        buffer.writeln(pText);
-      }
-    }
-
-    final result = buffer.toString().trim();
-    if (result.isNotEmpty) return result;
-
-    return xml.replaceAll(RegExp(r'<[^>]+>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
-
-  /// PDF 提取：尝试提取内置文字图层，并严格控制最大解析页数上限
-  static Future<String> _parsePdf(File file) async {
-    final bytes = await file.readAsBytes();
-    final document = PdfDocument(inputBytes: bytes);
-    final totalPages = document.pages.count;
-
-    final textExtractor = PdfTextExtractor(document);
     String text;
-    bool isTruncated = false;
-
-    if (totalPages <= kMaxPdfParsePages) {
-      text = textExtractor.extractText();
-    } else {
-      isTruncated = true;
-      // 仅安全抽取前 20 页（0-indexed：0 到 19）
-      text = textExtractor.extractText(startPageIndex: 0, endPageIndex: kMaxPdfParsePages - 1);
-    }
-    document.dispose();
-
-    final trimmed = text.trim();
-    if (isTruncated) {
-      final notice = 'ℹ️【提示】该文档共 $totalPages 页，为保证流畅度仅提取前 $kMaxPdfParsePages 页内容：\n\n';
-      return notice + trimmed;
-    }
-    return trimmed;
-  }
-
-  /// 判断 PDF 是否缺乏文字层（纯扫描件或提取文字过少）
-  static bool isPdfTextSparse(String extractedText) {
-    // 移除提示说明后的真实提取文本
-    var clean = extractedText;
-    if (clean.contains('ℹ️【提示】')) {
-      final parts = clean.split('\n\n');
-      clean = parts.length > 1 ? parts.sublist(1).join('\n\n') : clean;
-    }
-    clean = clean.replaceAll(RegExp(r'\s+'), '');
-    return clean.length < 15;
-  }
-
-  /// 将 PDF 每一页渲染并光栅化为高清 JPG 图片，存储至指定目录
-  /// 供后续送入多模态 Vision / OCR 引擎深度识别
-  static Future<List<String>> renderPdfPagesToImages({
-    required String pdfPath,
-    required String outputDir,
-    int maxPages = kMaxPdfParsePages,
-  }) async {
-    final images = <String>[];
-    final dir = Directory(outputDir);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-
-    pdfx.PdfDocument? document;
-    try {
-      document = await pdfx.PdfDocument.openFile(pdfPath);
-      final count = document.pagesCount.clamp(1, maxPages);
-
-      for (int i = 1; i <= count; i++) {
-        final page = await document.getPage(i);
-        // 按 2x 缩放光栅化，保证文字清晰度
-        final pageImage = await page.render(
-          width: page.width * 2,
-          height: page.height * 2,
-          format: pdfx.PdfPageImageFormat.jpeg,
-          backgroundColor: '#FFFFFF',
+    if (bytes.length >= 2 &&
+        ((bytes[0] == 0xff && bytes[1] == 0xfe) ||
+            (bytes[0] == 0xfe && bytes[1] == 0xff))) {
+      if (bytes.length.isOdd) throw const FormatException('UTF-16 文本不完整');
+      final little = bytes[0] == 0xff;
+      final units = <int>[];
+      for (var i = 2; i < bytes.length; i += 2) {
+        units.add(
+          little ? bytes[i] | bytes[i + 1] << 8 : bytes[i] << 8 | bytes[i + 1],
         );
-        await page.close();
-
-        if (pageImage != null) {
-          final pageFilePath = p.join(
-            outputDir,
-            'pdf_page_${i.toString().padLeft(3, '0')}.jpg',
-          );
-          final file = File(pageFilePath);
-          await file.writeAsBytes(pageImage.bytes);
-          images.add(pageFilePath);
+      }
+      for (var i = 0; i < units.length; i++) {
+        final unit = units[i];
+        if (unit >= 0xd800 && unit <= 0xdbff) {
+          if (++i >= units.length || units[i] < 0xdc00 || units[i] > 0xdfff) {
+            throw const FormatException('UTF-16 文本不完整');
+          }
+        } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+          throw const FormatException('UTF-16 文本不完整');
         }
       }
-    } catch (_) {
-      // 若光栅化异常，返回已渲染的部分
-    } finally {
-      await document?.close();
+      text = String.fromCharCodes(units);
+    } else {
+      try {
+        text = utf8.decode(bytes);
+      } on FormatException {
+        try {
+          text = gbk.decode(bytes);
+        } on FormatException {
+          throw const FormatException('无法识别文本编码，请另存为 UTF-8 后重试');
+        }
+      }
     }
-
-    return images;
+    text = text.replaceFirst(RegExp('^\uFEFF'), '');
+    if (RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]').hasMatch(text)) {
+      throw const FormatException('文件包含非文本内容，请确认文件格式或另存为 UTF-8');
+    }
+    return text;
   }
 }

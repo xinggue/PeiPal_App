@@ -486,6 +486,10 @@ class EngineCImportPlan {
       final count = _extractProvidersCount(ocr);
       items.add('文档识图 ${count > 0 ? "$count 家" : ""}');
     }
+    if (apis['document_parser'] is Map) {
+      final count = _extractProvidersCount(apis['document_parser'] as Map);
+      items.add('文件解析 ${count > 0 ? "$count 家" : ""}');
+    }
     return items.isEmpty ? null : items.join(' · ');
   }
 

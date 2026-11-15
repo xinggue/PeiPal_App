@@ -60,6 +60,13 @@ class MediaStorage {
     if (await file.exists()) await file.delete();
   }
 
+  static Future<void> deleteDocument(String filePath) async {
+    final root = p.join(await _docDir, 'documents');
+    if (!p.isWithin(root, p.normalize(filePath))) return;
+    final file = File(filePath);
+    if (await file.exists()) await file.delete();
+  }
+
   static Future<void> deletePhotos(String patientId, String messageId) async {
     final dir = Directory(p.join(await _docDir, 'photos', patientId, messageId));
     if (await dir.exists()) await dir.delete(recursive: true);

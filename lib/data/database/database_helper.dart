@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 11,
+      version: 12,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -62,6 +62,7 @@ class DatabaseHelper {
         page_count INTEGER,
         transcribed_text TEXT,
         extracted_text TEXT,
+        document_parse TEXT,
         record_json TEXT,
         template_id TEXT,
         record_meta TEXT,
@@ -263,6 +264,9 @@ class DatabaseHelper {
   }
 
   static Future<void> _onUpgrade(Database db, int oldV, int newV) async {
+    if (oldV < 12) {
+      await db.execute('ALTER TABLE messages ADD COLUMN document_parse TEXT');
+    }
     if (oldV < 2) {
       // Handled by v5 rewrite
     }

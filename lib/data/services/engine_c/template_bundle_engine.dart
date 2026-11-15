@@ -22,6 +22,7 @@ import '../../repositories/settings_repository.dart';
 import '../../repositories/template_repository.dart';
 import 'engine_c_differ.dart';
 import 'engine_c_models.dart';
+import '../api/document_parser_config_store.dart';
 
 const _uuid = Uuid();
 
@@ -210,6 +211,7 @@ class TemplateBundleEngine {
       final ocrDecoded = decodeMatrix(ocrProvidersMatrix);
 
       apiConfigs = {
+        'document_parser': (await DocumentParserConfigStore(secureStorage).load()).toJson(),
         'llm': {
           'baseUrl': await secureStorage.read(key: 'llm_base_url') ?? '',
           'apiKey': await secureStorage.read(key: 'llm_api_key') ?? '',
@@ -1761,6 +1763,9 @@ class TemplateBundleEngine {
       if (apis['ocr'] is Map) {
         result.importedOcrProviders =
             await _importOcrProviders(apis['ocr'] as Map, apis);
+      }
+      if (apis['document_parser'] is Map) {
+        await DocumentParserConfigStore(secureStorage).importSettings(apis['document_parser'] as Map);
       }
       result.importedApiConfigs = true;
     } catch (e) {

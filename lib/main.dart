@@ -14,6 +14,8 @@ import 'presentation/widgets/ble/draggable_typing_overlay.dart';
 import 'providers/asr_providers_provider.dart';
 import 'providers/llm_providers_provider.dart';
 import 'providers/ocr_providers_provider.dart';
+import 'providers/document_parser_provider.dart';
+import 'providers/document_processing_provider.dart';
 import 'providers/providers.dart';
 import 'providers/tutorial_provider.dart';
 
@@ -49,6 +51,8 @@ class DocMasterPeiApp extends ConsumerWidget {
     ref.read(asrProvidersProvider);
     ref.read(ocrConfigProvider);
     ref.read(ocrProvidersProvider);
+    ref.read(documentParserProvider);
+    ref.read(documentProcessingProvider);
     ref.read(bleConfigProvider);
     ref.read(charReplacementRulesProvider);
     ref.read(floatingOverlayEnabledProvider);

@@ -169,6 +169,7 @@ void showOcrTextDetailsDialog({
   required BuildContext context,
   required String title,
   required String text,
+  String? warningText,
 }) {
   final normalizedText = normalizeOcrMarkdownTables(text);
 
@@ -178,6 +179,7 @@ void showOcrTextDetailsDialog({
       title: title,
       rawText: text,
       normalizedText: normalizedText,
+      warningText: warningText,
     ),
   );
 }
@@ -186,11 +188,13 @@ class _OcrTextDetailsDialogContent extends StatefulWidget {
   final String title;
   final String rawText;
   final String normalizedText;
+  final String? warningText;
 
   const _OcrTextDetailsDialogContent({
     required this.title,
     required this.rawText,
     required this.normalizedText,
+    this.warningText,
   });
 
   @override
@@ -265,6 +269,41 @@ class _OcrTextDetailsDialogContentState
                 ],
               ),
               const SizedBox(height: 10),
+              if (widget.warningText != null &&
+                  widget.warningText!.trim().isNotEmpty) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border:
+                        Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 15,
+                        color: Colors.deepOrange,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          widget.warningText!.trim(),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.orange.shade900,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
 
               // 中部可滚动内容区（外层明确给出有限宽高约束，彻底杜绝 Table / ScrollView 布局截断）
               Expanded(

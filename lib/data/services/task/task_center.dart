@@ -21,6 +21,7 @@ enum TaskType {
   generation,
   asr,
   ocr,
+  document,
 }
 
 enum TaskStatus {
@@ -28,6 +29,7 @@ enum TaskStatus {
   success,
   failed,
   cancelled,
+  partial,
 }
 
 class BackgroundTask {
@@ -200,6 +202,9 @@ class TaskCenter extends ChangeNotifier {
 
   /// 注册外部长耗时任务（如 ASR、OCR）
   void registerTask(BackgroundTask task) {
+    final previous = _tasks.where((t) => t.id == task.id).toList();
+    for (final old in previous) { old.streamNotifier.dispose(); }
+    _tasks.removeWhere((t) => t.id == task.id);
     _tasks.insert(0, task);
     notifyListeners();
   }

@@ -22,6 +22,7 @@ void main() {
       options: OpenDatabaseOptions(
         version: 10,
         onCreate: (db, version) async {
+          await db.execute('CREATE TABLE messages (id TEXT PRIMARY KEY, extracted_text TEXT)');
           await db.execute('''
             CREATE TABLE favorite_diagnoses (
               id TEXT PRIMARY KEY,
@@ -80,7 +81,7 @@ void main() {
     });
     await oldDb.close();
 
-    // Trigger the v11 upgrade.
+    // Trigger all migrations from v10, including document parsing metadata.
     final db = await DatabaseHelper.database;
 
     final catalogs = await db.query('catalogs', orderBy: 'sort_order ASC');

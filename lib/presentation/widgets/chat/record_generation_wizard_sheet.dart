@@ -86,7 +86,7 @@ class _RecordGenerationWizardSheetState
     // 计算是否有未识别完的素材
     final activeTasks = ref.read(taskCenterProvider).activeTasks.where((t) {
       return t.patientId == widget.patientId &&
-          (t.type == TaskType.asr || t.type == TaskType.ocr);
+          (t.type == TaskType.asr || t.type == TaskType.ocr || t.type == TaskType.document);
     }).toList();
 
     final placeholderCount = msgs.where((m) {

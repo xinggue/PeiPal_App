@@ -225,7 +225,7 @@ class StagePromptCompiler {
         final asrContent = ProcessingService.isFailureText(m.transcribedText)
             ? ''
             : (m.transcribedText?.trim() ?? '');
-        final ocrContent = ProcessingService.isFailureText(m.extractedText)
+        final ocrContent = m.type == MessageType.document ? m.usableDocumentText : ProcessingService.isFailureText(m.extractedText)
             ? ''
             : (m.extractedText?.trim() ?? '');
 
@@ -234,7 +234,7 @@ class StagePromptCompiler {
           userBuffer.writeln('[$timeStr] [$prefix] $ocrContent');
         } else if (asrContent.isNotEmpty) {
           userBuffer.writeln('[$timeStr] [语音转写] $asrContent');
-        } else if (textContent.isNotEmpty) {
+        } else if (textContent.isNotEmpty && m.type != MessageType.document) {
           userBuffer.writeln('[$timeStr] [$senderLabel] $textContent');
         }
       }

@@ -6,9 +6,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/services/sample_data_service.dart';
 import '../../../domain/models/asr_provider.dart';
+import '../../../domain/models/document_parser_provider.dart';
 import '../../../domain/models/llm_provider.dart';
 import '../../../domain/models/ocr_provider.dart';
 import '../../../providers/asr_providers_provider.dart';
+import '../../../providers/document_parser_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
@@ -435,6 +437,27 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
       );
       await asrNotifier.setActiveProvider(_providerId, model: _defaultAsrModel);
 
+      final docPreset = DocumentParserProviderConfig.presets
+          .firstWhere((p) => p.id == _providerId);
+      final docNotifier = ref.read(documentParserProvider.notifier);
+      await docNotifier.ready;
+      final existingDoc = ref
+          .read(documentParserProvider)
+          .valueOrNull
+          ?.providers
+          .where((p) => p.id == _providerId)
+          .firstOrNull;
+      final baseDoc = existingDoc ?? docPreset;
+      await docNotifier.saveProvider(
+        baseDoc.copyWith(
+          baseUrl: docPreset.baseUrl,
+          apiKey: apiKey,
+          toolType: _isDeepSeek ? baseDoc.toolType : 'prime-sync',
+          isEnabled: true,
+        ),
+        select: true,
+      );
+
       // 4. 确保示例会话存在，并从第 4 步（文书生成按钮）重开生成教程
       await ref.read(sampleDataServiceProvider).ensureSampleData();
       ref.invalidate(patientsProvider);
@@ -447,7 +470,7 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
           _isVerifying = false;
           _verified = true;
         });
-        showAppToast(context, '验证通过，文本 / 识图 / 语音已全部配置好');
+        showAppToast(context, '验证通过，文本 / 识图 / 文件 / 语音已全部配置好');
       }
     } on DioException catch (e) {
       if (mounted) {
@@ -474,6 +497,7 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
       ref.watch(llmProvidersProvider).isLoading,
       ref.watch(ocrProvidersProvider).isLoading,
       ref.watch(asrProvidersProvider).isLoading,
+      ref.watch(documentParserProvider).isLoading,
     ].any((loading) => loading);
 
     return Scaffold(
@@ -526,8 +550,8 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                 const SizedBox(height: 8),
                 Text(
                   _isDeepSeek
-                      ? 'DeepSeek 同时提供大语言模型、图片 OCR 识别和语音转文字。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。'
-                      : '智谱开放平台同时提供大语言模型、图片 OCR 识别和语音转文字，新用户有免费额度。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。',
+                      ? 'DeepSeek 同时提供大语言模型、图片 OCR 识别、文件解析和语音转文字。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。'
+                      : '智谱开放平台同时提供大语言模型、图片 OCR 识别、文件解析和语音转文字，新用户有免费额度。\n用电脑浏览器打开下方网址注册、建 Key、做实名认证最省事，手机只负责对照往下滑看步骤即可。',
                   style: TextStyle(
                     fontSize: 13.5,
                     height: 1.5,
@@ -578,8 +602,8 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                 _buildIntroLine(
                   'API Key 是什么',
                   _isDeepSeek
-                      ? '用于调用 DeepSeek 的文本、识图和语音服务，费用按平台实际用量结算。'
-                      : '一串只属于你的访问密钥。本应用用它代表你调用智谱的 AI（文本 / 识图 / 语音）。按用量计费，新用户有免费额度。',
+                      ? '用于调用 DeepSeek 的文本、识图、文件解析和语音服务，费用按平台实际用量结算。'
+                      : '一串只属于你的访问密钥。本应用用它代表你调用智谱的 AI（文本 / 识图 / 文件 / 语音）。按用量计费，新用户有免费额度。',
                 ),
                 _buildIntroLine(
                   _isDeepSeek ? '在哪里申请' : '智谱是谁',
@@ -642,7 +666,7 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                   _buildSuccessPanel(colorScheme),
                 ] else ...[
                   Text(
-                    '只需填入这 1 个 Key，系统会自动帮你同时配好以下三项并设为默认可用：',
+                    '只需填入这 1 个 Key，系统会自动帮你同时配好以下四项并设为默认可用：',
                     style: TextStyle(
                       fontSize: 13,
                       color: colorScheme.onSurfaceVariant,
@@ -660,6 +684,10 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                       _ModelBadge(
                         label: '图像识别',
                         model: _isDeepSeek ? 'DeepSeek OCR' : _defaultOcrModel,
+                      ),
+                      _ModelBadge(
+                        label: '文件解析',
+                        model: _isDeepSeek ? 'DeepSeek OCR' : 'Prime-sync',
                       ),
                       _ModelBadge(
                         label: '语音识别',
@@ -819,7 +847,7 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '文本、识图、语音三项都已就绪，可以开始生成文书了。',
+                      '文本、识图、文件、语音四项都已就绪，可以开始生成文书了。',
                       style: TextStyle(
                         fontSize: 12.5,
                         height: 1.45,

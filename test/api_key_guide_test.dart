@@ -8,6 +8,7 @@ import 'package:peipal/data/services/sample_data_service.dart';
 import 'package:peipal/presentation/pages/settings/api_key_guide_page.dart';
 import 'package:peipal/presentation/pages/settings/api_key_guides_page.dart';
 import 'package:peipal/providers/asr_providers_provider.dart';
+import 'package:peipal/providers/document_parser_provider.dart';
 import 'package:peipal/providers/llm_providers_provider.dart';
 import 'package:peipal/providers/ocr_providers_provider.dart';
 import 'package:peipal/providers/providers.dart';
@@ -45,6 +46,7 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(child: MaterialApp.router(routerConfig: router)),
         );
+        expect(find.text('文本 · 识图 · 文件 · 语音'), findsNWidgets(2));
         await tester.tap(find.text(provider.label));
         await tester.pumpAndSettle();
         expect(find.text('获取${provider.label} API Key'), findsOneWidget);
@@ -118,6 +120,10 @@ void main() {
           final previousAsr = container
               .read(asrProvidersProvider)
               .activeProvider;
+          final previousDoc = container
+              .read(documentParserProvider)
+              .requireValue
+              .activeProvider;
           final scrollable = find
               .descendant(
                 of: find.byType(ListView),
@@ -148,12 +154,18 @@ void main() {
             final llm = container.read(llmProvidersProvider).activeProvider!;
             final ocr = container.read(ocrProvidersProvider).activeProvider!;
             final asr = container.read(asrProvidersProvider).activeProvider!;
-            expect([llm.id, ocr.id, asr.id], everyElement(provider.name));
+            final doc = container
+                .read(documentParserProvider)
+                .requireValue
+                .activeProvider!;
+            expect([llm.id, ocr.id, asr.id, doc.id], everyElement(provider.name));
             expect([
               llm.apiKey,
               ocr.apiKey,
               asr.apiKey,
+              doc.apiKey,
             ], everyElement('test-guide-key'));
+            expect(doc.isEnabled, isTrue);
             if (provider == ApiKeyGuideProvider.deepseek) {
               expect(llm.selectedModel, 'deepseek-flash');
               expect(llm.reasoningEffort, 'low');
@@ -163,6 +175,10 @@ void main() {
               expect(asr.protocol.name, 'deepseek');
               expect(ocr.baseUrl, 'https://api.deepseek.com/v1');
               expect(asr.baseUrl, 'https://api.deepseek.com/v1');
+              expect(doc.baseUrl, 'https://api.deepseek.com/v1');
+            } else {
+              expect(doc.baseUrl, 'https://open.bigmodel.cn/api/paas/v4');
+              expect(doc.toolType, 'prime-sync');
             }
             expect(container.read(tutorialProvider).currentStep, 4);
             expect(find.text('验证成功，AI 已全部配置好'), findsOneWidget);
@@ -178,6 +194,10 @@ void main() {
             expect(
               container.read(asrProvidersProvider).activeProvider,
               previousAsr,
+            );
+            expect(
+              container.read(documentParserProvider).requireValue.activeProvider,
+              previousDoc,
             );
             expect(find.text('API Key 无效或未复制完整 (401)'), findsOneWidget);
           }

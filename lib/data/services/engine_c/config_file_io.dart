@@ -68,11 +68,16 @@ class ConfigFileIo {
 
   /// 从本地选取并读取配置文本文件
   static Future<String?> pickAndReadConfigFile() async {
-    const typeGroup = XTypeGroup(
+    final typeGroup = XTypeGroup(
       label: '配置文件',
       extensions: <String>['txt', 'json', 'text', 'cfg', 'csv'],
+      // iOS does not infer UTIs from extensions. public.data also permits
+      // generic .cfg files supplied by Files/iCloud document providers.
+      uniformTypeIdentifiers: defaultTargetPlatform == TargetPlatform.iOS
+          ? const <String>['public.data']
+          : null,
     );
-    final file = await openFile(acceptedTypeGroups: const <XTypeGroup>[typeGroup]);
+    final file = await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
     if (file == null) return null;
     final bytes = await file.readAsBytes();
     return utf8.decode(bytes, allowMalformed: true);

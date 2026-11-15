@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import '../../../domain/models/document_parse_info.dart';
 
 class DeepSeekToolsService {
   final Dio _dio;
@@ -134,6 +135,16 @@ class DeepSeekToolsService {
     required String apiKey,
     required String filePath,
   }) async {
+    final result = await recognizeDocument(baseUrl: baseUrl, apiKey: apiKey, filePath: filePath);
+    return [...result.warnings, result.text].join('\n').trim();
+  }
+
+  Future<DocumentParseResult> recognizeDocument({
+    required String baseUrl,
+    required String apiKey,
+    required String filePath,
+    CancelToken? cancelToken,
+  }) async {
     if (await File(filePath).length() > 100 * 1024 * 1024) {
       throw const FormatException('DeepSeek 识别文件不能超过 100 MiB');
     }
@@ -144,6 +155,7 @@ class DeepSeekToolsService {
         'purpose': 'text_recognition',
       }),
       options: _options(apiKey, audio: false),
+      cancelToken: cancelToken,
     );
     final data = _result(response.data);
     final pages = data['pages'];
@@ -151,23 +163,31 @@ class DeepSeekToolsService {
       throw const FormatException('DeepSeek 文字识别响应未包含页面结果');
     }
     final results = <String>[];
+    final warnings = <String>[];
+    var hasText = false;
     for (var i = 0; i < pages.length; i++) {
       final page = pages[i];
       if (page is! Map || page['text'] is! String) {
-        throw const FormatException('DeepSeek 文字识别页面结果格式不正确');
+        warnings.add('第 ${i + 1} 页未能解析');
+        continue;
       }
+      if (page['finish_reason'] == 'length') warnings.add('第 ${i + 1} 页识别结果不完整');
       final text = (page['text'] as String)
           .replaceAll(RegExp(r'<｜box｜>[\s\S]*?<｜/box｜>'), '\n')
           .replaceAll(RegExp(r'<｜/?ref｜>'), '')
           .trim();
+      hasText = hasText || text.isNotEmpty;
       results.add(
         [
           if (pages.length > 1) '--- 第 ${i + 1} 页 ---',
-          if (page['finish_reason'] == 'length') '【第 ${i + 1} 页识别结果不完整】',
           text,
         ].join('\n'),
       );
     }
-    return results.join('\n\n').trim();
+    if (data['page_count'] is int && data['page_count'] != pages.length) {
+      warnings.add('服务商返回的页数与页面结果不一致');
+    }
+    if (!hasText) throw const FormatException('未提取到可用文字');
+    return DocumentParseResult(results.join('\n\n').trim(), warnings: warnings, pageCount: data['page_count'] as int? ?? pages.length);
   }
 }

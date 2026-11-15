@@ -142,7 +142,7 @@ class _ProviderGuideCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '文本 · 识图 · 语音',
+                          '文本 · 识图 · 文件 · 语音',
                           style: TextStyle(
                             fontSize: 12,
                             color: scheme.onSurfaceVariant,

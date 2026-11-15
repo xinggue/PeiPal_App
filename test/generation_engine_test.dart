@@ -18,6 +18,7 @@ import 'package:peipal/domain/generation/standard_catalog.dart';
 import 'package:peipal/domain/models/content_template.dart';
 import 'package:peipal/domain/models/favorite_diagnosis.dart';
 import 'package:peipal/domain/models/message.dart';
+import 'package:peipal/domain/models/document_parse_info.dart';
 import 'package:peipal/domain/models/patient.dart';
 import 'package:peipal/domain/models/pipeline_graph.dart';
 import 'package:peipal/domain/models/record_meta.dart';
@@ -88,6 +89,22 @@ void main() {
   );
 
   group('StagePromptCompiler', () {
+    test('document filenames, legacy errors and parse errors never enter materials', () {
+      Message doc(String name, String? text, {DocumentParseInfo? info}) => Message.document(
+        patientId: patient.id, filePath: '/$name', fileSize: 1, fileName: name, extractedText: text, documentParse: info);
+      final plan = GenerationPlan(template: template, patient: patient, historicalRecords: [], rawChatStream: [
+        doc('不应成为素材的文件名.pdf', null),
+        doc('legacy.doc', '文件提取失败: 二进制乱码'),
+        doc('failed.pdf', null, info: const DocumentParseInfo(status: DocumentParseStatus.failed, attemptId: 'a', error: '鉴权失败')),
+        doc('good.pdf', '| 血钠 | 140 |', info: const DocumentParseInfo(status: DocumentParseStatus.success, attemptId: 'b', hasResult: true)),
+      ]);
+      final prompt = StagePromptCompiler.compile(plan: plan, batchSlots: [slotHpi], accumulatedOutputs: {}).userPrompt;
+      expect(prompt, contains('血钠 | 140'));
+      for (final excluded in ['不应成为素材的文件名', '文件提取失败', '二进制乱码', '鉴权失败', 'failed.pdf']) {
+        expect(prompt, isNot(contains(excluded)));
+      }
+    });
+
     test('injects current time and Chinese weekday anchor', () {
       final fixedDate = DateTime(2026, 10, 14, 16, 30); // Wednesday
       final plan = GenerationPlan(

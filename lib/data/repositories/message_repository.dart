@@ -1,8 +1,14 @@
 import '../../domain/generation/generation_log.dart';
 import '../../domain/models/message.dart';
+import '../../domain/models/document_parse_info.dart';
 import '../database/database_helper.dart';
 
 class MessageRepository {
+  Future<List<Message>> getInterruptedDocuments() async {
+    final db = await DatabaseHelper.database;
+    final rows = await db.query('messages', where: "msg_type = 'document' AND document_parse IS NOT NULL");
+    return rows.map(Message.fromMap).where((m) => m.documentParse?.status == DocumentParseStatus.running).toList();
+  }
   /// 用于 UI 聊天瀑布流渲染（倒序展示，限制近期 100 条）。
   Future<List<Message>> getByPatient(String patientId, {int limit = 100}) async {
     final db = await DatabaseHelper.database;

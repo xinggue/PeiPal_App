@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:peipal/data/services/api/document_parser_config_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:peipal/data/repositories/catalog_repository.dart';
@@ -1018,6 +1019,25 @@ void main() {
       expect(restored['apiKey'], 'test-$kind-key');
       expect(await sec.read(key: '${kind}_provider'), 'deepseek');
     }
+  });
+
+  test('file parser config exports, merges and survives backups without the section', () async {
+    final store = DocumentParserConfigStore(sec);
+    await store.importSettings({'activeProviderId': 'zhipu', 'providers': [
+      {'id': 'zhipu', 'apiKey': 'parser-key', 'toolType': 'prime-sync'},
+    ]});
+    final text = await engine.exportJsonString(const EngineCExportRequest(includeApiConfigs: true));
+    final bundle = jsonDecode(text) as Map<String, dynamic>;
+    final exported = bundle['api_configs']['document_parser'] as Map;
+    expect(exported['activeProviderId'], 'zhipu');
+    await sec.write(key: DocumentParserConfigStore.storageKey, value: '');
+    final plan = await engine.analyzeImport(bundle);
+    expect(plan.apiConfigsSummary, contains('文件解析'));
+    await engine.executeImportPlan(plan);
+    expect((await store.load()).activeProvider!.apiKey, 'parser-key');
+    (bundle['api_configs'] as Map).remove('document_parser');
+    await engine.executeImportPlan(await engine.analyzeImport(bundle));
+    expect((await store.load()).activeProvider!.apiKey, 'parser-key');
   });
 
   test('Engine C: exports and imports device and UI settings seamlessly',

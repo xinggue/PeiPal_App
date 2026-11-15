@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:peipal/data/services/api/document_parser_config_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:peipal/data/repositories/content_template_repository.dart';
@@ -244,6 +245,8 @@ void main() {
 
     await sec.write(key: 'llm_api_key', value: 'sk-test123456');
     await sec.write(key: 'llm_model', value: 'gpt-4o');
+    await DocumentParserConfigStore(sec).importSettings({'activeProviderId': 'deepseek',
+      'providers': [{'id': 'deepseek', 'apiKey': 'document-key'}]});
     await sec.write(key: 'llm_reasoning_effort', value: 'max');
     await sec.write(key: 'llm_providers_matrix_v1', value: jsonEncode([
       {'id': 'deepseek', 'reasoningEfforts': {'deepseek-v4-pro': 'max'}},
@@ -291,6 +294,7 @@ void main() {
 
     final importedKey = await sec2.read(key: 'llm_api_key');
     expect(importedKey, 'sk-test123456');
+    expect((await DocumentParserConfigStore(sec2).load()).activeProvider!.apiKey, 'document-key');
     expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
     expect(jsonDecode((await sec2.read(key: 'llm_providers_matrix_v1'))!)[0]['reasoningEfforts'],
         {'deepseek-v4-pro': 'max'});

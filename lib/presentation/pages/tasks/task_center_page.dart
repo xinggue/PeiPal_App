@@ -65,7 +65,7 @@ class _TaskCenterPageState extends ConsumerState<TaskCenterPage> {
                   const Text('暂无长耗时后台任务',
                       style: TextStyle(color: Colors.grey, fontSize: 15)),
                   const SizedBox(height: 4),
-                  const Text('文书生成、语音转写、图片OCR均在此并发管理',
+                  const Text('文书生成、语音识别、图像识别与文件解析',
                       style: TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
@@ -147,6 +147,11 @@ class _TaskCenterPageState extends ConsumerState<TaskCenterPage> {
         typeLabel = '材料识别';
         typeIcon = Icons.document_scanner_outlined;
         break;
+      case TaskType.document:
+        typeColor = Colors.indigo;
+        typeLabel = '文件解析';
+        typeIcon = Icons.description_outlined;
+        break;
     }
 
     Color statusColor;
@@ -167,6 +172,10 @@ class _TaskCenterPageState extends ConsumerState<TaskCenterPage> {
       case TaskStatus.cancelled:
         statusColor = Colors.grey;
         statusLabel = '已取消';
+        break;
+      case TaskStatus.partial:
+        statusColor = Colors.orange;
+        statusLabel = '部分完成';
         break;
     }
 
@@ -196,7 +205,7 @@ class _TaskCenterPageState extends ConsumerState<TaskCenterPage> {
                 ),
               ),
             );
-          } else if (task.status == TaskStatus.success &&
+          } else if ((task.status == TaskStatus.success || task.type == TaskType.document) &&
               task.resultMessageId != null) {
             if (task.type == TaskType.generation) {
               context.push(
@@ -365,7 +374,7 @@ class _TaskCenterPageState extends ConsumerState<TaskCenterPage> {
                       onPressed: () => taskCenter.cancelTask(task.id),
                       child: const Text('取消'),
                     )
-                  else if (task.status == TaskStatus.success &&
+                  else if ((task.status == TaskStatus.success || task.type == TaskType.document) &&
                       task.resultMessageId != null)
                     FilledButton.tonal(
                       style: FilledButton.styleFrom(

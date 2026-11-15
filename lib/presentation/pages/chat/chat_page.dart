@@ -14,7 +14,10 @@ import '../../../data/repositories/message_repository.dart';
 import '../../../data/services/media/media_storage.dart';
 import '../../../providers/providers.dart';
 import '../../../domain/models/patient.dart';
-import '../../../data/services/media/document_parser_service.dart';
+import '../../../data/services/document_processing_service.dart';
+import '../../../domain/models/document_parser_provider.dart';
+import '../../../providers/document_parser_provider.dart';
+import '../../../providers/document_processing_provider.dart';
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/input_bar.dart';
 import '../../widgets/chat/recording_overlay.dart';
@@ -152,50 +155,47 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .processAsr(widget.patientId, finalPath);
   }
 
-  /// 发送并解析常见文件 (PDF, Word docx, TXT等)
-  Future<void> _onSendFile(String filePath) async {
-    final file = File(filePath);
-    if (!await file.exists()) return;
-
-    final fileName = file.uri.pathSegments.last;
-    final fileSize = await file.length();
-
-    // 1. 先插入占位文档消息
-    final msg = Message.document(
-      patientId: widget.patientId,
-      filePath: filePath,
-      fileSize: fileSize,
-      fileName: fileName,
-    );
-    await _msgRepo.insert(msg);
-    _notifyDataChanged();
-
-    // 2. 后台拷贝到应用永久持久化目录并本地提取文本
+  Future<bool> _validateDocument(String path) async {
     try {
-      final savedPath = await MediaStorage.saveDocument(widget.patientId, msg.id, filePath);
-      String? extracted;
-      try {
-        extracted = await DocumentParserService.parseFileText(savedPath);
-      } catch (e) {
-        extracted = '文件提取失败: $e';
-      }
-
-      final isPdf = savedPath.toLowerCase().endsWith('.pdf');
-      // 如果是 PDF 且提取出来的文字非常少（说明是纯扫描图或图文混排扫描版）
-      if (isPdf && DocumentParserService.isPdfTextSparse(extracted)) {
-        final hint = extracted.isNotEmpty
-            ? '$extracted\n\n⚠️【提示】该 PDF 文字较少或为扫描图片，建议长按此消息选择「转为图片并重新 OCR」'
-            : '⚠️【提示】未能从该 PDF 提取到文字层，可能为纯扫描图片，建议长按此消息选择「转为图片并重新 OCR」';
-        extracted = hint;
-      }
-
-      await _msgRepo.update(msg.copyWith(
-        filePaths: [savedPath],
-        extractedText: extracted,
-      ));
-      if (mounted) _notifyDataChanged();
+      await ref.read(documentParserProvider.notifier).ready;
+      final config = ref.read(documentParserProvider).requireValue.activeProvider;
+      await DocumentProcessingService.validateFile(path, config);
+      return true;
     } catch (e) {
-      debugPrint('处理并解析文件失败: $e');
+      if (!mounted) return false;
+      final message = e is FormatException ? e.message : '文件无法读取，请重新选择';
+      if (!DocumentParserProviderConfig.isLocalFile(path)) {
+        final openSettings = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+          title: const Text('无法发送文件'), content: Text(message),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('关闭')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('文件解析设置'))]));
+        if (openSettings == true && mounted) context.push('/settings/document-parser');
+      } else { showAppToast(context, message); }
+      return false;
+    }
+  }
+
+  /// Documents keep their original file; only text files are decoded locally.
+  Future<void> _onSendFile(String filePath) async {
+    if (!await _validateDocument(filePath)) return;
+    if (!mounted) return;
+    final repo = _msgRepo;
+    final processor = ref.read(documentProcessingProvider.notifier);
+    String? savedPath;
+    var inserted = false;
+    try {
+      final file = File(filePath);
+      final msg = Message.document(patientId: widget.patientId, filePath: filePath,
+        fileSize: await file.length(), fileName: file.uri.pathSegments.last);
+      final saved = await MediaStorage.saveDocument(widget.patientId, msg.id, filePath);
+      savedPath = saved;
+      await repo.insert(msg.copyWith(filePaths: [saved]));
+      inserted = true;
+      if (mounted) _notifyDataChanged();
+      unawaited(processor.process(msg.id));
+    } catch (e) {
+      if (!inserted && savedPath != null) await MediaStorage.deleteDocument(savedPath);
+      if (mounted) showAppToast(context, '保存文件失败，请重试');
     }
   }
 
@@ -244,6 +244,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (wizardResult == null || !mounted) return null;
 
     final messages = await _msgRepo.getAllChronological(widget.patientId);
+    if (!mounted) return null;
+    final lastRecord = messages.lastIndexWhere((m) => m.type == MessageType.generatedRecord);
+    final scopedMessages = !wizardResult.allMaterials && lastRecord >= 0 ? messages.sublist(lastRecord + 1) : messages;
+    final incomplete = scopedMessages.where((m) => m.documentNeedsAttention).length;
+    if (incomplete > 0) {
+      final proceed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+        title: const Text('文件尚未完整解析'),
+        content: Text('有 $incomplete 份文件解析中、失败或仅部分完成。是否仅使用已有的可用内容？'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('返回')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('继续生成'))]));
+      if (proceed != true || !mounted) return null;
+    }
     final patient =
         await ref.read(patientRepositoryProvider).getById(widget.patientId);
     if (patient == null || !mounted) return null;
@@ -595,6 +607,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   );
                   if (confirm == true) {
+                    if (msg.type == MessageType.document) ref.read(documentProcessingProvider.notifier).cancel(msg.id);
                     await _msgRepo.delete(msg.id);
                     if (subMsg != null) await _msgRepo.delete(subMsg.id);
                     try {
@@ -605,6 +618,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       } else if (msg.type == MessageType.photo) {
                         await MediaStorage.deletePhotos(
                             widget.patientId, msg.id);
+                      } else if (msg.type == MessageType.document) {
+                        for (final path in msg.filePaths) { await MediaStorage.deleteDocument(path); }
                       }
                     } catch (_) {}
                     _notifyDataChanged();
@@ -644,29 +659,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 },
               ),
             if (msg.type == MessageType.document &&
-                msg.filePaths.isNotEmpty &&
-                msg.filePaths.first.toLowerCase().endsWith('.pdf'))
+                msg.filePaths.isNotEmpty)
               ListTile(
-                leading: const Icon(Icons.image_search_outlined, color: Colors.blue),
-                title: const Text('转为图片并重新 OCR'),
-                subtitle: const Text('将 PDF 页面拆解为图片消息并深度提取图文'),
+                leading: const Icon(Icons.refresh),
+                title: const Text('重新解析'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  final pdfPath = msg.filePaths.first;
-                  showInfoToast(context, '正在拆解 PDF 为图片，请稍候...');
-
-                  // 拆解页面到独立文件夹
-                  final tempOutputDir = '${Directory.systemTemp.path}/pdf_${DateTime.now().millisecondsSinceEpoch}';
-                  final renderedImages = await DocumentParserService.renderPdfPagesToImages(
-                    pdfPath: pdfPath,
-                    outputDir: tempOutputDir,
-                  );
-
-                  if (renderedImages.isNotEmpty && mounted) {
-                    final sizes = renderedImages.map((p) => File(p).lengthSync()).toList();
-                    await _onSendPhotos(filePaths: renderedImages, fileSizes: sizes);
-                  } else if (mounted) {
-                    showErrorToast(context, '未能从该 PDF 拆解出图片页面');
+                  if (await _validateDocument(msg.filePaths.first)) {
+                    unawaited(ref.read(documentProcessingProvider.notifier).process(msg.id));
                   }
                 },
               ),

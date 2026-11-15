@@ -19,6 +19,7 @@ import '../presentation/pages/diagnosis/favorite_diagnosis_page.dart';
 import '../presentation/pages/diagnosis/diagnosis_search_page.dart';
 import '../presentation/pages/settings/settings_page.dart';
 import '../presentation/pages/settings/ocr_settings_page.dart';
+import '../presentation/pages/settings/document_parser_settings_page.dart';
 import '../presentation/pages/settings/asr_settings_page.dart';
 import '../presentation/pages/settings/timing_settings_page.dart';
 import '../presentation/pages/settings/ble_connect_page.dart';
@@ -140,6 +141,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'tasks',
         builder: (context, state) => const TaskCenterPage(),
       ),
+      GoRoute(path: '/settings/document-parser', name: 'document_parser',
+        builder: (context, state) => const DocumentParserSettingsPage()),
       GoRoute(
         path: '/templates',
         name: 'templates',

@@ -51,6 +51,9 @@ class MockMessageRepo implements MessageRepository {
   final List<Message> _list = [];
 
   @override
+  Future<List<Message>> getInterruptedDocuments() async => [];
+
+  @override
   Future<List<Message>> getAllChronological(String patientId) async =>
       _list.where((m) => m.patientId == patientId).toList();
 

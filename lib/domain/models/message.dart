@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import 'record_meta.dart';
+import 'document_parse_info.dart';
 
 const _uuid = Uuid();
 
@@ -32,6 +33,22 @@ class Message {
 
   final String? transcribedText;
   final String? extractedText;
+  final DocumentParseInfo? documentParse;
+
+  /// Only actual extracted content can become generation material. Legacy
+  /// document failures and scan instructions used to share this field.
+  String get usableDocumentText {
+    var text = extractedText?.trim() ?? '';
+    if (documentParse != null) return documentParse!.hasResult ? text : '';
+    if (text.startsWith('文件提取失败') || text.startsWith('⚠️') || text.startsWith('OCR失败')) return '';
+    text = text.split('⚠️【提示】').first.trim();
+    text = text.replaceFirst(RegExp(r'^ℹ️【提示】[^\n]*\n\n'), '').trim();
+    return text;
+  }
+
+  bool get documentNeedsAttention => type == MessageType.document &&
+      (documentParse != null ? documentParse!.status != DocumentParseStatus.success :
+        usableDocumentText.isEmpty || (extractedText?.contains('仅提取前') ?? false) || (extractedText?.contains('⚠️【提示】') ?? false));
 
   final String? recordJson;
   final String? templateId;
@@ -51,6 +68,7 @@ class Message {
     this.pageCount,
     this.transcribedText,
     this.extractedText,
+    this.documentParse,
     this.recordJson,
     this.templateId,
     this.recordMeta,
@@ -106,6 +124,7 @@ class Message {
     required int fileSize,
     required String fileName,
     String? extractedText,
+    DocumentParseInfo? documentParse,
   }) =>
       Message(
         patientId: patientId,
@@ -115,6 +134,7 @@ class Message {
         filePaths: [filePath],
         fileSizes: [fileSize],
         extractedText: extractedText,
+        documentParse: documentParse,
       );
 
   factory Message.asrResult({
@@ -166,6 +186,7 @@ class Message {
     bool clearTranscribedText = false,
     String? extractedText,
     bool clearExtractedText = false,
+    DocumentParseInfo? documentParse,
     String? recordJson,
     bool clearRecordJson = false,
     RecordMeta? recordMeta,
@@ -187,6 +208,7 @@ class Message {
             : (transcribedText ?? this.transcribedText),
         extractedText:
             clearExtractedText ? null : (extractedText ?? this.extractedText),
+        documentParse: documentParse ?? this.documentParse,
         recordJson: clearRecordJson ? null : (recordJson ?? this.recordJson),
         templateId: templateId,
         recordMeta: clearRecordMeta ? null : (recordMeta ?? this.recordMeta),
@@ -205,6 +227,7 @@ class Message {
         'page_count': pageCount,
         'transcribed_text': transcribedText,
         'extracted_text': extractedText,
+        'document_parse': documentParse == null ? null : jsonEncode(documentParse!.toJson()),
         'record_json': recordJson,
         'template_id': templateId,
         'record_meta':
@@ -233,6 +256,8 @@ class Message {
       pageCount: map['page_count'] as int?,
       transcribedText: map['transcribed_text'] as String?,
       extractedText: map['extracted_text'] as String?,
+      documentParse: map['document_parse'] is String && (map['document_parse'] as String).isNotEmpty
+          ? DocumentParseInfo.fromJson(jsonDecode(map['document_parse'] as String) as Map) : null,
       recordJson: map['record_json'] as String?,
       templateId: map['template_id'] as String?,
       recordMeta: recordMetaRaw != null && recordMetaRaw.isNotEmpty

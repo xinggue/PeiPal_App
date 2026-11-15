@@ -112,7 +112,7 @@ class SessionAutofillService {
         case MessageType.photo:
         case MessageType.ocrResult:
         case MessageType.document:
-          final e = m.extractedText?.trim() ?? '';
+          final e = m.type == MessageType.document ? m.usableDocumentText : m.extractedText?.trim() ?? '';
           if (e.isNotEmpty &&
               !e.startsWith('图片识别失败') &&
               !e.startsWith('文件提取失败')) {

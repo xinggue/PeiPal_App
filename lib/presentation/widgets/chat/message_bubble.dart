@@ -10,6 +10,7 @@ import '../common/full_screen_image_viewer.dart';
 import '../../../data/services/processing_service.dart';
 import '../../../data/services/ble/character_sanitizer.dart';
 import '../../../domain/models/message.dart';
+import '../../../domain/models/document_parse_info.dart';
 import '../../pages/chat/typing_send_sheet.dart';
 import 'ocr_text_details_dialog.dart';
 
@@ -36,6 +37,11 @@ String _cleanDisplayText(String text) {
       })
       .where((l) => l != null && l.trim().isNotEmpty)
       .join('\n');
+}
+
+/// 将识别/解析出来的多行文本清洗掉多余空格和换行，产生紧凑的单段预览
+String _condenseText(String raw) {
+  return raw.replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
 class MessageBubble extends ConsumerWidget {
@@ -235,11 +241,6 @@ class _PhotoBubbleState extends State<_PhotoBubble> {
       paths: paths,
       initialPage: initialPage,
     );
-  }
-
-  /// 将识别出来的多行文本清洗掉多余空格和换行，产生极致紧凑的高密度单段预览
-  String _condenseText(String raw) {
-    return raw.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   @override
@@ -533,16 +534,9 @@ class _PhotoBubbleState extends State<_PhotoBubble> {
   }
 }
 
-class _DocumentBubble extends StatefulWidget {
+class _DocumentBubble extends StatelessWidget {
   final Message message;
   const _DocumentBubble({required this.message});
-
-  @override
-  State<_DocumentBubble> createState() => _DocumentBubbleState();
-}
-
-class _DocumentBubbleState extends State<_DocumentBubble> {
-  bool _expanded = false;
 
   IconData _getFileIcon(String ext) {
     switch (ext.toLowerCase()) {
@@ -584,29 +578,231 @@ class _DocumentBubbleState extends State<_DocumentBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final fileName = widget.message.content ?? '未命名文件';
-    final ext = fileName.split('.').last;
+    final fileName = message.content ?? '未命名文件';
+    final dotIndex = fileName.lastIndexOf('.');
+    final ext = (dotIndex != -1 && dotIndex < fileName.length - 1)
+        ? fileName.substring(dotIndex + 1)
+        : '';
     final fileIcon = _getFileIcon(ext);
     final fileColor = _getFileColor(ext);
-    final fileSize = widget.message.fileSizes.isNotEmpty ? widget.message.fileSizes.first : 0;
-    final extracted = widget.message.extractedText;
+    final fileSize = message.fileSizes.isNotEmpty ? message.fileSizes.first : 0;
+    final extracted = message.usableDocumentText;
+    final parsing = message.documentParse;
+    final status = parsing?.status;
+    final isRunning = status == DocumentParseStatus.running;
+    final isPartial = status == DocumentParseStatus.partial;
+    final isFailed = status == DocumentParseStatus.failed;
+    final isCancelled = status == DocumentParseStatus.cancelled;
+    final warnings = parsing?.warnings ?? const <String>[];
+    final warningLines = <String>[
+      if (parsing?.error != null && parsing!.error!.trim().isNotEmpty)
+        parsing.error!.trim(),
+      ...warnings.where((w) => w.trim().isNotEmpty),
+      if (parsing == null && message.documentNeedsAttention) '尚未完整解析',
+    ];
+    final hasIssue = isFailed || isPartial || warningLines.isNotEmpty;
+
+    if (extracted.isNotEmpty) {
+      final condensed = _condenseText(extracted);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => showOcrTextDetailsDialog(
+              context: context,
+              title: fileName,
+              text: extracted,
+              warningText:
+                  warningLines.isEmpty ? null : warningLines.join('\n'),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: fileColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(fileIcon, color: fileColor, size: 28),
+                        if (ext.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              ext.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: fileColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                fileName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _formatFileSize(fileSize),
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.open_in_new,
+                              size: 12,
+                              color: Colors.grey,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Icon(
+                              hasIssue
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.document_scanner_outlined,
+                              size: 13,
+                              color: hasIssue ? Colors.deepOrange : Colors.teal,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${isPartial ? "部分解析" : "解析内容摘要"} (${extracted.length}字)',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: hasIssue
+                                      ? Colors.deepOrange
+                                      : Colors.teal.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          condensed,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.35,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isRunning)
+            _buildStatusLine(
+              color: Colors.blue,
+              text: '正在重新解析...',
+              loading: true,
+            )
+          else if (isFailed)
+            _buildStatusLine(
+              color: Colors.red,
+              icon: Icons.error_outline,
+              text: parsing?.error ?? '本次解析失败，当前保留上次解析结果',
+            )
+          else if (isCancelled)
+            _buildStatusLine(
+              color: Colors.blueGrey,
+              icon: Icons.cancel_outlined,
+              text: '已取消重新解析',
+            )
+          else if (warningLines.isNotEmpty)
+            _buildStatusLine(
+              color: Colors.deepOrange,
+              icon: Icons.warning_amber_rounded,
+              text: warningLines.join(' · '),
+            ),
+        ],
+      );
+    }
+
+    final statusColor = isRunning
+        ? Colors.blue
+        : isFailed
+        ? Colors.red
+        : isCancelled
+        ? Colors.blueGrey
+        : Colors.deepOrange;
+    final statusIcon = isFailed
+        ? Icons.error_outline
+        : isCancelled
+        ? Icons.cancel_outlined
+        : Icons.info_outline;
+    final statusText = isRunning
+        ? '文件解析中...'
+        : isFailed
+        ? (parsing?.error ?? '解析失败')
+        : isCancelled
+        ? '已取消'
+        : (warningLines.isNotEmpty ? warningLines.join('\n') : '尚未完整解析');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // 文件头部卡片
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
           ),
           child: Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: fileColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
@@ -620,7 +816,10 @@ class _DocumentBubbleState extends State<_DocumentBubble> {
                   children: [
                     Text(
                       fileName,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -635,55 +834,50 @@ class _DocumentBubbleState extends State<_DocumentBubble> {
             ],
           ),
         ),
+        _buildStatusLine(
+          color: statusColor,
+          icon: isRunning ? null : statusIcon,
+          text: statusText,
+          loading: isRunning,
+        ),
+      ],
+    );
+  }
 
-        // 可折叠的文本提取结果气泡
-        if (extracted != null && extracted.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: BorderRadius.circular(6),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.teal.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(6),
+  Widget _buildStatusLine({
+    required Color color,
+    IconData? icon,
+    required String text,
+    bool loading = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 1.5),
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.document_scanner_outlined, size: 13, color: Colors.teal),
-                  const SizedBox(width: 4),
-                  Text(
-                    '已提取 ${extracted.length} 字内容',
-                    style: const TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 16,
-                    color: Colors.teal,
-                  ),
-                ],
-              ),
+            )
+          else if (icon != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(icon, size: 13, color: color),
+            ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12, color: color),
             ),
           ),
-          if (_expanded) ...[
-            const SizedBox(height: 4),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-              ),
-              child: SelectableText(
-                extracted,
-                style: const TextStyle(fontSize: 11.5, height: 1.35),
-              ),
-            ),
-          ],
         ],
-      ],
+      ),
     );
   }
 }
