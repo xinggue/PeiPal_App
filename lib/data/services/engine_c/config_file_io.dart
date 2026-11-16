@@ -22,6 +22,7 @@ class ConfigFileIo {
 
   /// 将配置文本保存为本地文件
   /// - Android：默认通过系统 SAF 选择保存位置；若取消或使用快捷保存，则直接写入系统 `Download/` 目录
+  /// - iOS：通过系统文件选择器导出到「文件」App / iCloud Drive / 第三方云盘
   /// - 桌面端 (macOS/Windows/Linux)：弹出系统另存为对话框
   /// 返回保存后的路径或文件名描述，若用户主动取消则返回 null
   static Future<String?> saveConfigTextFile({
@@ -45,6 +46,17 @@ class ConfigFileIo {
       }
     }
 
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      final saved = await _channel.invokeMethod<String>(
+        'saveWithDocumentPicker',
+        {
+          'fileName': suggestedName,
+          'content': content,
+        },
+      );
+      return saved;
+    }
+
     if (!kIsWeb &&
         (Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
       final location = await getSaveLocation(
@@ -59,7 +71,7 @@ class ConfigFileIo {
       return location.path;
     }
 
-    // iOS 或其他平台兜底：写入应用文档目录
+    // 其他平台兜底：写入应用文档目录
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/$suggestedName');
     await file.writeAsString(content, encoding: utf8);
