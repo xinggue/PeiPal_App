@@ -495,15 +495,7 @@ class EngineCImportPlan {
 
   static int _extractProvidersCount(Map map) {
     if (map['providers'] is List) return (map['providers'] as List).length;
-    final raw = map['providersMatrix'];
-    if (raw is List) return raw.length;
-    if (raw is String && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) return decoded.length;
-      } catch (_) {}
-    }
-    return map['apiKey'] != null && map['apiKey'].toString().trim().isNotEmpty ? 1 : 0;
+    return 0;
   }
 }
 

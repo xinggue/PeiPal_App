@@ -44,7 +44,14 @@ void main() {
         );
         addTearDown(router.dispose);
         await tester.pumpWidget(
-          ProviderScope(child: MaterialApp.router(routerConfig: router)),
+          ProviderScope(
+            overrides: [
+              secureStorageProvider.overrideWithValue(
+                const FlutterSecureStorage(),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
         );
         expect(find.text('文本 · 识图 · 文件 · 语音'), findsNWidgets(2));
         await tester.tap(find.text(provider.label));
@@ -88,6 +95,9 @@ void main() {
           );
           final container = ProviderContainer(
             overrides: [
+              secureStorageProvider.overrideWithValue(
+                const FlutterSecureStorage(),
+              ),
               settingsRepositoryProvider.overrideWithValue(settings),
               apiKeyGuideDioProvider.overrideWithValue(dio),
               sampleDataServiceProvider.overrideWithValue(
@@ -158,7 +168,12 @@ void main() {
                 .read(documentParserProvider)
                 .requireValue
                 .activeProvider!;
-            expect([llm.id, ocr.id, asr.id, doc.id], everyElement(provider.name));
+            expect([
+              llm.id,
+              ocr.id,
+              asr.id,
+              doc.id,
+            ], everyElement(provider.name));
             expect([
               llm.apiKey,
               ocr.apiKey,
@@ -196,7 +211,10 @@ void main() {
               previousAsr,
             );
             expect(
-              container.read(documentParserProvider).requireValue.activeProvider,
+              container
+                  .read(documentParserProvider)
+                  .requireValue
+                  .activeProvider,
               previousDoc,
             );
             expect(find.text('API Key 无效或未复制完整 (401)'), findsOneWidget);

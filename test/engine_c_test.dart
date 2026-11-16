@@ -970,19 +970,20 @@ void main() {
       'deepseek-flash': '',
       'another-model': 'high',
     });
-    expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
+    expect(await sec2.read(key: 'llm_reasoning_effort'), isNull);
 
-    // Older exports omit effort; they must retain the locally configured levels.
-    final legacyProvider = Map<String, dynamic>.from(llmMatrix.first)
+    // A partial provider update must retain the locally configured levels.
+    final partialProvider = Map<String, dynamic>.from(llmMatrix.first)
       ..remove('reasoningEfforts');
-    final legacyPlan = await engine2.analyzeImport({
+    final partialPlan = await engine2.analyzeImport({
       ...map,
       'api_configs': {
-        'llm': {'providers': [legacyProvider], 'activeProviderId': 'deepseek'},
+        'llm': {'providers': [partialProvider], 'activeProviderId': 'deepseek'},
       },
     });
-    await engine2.executeImportPlan(legacyPlan);
-    expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
+    await engine2.executeImportPlan(partialPlan);
+    final afterPartial = jsonDecode((await sec2.read(key: 'llm_providers_matrix_v1'))!) as List;
+    expect(afterPartial.firstWhere((p) => p['id'] == 'deepseek')['reasoningEfforts']['deepseek-v4-pro'], 'max');
 
     final importedConcurrency = await sRepo2.get('ocr_concurrency');
     expect(importedConcurrency, '4');
@@ -1017,7 +1018,8 @@ void main() {
       expect(restored['protocol'], 'deepseek');
       expect(restored['selectedModel'], '');
       expect(restored['apiKey'], 'test-$kind-key');
-      expect(await sec.read(key: '${kind}_provider'), 'deepseek');
+      expect(await sec.read(key: '${kind}_active_provider_id_v1'), 'deepseek');
+      expect(await sec.read(key: '${kind}_provider'), isNull);
     }
   });
 

@@ -82,41 +82,8 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
       } catch (_) {}
     }
 
-    // 若无已存列表，初始化内置预设并从旧版平滑迁移数据
     if (loaded.isEmpty) {
       loaded = List.from(LlmProviderPresets.builtIn);
-
-      // 读取旧版 3 个 key 迁移至预设
-      final oldUrl = await _storage.read(key: 'llm_base_url');
-      final oldKey = await _storage.read(key: 'llm_api_key');
-      final oldModel = await _storage.read(key: 'llm_model');
-      final oldEffort = await _storage.read(key: 'llm_reasoning_effort');
-
-      if (oldKey != null && oldKey.trim().isNotEmpty) {
-        final targetId = _matchProviderIdByUrl(oldUrl ?? '');
-        final idx = loaded.indexWhere((p) => p.id == targetId);
-        if (idx >= 0) {
-          loaded[idx] = loaded[idx].copyWith(
-            baseUrl: oldUrl ?? loaded[idx].baseUrl,
-            apiKey: oldKey,
-            selectedModel: oldModel ?? loaded[idx].selectedModel,
-            reasoningEfforts: {
-              if (oldModel != null && oldEffort != null)
-                oldModel.trim().toLowerCase(): oldEffort,
-            },
-          );
-        } else {
-          // 放入自定义端点
-          final customIdx = loaded.indexWhere((p) => p.id == 'custom');
-          if (customIdx >= 0) {
-            loaded[customIdx] = loaded[customIdx].copyWith(
-              baseUrl: oldUrl ?? loaded[customIdx].baseUrl,
-              apiKey: oldKey,
-              selectedModel: oldModel ?? loaded[customIdx].selectedModel,
-            );
-          }
-        }
-      }
     }
 
     final targetActiveId = activeId ??
@@ -132,19 +99,6 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
 
     // 同步激活生效到全局 LlmConfig
     _syncActiveToGlobal();
-  }
-
-  String _matchProviderIdByUrl(String url) {
-    final lower = url.toLowerCase();
-    if (lower.contains('deepseek')) return 'deepseek';
-    if (lower.contains('siliconflow')) return 'siliconflow';
-    if (lower.contains('xiaomimimo') || lower.contains('mimo')) return 'mimo';
-    if (lower.contains('bigmodel') || lower.contains('zhipu')) return 'zhipu';
-    if (lower.contains('moonshot') || lower.contains('kimi')) return 'moonshot';
-    if (lower.contains('aliyuncs') || lower.contains('dashscope')) return 'dashscope';
-    if (lower.contains('minimax')) return 'minimax';
-    if (lower.contains('api.openai.com')) return 'openai';
-    return 'custom';
   }
 
   Future<void> _persist() async {

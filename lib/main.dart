@@ -43,14 +43,13 @@ class DocMasterPeiApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
     final fontScale = ref.watch(appFontScaleProvider);
-    // 这些配置 notifier 在被创建时才会从存储加载并注入 ApiService / BleService。
-    // 必须在启动时就创建，否则没进过设置页时语音/OCR/蓝牙都在用默认空配置。
+    // 启动时加载服务商列表并同步到 ApiService；运行时配置不再单独持久化。
     ref.read(llmConfigProvider);
-    ref.read(llmProvidersProvider);
+    ref.watch(llmProvidersProvider);
     ref.read(asrConfigProvider);
-    ref.read(asrProvidersProvider);
+    ref.watch(asrProvidersProvider);
     ref.read(ocrConfigProvider);
-    ref.read(ocrProvidersProvider);
+    ref.watch(ocrProvidersProvider);
     ref.read(documentParserProvider);
     ref.read(documentProcessingProvider);
     ref.read(bleConfigProvider);

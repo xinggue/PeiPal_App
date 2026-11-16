@@ -97,6 +97,7 @@ void main() {
       final extractor = _Extractor();
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
           templateRepositoryProvider.overrideWithValue(_Templates()),
           contentTemplateRepositoryProvider.overrideWithValue(contents),
           settingsRepositoryProvider.overrideWithValue(_Settings()),

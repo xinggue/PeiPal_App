@@ -159,36 +159,17 @@ class BackupService {
       bundle['api_configs'] = {
         'document_parser': (await DocumentParserConfigStore(secureStorage).load()).toJson(),
         'llm': {
-          'baseUrl': await secureStorage.read(key: 'llm_base_url') ?? '',
-          'apiKey': await secureStorage.read(key: 'llm_api_key') ?? '',
-          'model': await secureStorage.read(key: 'llm_model') ?? '',
-          'reasoningEffort': await secureStorage.read(key: 'llm_reasoning_effort') ?? '',
-          'providers': ?llmDecoded,
-          if (providersMatrix != null && providersMatrix.isNotEmpty)
-            'providersMatrix': providersMatrix,
+          'providers': llmDecoded ?? [],
           if (activeProviderId != null && activeProviderId.isNotEmpty)
             'activeProviderId': activeProviderId,
         },
         'asr': {
-          'provider': await secureStorage.read(key: 'asr_provider') ?? '',
-          'baseUrl': await secureStorage.read(key: 'asr_base_url') ?? '',
-          'apiKey': await secureStorage.read(key: 'asr_api_key') ?? '',
-          'model': await secureStorage.read(key: 'asr_model') ?? '',
-          'language': await secureStorage.read(key: 'asr_language') ?? '',
-          'providers': ?asrDecoded,
-          if (asrProvidersMatrix != null && asrProvidersMatrix.isNotEmpty)
-            'providersMatrix': asrProvidersMatrix,
+          'providers': asrDecoded ?? [],
           if (asrActiveProviderId != null && asrActiveProviderId.isNotEmpty)
             'activeProviderId': asrActiveProviderId,
         },
         'ocr': {
-          'provider': await secureStorage.read(key: 'ocr_provider') ?? '',
-          'baseUrl': await secureStorage.read(key: 'ocr_base_url') ?? '',
-          'apiKey': await secureStorage.read(key: 'ocr_api_key') ?? '',
-          'model': await secureStorage.read(key: 'ocr_model') ?? '',
-          'providers': ?ocrDecoded,
-          if (ocrProvidersMatrix != null && ocrProvidersMatrix.isNotEmpty)
-            'providersMatrix': ocrProvidersMatrix,
+          'providers': ocrDecoded ?? [],
           if (ocrActiveProviderId != null && ocrActiveProviderId.isNotEmpty)
             'activeProviderId': ocrActiveProviderId,
         },
@@ -383,125 +364,20 @@ class BackupService {
     if (bundle.containsKey('api_configs') && bundle['api_configs'] is Map) {
       try {
         final apis = bundle['api_configs'] as Map;
-        String? normalizeMatrix(dynamic raw) {
-          if (raw is List) return jsonEncode(raw);
-          if (raw is String && raw.trim().isNotEmpty) return raw;
-          return null;
-        }
-
-        if (apis.containsKey('llm') && apis['llm'] is Map) {
-          final llm = apis['llm'] as Map;
+        for (final kind in ['llm', 'asr', 'ocr']) {
+          if (apis[kind] is! Map) continue;
+          final config = apis[kind] as Map;
+          if (config['providers'] is! List) {
+            throw const FormatException('服务商配置必须包含 providers 列表');
+          }
           await secureStorage.write(
-              key: 'llm_reasoning_effort', value: llm['reasoningEffort']?.toString() ?? '');
-          if (llm['baseUrl'] != null) {
-            await secureStorage.write(
-                key: 'llm_base_url', value: llm['baseUrl'].toString());
-          }
-          if (llm['apiKey'] != null) {
-            await secureStorage.write(
-                key: 'llm_api_key', value: llm['apiKey'].toString());
-          }
-          if (llm['model'] != null) {
-            await secureStorage.write(
-                key: 'llm_model', value: llm['model'].toString());
-          }
-          final matrix = normalizeMatrix(llm['providers'] ?? llm['providersMatrix']);
-          if (matrix != null) {
-            await secureStorage.write(
-              key: 'llm_providers_matrix_v1',
-              value: matrix,
-            );
-            if (llm['activeProviderId'] != null) {
-              await secureStorage.write(
-                key: 'llm_active_provider_id_v1',
-                value: llm['activeProviderId'].toString(),
-              );
-            }
-          } else {
-            await secureStorage.write(key: 'llm_providers_matrix_v1', value: '');
-            await secureStorage.write(key: 'llm_active_provider_id_v1', value: '');
-          }
-        }
-        // Publishing credentials from old backups are intentionally ignored.
-
-        if (apis.containsKey('asr') && apis['asr'] is Map) {
-          final asr = apis['asr'] as Map;
-          if (asr['provider'] != null) {
-            await secureStorage.write(
-                key: 'asr_provider', value: asr['provider'].toString());
-          }
-          if (asr['baseUrl'] != null) {
-            await secureStorage.write(
-                key: 'asr_base_url', value: asr['baseUrl'].toString());
-          }
-          if (asr['apiKey'] != null) {
-            await secureStorage.write(
-                key: 'asr_api_key', value: asr['apiKey'].toString());
-          }
-          if (asr['model'] != null) {
-            await secureStorage.write(
-                key: 'asr_model', value: asr['model'].toString());
-          }
-          if (asr['language'] != null) {
-            await secureStorage.write(
-                key: 'asr_language', value: asr['language'].toString());
-          }
-          final asrMatrix = normalizeMatrix(asr['providers'] ?? asr['providersMatrix']);
-          if (asrMatrix != null) {
-            await secureStorage.write(
-              key: 'asr_providers_matrix_v1',
-              value: asrMatrix,
-            );
-            if (asr['activeProviderId'] != null) {
-              await secureStorage.write(
-                key: 'asr_active_provider_id_v1',
-                value: asr['activeProviderId'].toString(),
-              );
-            }
-          } else {
-            await secureStorage.write(
-                key: 'asr_providers_matrix_v1', value: '');
-            await secureStorage.write(
-                key: 'asr_active_provider_id_v1', value: '');
-          }
-        }
-
-        if (apis.containsKey('ocr') && apis['ocr'] is Map) {
-          final ocr = apis['ocr'] as Map;
-          if (ocr['provider'] != null) {
-            await secureStorage.write(
-                key: 'ocr_provider', value: ocr['provider'].toString());
-          }
-          if (ocr['baseUrl'] != null) {
-            await secureStorage.write(
-                key: 'ocr_base_url', value: ocr['baseUrl'].toString());
-          }
-          if (ocr['apiKey'] != null) {
-            await secureStorage.write(
-                key: 'ocr_api_key', value: ocr['apiKey'].toString());
-          }
-          if (ocr['model'] != null) {
-            await secureStorage.write(
-                key: 'ocr_model', value: ocr['model'].toString());
-          }
-          final ocrMatrix = normalizeMatrix(ocr['providers'] ?? ocr['providersMatrix']);
-          if (ocrMatrix != null) {
-            await secureStorage.write(
-              key: 'ocr_providers_matrix_v1',
-              value: ocrMatrix,
-            );
-            if (ocr['activeProviderId'] != null) {
-              await secureStorage.write(
-                key: 'ocr_active_provider_id_v1',
-                value: ocr['activeProviderId'].toString(),
-              );
-            }
-          } else {
-            await secureStorage.write(
-                key: 'ocr_providers_matrix_v1', value: '');
-            await secureStorage.write(
-                key: 'ocr_active_provider_id_v1', value: '');
-          }
+            key: '${kind}_providers_matrix_v1',
+            value: jsonEncode(config['providers']),
+          );
+          await secureStorage.write(
+            key: '${kind}_active_provider_id_v1',
+            value: config['activeProviderId']?.toString(),
+          );
         }
         if (apis['document_parser'] is Map) {
           await DocumentParserConfigStore(secureStorage).importSettings(apis['document_parser'] as Map);

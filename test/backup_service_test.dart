@@ -243,13 +243,10 @@ void main() {
     ));
     await sRepo.set('diagnosis_tags', jsonEncode(['呼吸科', '常见病']));
 
-    await sec.write(key: 'llm_api_key', value: 'sk-test123456');
-    await sec.write(key: 'llm_model', value: 'gpt-4o');
     await DocumentParserConfigStore(sec).importSettings({'activeProviderId': 'deepseek',
       'providers': [{'id': 'deepseek', 'apiKey': 'document-key'}]});
-    await sec.write(key: 'llm_reasoning_effort', value: 'max');
     await sec.write(key: 'llm_providers_matrix_v1', value: jsonEncode([
-      {'id': 'deepseek', 'reasoningEfforts': {'deepseek-v4-pro': 'max'}},
+      {'id': 'deepseek', 'apiKey': 'sk-test123456', 'reasoningEfforts': {'deepseek-v4-pro': 'max'}},
     ]));
 
     // 2. Export all
@@ -258,7 +255,9 @@ void main() {
     expect(bundle['templates'], hasLength(1));
     expect(bundle['content_templates'], hasLength(1));
     expect(bundle['favorite_diagnoses'], hasLength(1));
-    expect(bundle['api_configs']['llm']['apiKey'], 'sk-test123456');
+    expect(bundle['api_configs']['llm']['providers'][0]['apiKey'], 'sk-test123456');
+    expect(bundle['api_configs']['llm'].containsKey('apiKey'), isFalse);
+    expect(bundle['api_configs']['llm'].containsKey('providersMatrix'), isFalse);
     expect(bundle['api_configs']['llm']['providers'][0]['reasoningEfforts'],
         {'deepseek-v4-pro': 'max'});
 
@@ -292,10 +291,10 @@ void main() {
     expect(importedDiag?.name, '急性鼻咽炎（感冒）');
     expect(importedDiag?.tags, contains('呼吸科'));
 
-    final importedKey = await sec2.read(key: 'llm_api_key');
-    expect(importedKey, 'sk-test123456');
+    final importedProviders = jsonDecode((await sec2.read(key: 'llm_providers_matrix_v1'))!) as List;
+    expect(importedProviders.single['apiKey'], 'sk-test123456');
     expect((await DocumentParserConfigStore(sec2).load()).activeProvider!.apiKey, 'document-key');
-    expect(await sec2.read(key: 'llm_reasoning_effort'), 'max');
+    expect(await sec2.read(key: 'llm_api_key'), isNull);
     expect(jsonDecode((await sec2.read(key: 'llm_providers_matrix_v1'))!)[0]['reasoningEfforts'],
         {'deepseek-v4-pro': 'max'});
   });
@@ -322,6 +321,17 @@ void main() {
     expect(bundle.containsKey('content_templates'), false);
     expect(bundle.containsKey('favorite_diagnoses'), false);
     expect(bundle.containsKey('api_configs'), false);
+  });
+
+  test('single-provider API backups are rejected without replacing current settings', () async {
+    final current = jsonEncode([{'id': 'deepseek', 'apiKey': 'current-key'}]);
+    await sec.write(key: 'llm_providers_matrix_v1', value: current);
+    final result = await service.importBundle({
+      'api_configs': {'llm': {'apiKey': 'old-key', 'baseUrl': 'https://old.invalid'}},
+    });
+    expect(result.isSuccess, isFalse);
+    expect(await sec.read(key: 'llm_providers_matrix_v1'), current);
+    expect(await sec.read(key: 'llm_api_key'), isNull);
   });
 
   test('full backup transfers templates but never the publishing identity', () async {

@@ -108,47 +108,14 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
       } catch (_) {}
     }
 
-    // 若无已存列表，初始化内置预设并从旧版平滑迁移数据
     if (loaded.isEmpty) {
       loaded = _filterPlatformPresets(List.from(OcrProviderPresets.builtIn));
-
-      final oldProvider = await _storage.read(key: 'ocr_provider');
-      final oldUrl = await _storage.read(key: 'ocr_base_url');
-      final oldKey = await _storage.read(key: 'ocr_api_key');
-      final oldModel = await _storage.read(key: 'ocr_model');
-
-      String? migratedTargetId;
-      if (oldProvider != null && oldProvider.trim().isNotEmpty) {
-        migratedTargetId = _matchProviderId(oldProvider.trim(), oldUrl ?? '');
-        final idx = loaded.indexWhere((p) => p.id == migratedTargetId);
-        if (idx >= 0) {
-          loaded[idx] = loaded[idx].copyWith(
-            baseUrl: (oldUrl != null && oldUrl.trim().isNotEmpty)
-                ? oldUrl.trim()
-                : loaded[idx].baseUrl,
-            apiKey: oldKey?.trim() ?? loaded[idx].apiKey,
-            selectedModel: (oldModel != null && oldModel.trim().isNotEmpty)
-                ? oldModel.trim()
-                : loaded[idx].selectedModel,
-          );
-        }
-      }
     }
 
     String targetActiveId = activeId ?? '';
     if (targetActiveId.isEmpty ||
         !loaded.any((p) => p.id == targetActiveId)) {
-      final oldProv = await _storage.read(key: 'ocr_provider');
-      final oldUrl = await _storage.read(key: 'ocr_base_url');
-      final matchedOld = oldProv != null && oldProv.isNotEmpty
-          ? _matchProviderId(oldProv, oldUrl ?? '')
-          : '';
-      final matchedItem = matchedOld.isNotEmpty
-          ? loaded.where((p) => p.id == matchedOld).firstOrNull
-          : null;
-      if (matchedItem != null && matchedItem.isConfigured) {
-        targetActiveId = matchedItem.id;
-      } else if (loaded.any((p) => p.requiresApiKey && p.isConfigured)) {
+      if (loaded.any((p) => p.requiresApiKey && p.isConfigured)) {
         targetActiveId =
             loaded.firstWhere((p) => p.requiresApiKey && p.isConfigured).id;
       } else {
@@ -166,33 +133,7 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
     _syncActiveToGlobal();
   }
 
-  String _matchProviderId(String oldProviderName, String url) {
-    final lowerUrl = url.toLowerCase();
-    if (oldProviderName == 'deepseek' || lowerUrl.contains('api.deepseek.com')) {
-      return 'deepseek';
-    }
-    if (oldProviderName == 'paddleOcr' || lowerUrl.contains('aistudio-app')) {
-      return 'paddleOcr';
-    }
-    if (oldProviderName == 'mineru' || lowerUrl.contains('mineru.net')) {
-      return 'mineru';
-    }
-    if (oldProviderName == 'appleVision') return 'appleVision';
-    if (oldProviderName == 'paddleLocal') return 'paddleLocal';
-    if (oldProviderName == 'zhipu' || lowerUrl.contains('bigmodel.cn')) {
-      return 'zhipu';
-    }
-    if (oldProviderName == 'modelbest' || lowerUrl.contains('modelbest')) {
-      return 'modelbest';
-    }
-    if (lowerUrl.contains('siliconflow')) return 'siliconflow';
-    if (lowerUrl.contains('aliyuncs') || lowerUrl.contains('dashscope')) {
-      return 'dashscope';
-    }
-    return 'openai';
-  }
-
-  OcrProvider _mapProtocolToLegacyEnum(OcrProtocol protocol) {
+  OcrProvider _mapProtocol(OcrProtocol protocol) {
     switch (protocol) {
       case OcrProtocol.deepseek:
         return OcrProvider.deepseek;
@@ -226,7 +167,7 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
     final active = state.activeProvider;
     if (active == null) return;
     final config = OcrConfig(
-      provider: _mapProtocolToLegacyEnum(active.protocol),
+      provider: _mapProtocol(active.protocol),
       baseUrl: active.baseUrl.trim(),
       apiKey: active.apiKey.trim(),
       model: active.selectedModel.trim(),

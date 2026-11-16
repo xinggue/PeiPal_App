@@ -125,14 +125,15 @@ void main() {
       final hub = HubService(storage);
       final officialOwner = await hub.ownerKey();
       expect(officialOwner, isNot('legacy-official-owner'));
-      expect(await hub.getAdminToken(), 'legacy-official-admin');
+      expect(await hub.getAdminToken(), isNull);
+      await hub.setAdminToken('official-admin');
       await hub.setBaseUrl('https://other.example/templates');
       expect(await hub.getAdminToken(), isNull);
       final otherOwner = await hub.ownerKey();
       expect(otherOwner, isNot(officialOwner));
       await hub.setAdminToken('other-administrator');
       await hub.setBaseUrl(null);
-      expect(await hub.getAdminToken(), 'legacy-official-admin');
+      expect(await hub.getAdminToken(), 'official-admin');
       expect(await hub.ownerKey(), officialOwner);
       await hub.setBaseUrl('https://other.example/templates');
       expect(await hub.getAdminToken(), 'other-administrator');

@@ -10,6 +10,8 @@ import 'package:peipal/domain/models/ocr_provider.dart';
 import 'package:peipal/presentation/pages/settings/asr_settings_page.dart';
 import 'package:peipal/presentation/pages/settings/ocr_settings_page.dart';
 import 'package:peipal/providers/providers.dart';
+import 'package:peipal/providers/asr_providers_provider.dart';
+import 'package:peipal/providers/ocr_providers_provider.dart';
 
 void main() {
   for (final audio in [true, false]) {
@@ -32,7 +34,13 @@ void main() {
           '${prefix}_providers_matrix_v1': jsonEncode([preset]),
           '${prefix}_active_provider_id_v1': 'deepseek',
         });
-        final container = ProviderContainer();
+        final container = ProviderContainer(
+          overrides: [
+            secureStorageProvider.overrideWithValue(
+              const FlutterSecureStorage(),
+            ),
+          ],
+        );
         addTearDown(container.dispose);
         await tester.pumpWidget(
           UncontrolledProviderScope(
@@ -83,12 +91,18 @@ void main() {
         expect(saved['apiKey'], 'test-deepseek-key');
 
         // Load the global config as on app restart, before the settings page opens.
-        final reloaded = ProviderContainer();
+        final reloaded = ProviderContainer(
+          overrides: [
+            secureStorageProvider.overrideWithValue(
+              const FlutterSecureStorage(),
+            ),
+          ],
+        );
         addTearDown(reloaded.dispose);
         if (audio) {
-          reloaded.read(asrConfigProvider);
+          reloaded.read(asrProvidersProvider);
         } else {
-          reloaded.read(ocrConfigProvider);
+          reloaded.read(ocrProvidersProvider);
         }
         await tester.pumpAndSettle();
         if (audio) {

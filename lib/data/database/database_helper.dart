@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 
 import 'database_path.dart';
+import 'macos_database_permissions.dart';
 
 class DatabaseHelper {
   static Database? _db;
@@ -19,6 +20,7 @@ class DatabaseHelper {
   static Future<Database> _initDb() async {
     final dbPath = await appDatabasesPath();
     final path = p.join(dbPath, 'medhistory.db');
+    await restrictMacosDatabaseFiles(path);
 
     return openDatabase(
       path,

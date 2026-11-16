@@ -6,6 +6,7 @@ import 'package:peipal/data/services/api/document_parser_api.dart';
 import 'package:peipal/domain/models/document_parser_provider.dart';
 import 'package:peipal/presentation/pages/settings/document_parser_settings_page.dart';
 import 'package:peipal/providers/document_parser_provider.dart';
+import 'package:peipal/providers/providers.dart';
 
 class _FakeDocumentParserApi extends DocumentParserApi {
   DocumentParserProviderConfig? lastTested;
@@ -28,7 +29,10 @@ void main() {
       FlutterSecureStorage.setMockInitialValues({});
       final fakeApi = _FakeDocumentParserApi();
       final container = ProviderContainer(
-        overrides: [documentParserApiProvider.overrideWithValue(fakeApi)],
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          documentParserApiProvider.overrideWithValue(fakeApi),
+        ],
       );
       addTearDown(container.dispose);
       await tester.pumpWidget(

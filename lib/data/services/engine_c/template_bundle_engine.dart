@@ -213,36 +213,17 @@ class TemplateBundleEngine {
       apiConfigs = {
         'document_parser': (await DocumentParserConfigStore(secureStorage).load()).toJson(),
         'llm': {
-          'baseUrl': await secureStorage.read(key: 'llm_base_url') ?? '',
-          'apiKey': await secureStorage.read(key: 'llm_api_key') ?? '',
-          'model': await secureStorage.read(key: 'llm_model') ?? '',
-          'reasoningEffort': await secureStorage.read(key: 'llm_reasoning_effort') ?? '',
-          'providers': ?llmDecoded,
-          if (providersMatrix != null && providersMatrix.isNotEmpty)
-            'providersMatrix': providersMatrix,
+          'providers': llmDecoded ?? [],
           if (activeProviderId != null && activeProviderId.isNotEmpty)
             'activeProviderId': activeProviderId,
         },
         'asr': {
-          'provider': await secureStorage.read(key: 'asr_provider') ?? '',
-          'baseUrl': await secureStorage.read(key: 'asr_base_url') ?? '',
-          'apiKey': await secureStorage.read(key: 'asr_api_key') ?? '',
-          'model': await secureStorage.read(key: 'asr_model') ?? '',
-          'language': await secureStorage.read(key: 'asr_language') ?? '',
-          'providers': ?asrDecoded,
-          if (asrProvidersMatrix != null && asrProvidersMatrix.isNotEmpty)
-            'providersMatrix': asrProvidersMatrix,
+          'providers': asrDecoded ?? [],
           if (asrActiveProviderId != null && asrActiveProviderId.isNotEmpty)
             'activeProviderId': asrActiveProviderId,
         },
         'ocr': {
-          'provider': await secureStorage.read(key: 'ocr_provider') ?? '',
-          'baseUrl': await secureStorage.read(key: 'ocr_base_url') ?? '',
-          'apiKey': await secureStorage.read(key: 'ocr_api_key') ?? '',
-          'model': await secureStorage.read(key: 'ocr_model') ?? '',
-          'providers': ?ocrDecoded,
-          if (ocrProvidersMatrix != null && ocrProvidersMatrix.isNotEmpty)
-            'providersMatrix': ocrProvidersMatrix,
+          'providers': ocrDecoded ?? [],
           if (ocrActiveProviderId != null && ocrActiveProviderId.isNotEmpty)
             'activeProviderId': ocrActiveProviderId,
           'ocr_concurrency': ?ocrConcurrency,
@@ -1351,11 +1332,10 @@ class TemplateBundleEngine {
 
   Future<int> _importLlmProviders(Map llm) async {
     final incomingMaps =
-        _extractIncomingProviderMaps(llm['providers'] ?? llm['providersMatrix']);
-
-    final legacyUrl = llm['baseUrl']?.toString();
-    final legacyKey = llm['apiKey']?.toString();
-    final legacyModel = llm['model']?.toString();
+        _extractIncomingProviderMaps(llm['providers']);
+    if (llm['providers'] is! List) {
+      throw const FormatException('服务商配置必须包含 providers 列表');
+    }
 
     final currentRaw = await secureStorage.read(key: 'llm_providers_matrix_v1');
     List<Map<String, dynamic>> currentList =
@@ -1439,49 +1419,16 @@ class TemplateBundleEngine {
 
       await secureStorage.write(
           key: 'llm_active_provider_id_v1', value: targetActiveId);
-      final activeIdx = currentMap[targetActiveId];
-      if (activeIdx != null) {
-        final activeConfig = currentList[activeIdx];
-        await secureStorage.write(
-            key: 'llm_base_url',
-            value: activeConfig['baseUrl']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'llm_api_key', value: activeConfig['apiKey']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'llm_model',
-            value: activeConfig['selectedModel']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'llm_reasoning_effort',
-            value: LlmProviderConfig.fromJson(activeConfig).reasoningEffort);
-      }
-    } else {
-      if (legacyUrl != null) {
-        await secureStorage.write(key: 'llm_base_url', value: legacyUrl);
-      }
-      if (legacyKey != null) {
-        await secureStorage.write(key: 'llm_api_key', value: legacyKey);
-      }
-      if (legacyModel != null) {
-        await secureStorage.write(key: 'llm_model', value: legacyModel);
-      }
-      await secureStorage.write(key: 'llm_providers_matrix_v1', value: '');
-      await secureStorage.write(
-          key: 'llm_reasoning_effort', value: llm['reasoningEffort']?.toString() ?? '');
-      await secureStorage.write(key: 'llm_active_provider_id_v1', value: '');
-      configuredCount = legacyKey != null && legacyKey.trim().isNotEmpty ? 1 : 0;
     }
     return configuredCount;
   }
 
   Future<int> _importAsrProviders(Map asr) async {
     final incomingMaps =
-        _extractIncomingProviderMaps(asr['providers'] ?? asr['providersMatrix']);
-
-    final legacyProvider = asr['provider']?.toString();
-    final legacyUrl = asr['baseUrl']?.toString();
-    final legacyKey = asr['apiKey']?.toString();
-    final legacyModel = asr['model']?.toString();
-    final legacyLang = asr['language']?.toString();
+        _extractIncomingProviderMaps(asr['providers']);
+    if (asr['providers'] is! List) {
+      throw const FormatException('服务商配置必须包含 providers 列表');
+    }
 
     final currentRaw = await secureStorage.read(key: 'asr_providers_matrix_v1');
     List<Map<String, dynamic>> currentList =
@@ -1570,56 +1517,16 @@ class TemplateBundleEngine {
 
       await secureStorage.write(
           key: 'asr_active_provider_id_v1', value: targetActiveId);
-      final activeIdx = currentMap[targetActiveId];
-      if (activeIdx != null) {
-        final activeConfig = currentList[activeIdx];
-        await secureStorage.write(
-            key: 'asr_provider',
-            value: activeConfig['protocol'] == AsrProtocol.deepseek.name
-                ? 'deepseek' : activeConfig['id']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'asr_base_url',
-            value: activeConfig['baseUrl']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'asr_api_key', value: activeConfig['apiKey']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'asr_model',
-            value: activeConfig['selectedModel']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'asr_language',
-            value: activeConfig['language']?.toString() ?? 'zh');
-      }
-    } else {
-      if (legacyProvider != null) {
-        await secureStorage.write(key: 'asr_provider', value: legacyProvider);
-      }
-      if (legacyUrl != null) {
-        await secureStorage.write(key: 'asr_base_url', value: legacyUrl);
-      }
-      if (legacyKey != null) {
-        await secureStorage.write(key: 'asr_api_key', value: legacyKey);
-      }
-      if (legacyModel != null) {
-        await secureStorage.write(key: 'asr_model', value: legacyModel);
-      }
-      if (legacyLang != null) {
-        await secureStorage.write(key: 'asr_language', value: legacyLang);
-      }
-      await secureStorage.write(key: 'asr_providers_matrix_v1', value: '');
-      await secureStorage.write(key: 'asr_active_provider_id_v1', value: '');
-      configuredCount = legacyKey != null && legacyKey.trim().isNotEmpty ? 1 : 0;
     }
     return configuredCount;
   }
 
   Future<int> _importOcrProviders(Map ocr, Map apis) async {
     final incomingMaps =
-        _extractIncomingProviderMaps(ocr['providers'] ?? ocr['providersMatrix']);
-
-    final legacyProvider = ocr['provider']?.toString();
-    final legacyUrl = ocr['baseUrl']?.toString();
-    final legacyKey = ocr['apiKey']?.toString();
-    final legacyModel = ocr['model']?.toString();
+        _extractIncomingProviderMaps(ocr['providers']);
+    if (ocr['providers'] is! List) {
+      throw const FormatException('服务商配置必须包含 providers 列表');
+    }
 
     final currentRaw = await secureStorage.read(key: 'ocr_providers_matrix_v1');
     List<Map<String, dynamic>> currentList =
@@ -1704,38 +1611,6 @@ class TemplateBundleEngine {
 
       await secureStorage.write(
           key: 'ocr_active_provider_id_v1', value: targetActiveId);
-      final activeIdx = currentMap[targetActiveId];
-      if (activeIdx != null) {
-        final activeConfig = currentList[activeIdx];
-        await secureStorage.write(
-            key: 'ocr_provider',
-            value: activeConfig['protocol'] == OcrProtocol.deepseek.name
-                ? 'deepseek' : activeConfig['id']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'ocr_base_url',
-            value: activeConfig['baseUrl']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'ocr_api_key', value: activeConfig['apiKey']?.toString() ?? '');
-        await secureStorage.write(
-            key: 'ocr_model',
-            value: activeConfig['selectedModel']?.toString() ?? '');
-      }
-    } else {
-      if (legacyProvider != null) {
-        await secureStorage.write(key: 'ocr_provider', value: legacyProvider);
-      }
-      if (legacyUrl != null) {
-        await secureStorage.write(key: 'ocr_base_url', value: legacyUrl);
-      }
-      if (legacyKey != null) {
-        await secureStorage.write(key: 'ocr_api_key', value: legacyKey);
-      }
-      if (legacyModel != null) {
-        await secureStorage.write(key: 'ocr_model', value: legacyModel);
-      }
-      await secureStorage.write(key: 'ocr_providers_matrix_v1', value: '');
-      await secureStorage.write(key: 'ocr_active_provider_id_v1', value: '');
-      configuredCount = legacyKey != null && legacyKey.trim().isNotEmpty ? 1 : 0;
     }
 
     final concurrency = ocr['ocr_concurrency'] ?? apis['ocr_concurrency'];

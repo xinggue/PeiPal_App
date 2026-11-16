@@ -30,6 +30,7 @@ import '../data/services/processing_service.dart';
 import '../data/services/generation_engine.dart';
 import '../data/services/content_template_extractor.dart';
 import '../data/services/sample_data_service.dart';
+import '../data/services/storage/macos_local_config_storage.dart';
 import '../domain/models/patient.dart';
 import '../domain/models/message.dart';
 import '../domain/models/template.dart';
@@ -40,12 +41,10 @@ import '../domain/models/catalog_entry.dart';
 import '../domain/models/favorite_diagnosis.dart';
 
 final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
-  return const FlutterSecureStorage(
-    mOptions: MacOsOptions(
-      accessibility: KeychainAccessibility.first_unlock,
-      useDataProtectionKeyChain: false,
-    ),
-  );
+  if (!kIsWeb && Platform.isMacOS) {
+    return MacosLocalConfigStorage();
+  }
+  return const FlutterSecureStorage();
 });
 
 final databaseProvider = Provider<DatabaseHelper>((ref) {
@@ -235,34 +234,10 @@ final apiServiceProvider = Provider<ApiService>((ref) {
 
 class LlmConfigNotifier extends StateNotifier<LlmConfig> {
   final ApiService _apiService;
-  final FlutterSecureStorage _storage;
 
-  LlmConfigNotifier(this._apiService, this._storage)
-      : super(const LlmConfig()) {
-    _load();
-  }
-
-  Future<void> _load() async {
-    final values = await Future.wait([
-      _storage.read(key: 'llm_base_url'),
-      _storage.read(key: 'llm_api_key'),
-      _storage.read(key: 'llm_model'),
-      _storage.read(key: 'llm_reasoning_effort'),
-    ]);
-    state = LlmConfig(
-      baseUrl: values[0] ?? 'https://api.openai.com/v1',
-      apiKey: values[1] ?? '',
-      model: values[2] ?? 'gpt-4o',
-      reasoningEffort: values[3] ?? '',
-    );
-    _apiService.updateLlmConfig(state);
-  }
+  LlmConfigNotifier(this._apiService) : super(const LlmConfig());
 
   Future<void> save(LlmConfig config) async {
-    await _storage.write(key: 'llm_base_url', value: config.baseUrl);
-    await _storage.write(key: 'llm_api_key', value: config.apiKey);
-    await _storage.write(key: 'llm_model', value: config.model);
-    await _storage.write(key: 'llm_reasoning_effort', value: config.reasoningEffort);
     state = config;
     _apiService.updateLlmConfig(config);
   }
@@ -274,7 +249,6 @@ final llmConfigProvider =
     StateNotifierProvider<LlmConfigNotifier, LlmConfig>((ref) {
   return LlmConfigNotifier(
     ref.read(apiServiceProvider),
-    ref.read(secureStorageProvider),
   );
 });
 
@@ -282,45 +256,10 @@ final llmConfigProvider =
 
 class AsrConfigNotifier extends StateNotifier<AsrConfig> {
   final ApiService _apiService;
-  final FlutterSecureStorage _storage;
 
-  AsrConfigNotifier(this._apiService, this._storage)
-      : super(const AsrConfig()) {
-    _load();
-  }
-
-  Future<void> _load() async {
-    final values = await Future.wait([
-      _storage.read(key: 'asr_provider'),
-      _storage.read(key: 'asr_base_url'),
-      _storage.read(key: 'asr_api_key'),
-      _storage.read(key: 'asr_model'),
-      _storage.read(key: 'asr_language'),
-    ]);
-    final providerStr = values[0];
-    final provider = AsrProvider.values
-        .where((p) => p.name == providerStr).firstOrNull ??
-        (providerStr == 'zhipu' ? AsrProvider.zhipuAsr : AsrProvider.openaiWhisper);
-    final url = values[1];
-    final key = values[2];
-    final model = values[3];
-    final lang = values[4];
-    state = AsrConfig(
-      provider: provider,
-      baseUrl: url ?? provider.defaultUrl,
-      apiKey: key ?? '',
-      model: model ?? provider.defaultModel,
-      language: lang ?? 'zh',
-    );
-    _apiService.updateAsrConfig(state);
-  }
+  AsrConfigNotifier(this._apiService) : super(const AsrConfig());
 
   Future<void> save(AsrConfig config) async {
-    await _storage.write(key: 'asr_provider', value: config.provider.name);
-    await _storage.write(key: 'asr_base_url', value: config.baseUrl);
-    await _storage.write(key: 'asr_api_key', value: config.apiKey);
-    await _storage.write(key: 'asr_model', value: config.model);
-    await _storage.write(key: 'asr_language', value: config.language);
     state = config;
     _apiService.updateAsrConfig(config);
   }
@@ -332,7 +271,6 @@ final asrConfigProvider =
     StateNotifierProvider<AsrConfigNotifier, AsrConfig>((ref) {
   return AsrConfigNotifier(
     ref.read(apiServiceProvider),
-    ref.read(secureStorageProvider),
   );
 });
 
@@ -340,77 +278,10 @@ final asrConfigProvider =
 
 class OcrConfigNotifier extends StateNotifier<OcrConfig> {
   final ApiService _apiService;
-  final FlutterSecureStorage _storage;
 
-  OcrConfigNotifier(this._apiService, this._storage)
-      : super(const OcrConfig()) {
-    _load();
-  }
-
-  Future<void> _load() async {
-    final values = await Future.wait([
-      _storage.read(key: 'ocr_provider'),
-      _storage.read(key: 'ocr_base_url'),
-      _storage.read(key: 'ocr_api_key'),
-      _storage.read(key: 'ocr_model'),
-    ]);
-    final provider = values[0];
-    final url = values[1];
-    final key = values[2];
-    final model = values[3];
-    final resolved = OcrProvider.values.where((p) => p.name == provider);
-    final OcrProvider defaultOcrProvider;
-    if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
-      defaultOcrProvider = OcrProvider.appleVision;
-    } else if (!kIsWeb && Platform.isAndroid) {
-      defaultOcrProvider = OcrProvider.paddleLocal;
-    } else {
-      defaultOcrProvider = OcrProvider.mineru;
-    }
-    final ocrProvider =
-        resolved.isEmpty ? defaultOcrProvider : resolved.first;
-    state = OcrConfig(
-      provider: ocrProvider,
-      baseUrl: url ??
-          (ocrProvider == OcrProvider.deepseek ? 'https://api.deepseek.com/v1' : null) ??
-          (ocrProvider == OcrProvider.paddleOcr
-              ? 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs'
-              : ocrProvider == OcrProvider.mineru
-                  ? 'https://mineru.net/api/v1/agent'
-                  : ocrProvider == OcrProvider.zhipu
-                      ? 'https://open.bigmodel.cn/api/paas/v4'
-                      : ocrProvider == OcrProvider.modelbest
-                          ? 'https://api.modelbest.cn/v1'
-                          : ocrProvider == OcrProvider.appleVision
-                              ? 'local://apple-vision'
-                              : ocrProvider == OcrProvider.paddleLocal
-                                  ? 'local://paddle-ocr'
-                                  : 'https://api.openai.com/v1'),
-      apiKey: key ?? '',
-      model: model ??
-          (ocrProvider == OcrProvider.deepseek ? '' : null) ??
-          (ocrProvider == OcrProvider.paddleOcr
-              ? 'PaddleOCR-VL-1.6'
-              : ocrProvider == OcrProvider.mineru
-                  ? 'agent'
-                  : ocrProvider == OcrProvider.zhipu
-                      ? 'glm-ocr'
-                      : ocrProvider == OcrProvider.modelbest
-                          ? 'MiniCPM-OCR-1.0'
-                          : ocrProvider == OcrProvider.appleVision
-                              ? 'apple-vision'
-                              : ocrProvider == OcrProvider.paddleLocal
-                                  ? 'ppocr-v5-mobile'
-                                  : 'gpt-4o'),
-    );
-    _apiService.updateOcrConfig(state);
-  }
+  OcrConfigNotifier(this._apiService) : super(const OcrConfig());
 
   Future<void> save(OcrConfig config) async {
-    await _storage.write(key: 'ocr_provider', value: config.provider.name);
-    await _storage.write(key: 'ocr_base_url', value: config.baseUrl);
-    await _storage.write(key: 'ocr_api_key', value: config.apiKey);
-    await _storage.write(key: 'ocr_model', value: config.model);
     state = config;
     _apiService.updateOcrConfig(config);
   }
@@ -422,7 +293,6 @@ final ocrConfigProvider =
     StateNotifierProvider<OcrConfigNotifier, OcrConfig>((ref) {
   return OcrConfigNotifier(
     ref.read(apiServiceProvider),
-    ref.read(secureStorageProvider),
   );
 });
 

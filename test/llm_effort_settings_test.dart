@@ -25,7 +25,11 @@ void main() {
         'llm_providers_matrix_v1': jsonEncode([provider.toJson()]),
         'llm_active_provider_id_v1': id,
       });
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        ],
+      );
       addTearDown(container.dispose);
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -88,7 +92,11 @@ void main() {
         'llm_providers_matrix_v1': jsonEncode([provider.toJson()]),
         'llm_active_provider_id_v1': 'deepseek',
       });
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        ],
+      );
       addTearDown(container.dispose);
       await tester.pumpWidget(
         UncontrolledProviderScope(

@@ -339,29 +339,13 @@ class HubService {
     final scoped = await _storage.read(
       key: '${_adminTokenKey}_${_scope(base)}',
     );
-    if (scoped != null) return scoped;
-    // Old credentials belong only to the original official service.
-    if (base == defaultBaseUrl) {
-      final legacy = await _storage.read(key: _adminTokenKey);
-      if (legacy != null) {
-        await _storage.write(
-          key: '${_adminTokenKey}_${_scope(base)}',
-          value: legacy,
-        );
-        await _storage.delete(key: _adminTokenKey);
-      }
-      return legacy;
-    }
-    return null;
+    return scoped;
   }
 
   Future<void> setAdminToken(String? token) async {
     final key = '${_adminTokenKey}_${_scope(await getBaseUrl())}';
     if (token == null || token.trim().isEmpty) {
       await _storage.delete(key: key);
-      if (await getBaseUrl() == defaultBaseUrl) {
-        await _storage.delete(key: _adminTokenKey);
-      }
     } else {
       await _storage.write(key: key, value: token.trim());
     }

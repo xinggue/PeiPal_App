@@ -82,47 +82,14 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
       } catch (_) {}
     }
 
-    // 若无已存列表，初始化内置预设并从旧版平滑迁移数据
     if (loaded.isEmpty) {
       loaded = List.from(AsrProviderPresets.builtIn);
-
-      final oldProvider = await _storage.read(key: 'asr_provider');
-      final oldUrl = await _storage.read(key: 'asr_base_url');
-      final oldKey = await _storage.read(key: 'asr_api_key');
-      final oldModel = await _storage.read(key: 'asr_model');
-      final oldLang = await _storage.read(key: 'asr_language');
-
-      if (oldProvider != null && oldProvider.trim().isNotEmpty) {
-        final targetId = _matchProviderId(oldProvider.trim(), oldUrl ?? '');
-        final idx = loaded.indexWhere((p) => p.id == targetId);
-        if (idx >= 0) {
-          loaded[idx] = loaded[idx].copyWith(
-            baseUrl: (oldUrl != null && oldUrl.trim().isNotEmpty)
-                ? oldUrl.trim()
-                : loaded[idx].baseUrl,
-            apiKey: oldKey?.trim() ?? loaded[idx].apiKey,
-            selectedModel: (oldModel != null && oldModel.trim().isNotEmpty)
-                ? oldModel.trim()
-                : loaded[idx].selectedModel,
-            language: (oldLang != null && oldLang.trim().isNotEmpty)
-                ? oldLang.trim()
-                : loaded[idx].language,
-          );
-        }
-      }
     }
 
     String targetActiveId = activeId ?? '';
     if (targetActiveId.isEmpty ||
         !loaded.any((p) => p.id == targetActiveId)) {
-      final oldProv = await _storage.read(key: 'asr_provider');
-      final oldUrl = await _storage.read(key: 'asr_base_url');
-      final matchedOld = oldProv != null && oldProv.isNotEmpty
-          ? _matchProviderId(oldProv, oldUrl ?? '')
-          : '';
-      if (matchedOld.isNotEmpty && loaded.any((p) => p.id == matchedOld)) {
-        targetActiveId = matchedOld;
-      } else if (loaded.any((p) => p.isConfigured)) {
+      if (loaded.any((p) => p.isConfigured)) {
         targetActiveId = loaded.firstWhere((p) => p.isConfigured).id;
       } else {
         targetActiveId = loaded.any((p) => p.id == 'zhipu')
@@ -139,21 +106,7 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
     _syncActiveToGlobal();
   }
 
-  String _matchProviderId(String oldProviderName, String url) {
-    final lowerUrl = url.toLowerCase();
-    if (oldProviderName == 'deepseek' || lowerUrl.contains('api.deepseek.com')) {
-      return 'deepseek';
-    }
-    if (oldProviderName == 'zhipuAsr' || lowerUrl.contains('bigmodel.cn')) {
-      return 'zhipu';
-    }
-    if (oldProviderName == 'mimoV25' || lowerUrl.contains('xiaomimimo')) {
-      return 'mimoV25';
-    }
-    return 'openaiWhisper';
-  }
-
-  AsrProvider _mapProtocolToLegacyEnum(AsrProtocol protocol) {
+  AsrProvider _mapProtocol(AsrProtocol protocol) {
     switch (protocol) {
       case AsrProtocol.deepseek:
         return AsrProvider.deepseek;
@@ -179,7 +132,7 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
     final active = state.activeProvider;
     if (active == null) return;
     final config = AsrConfig(
-      provider: _mapProtocolToLegacyEnum(active.protocol),
+      provider: _mapProtocol(active.protocol),
       baseUrl: active.baseUrl.trim(),
       apiKey: active.apiKey.trim(),
       model: active.selectedModel.trim(),
