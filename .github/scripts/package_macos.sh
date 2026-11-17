@@ -15,10 +15,18 @@ DMG="PeiPal-macOS.dmg"
 WORK=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/peipal-signing.XXXXXX")
 KEYCHAIN="$WORK/signing.keychain-db"
 KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
+ORIGINAL_KEYCHAINS=()
+while IFS= read -r keychain; do
+  ORIGINAL_KEYCHAINS+=("$keychain")
+done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"$/\1/')
+SEARCH_LIST_UPDATED=false
 if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
   printf '::add-mask::%s\n' "$KEYCHAIN_PASSWORD"
 fi
 cleanup() {
+  if [[ "$SEARCH_LIST_UPDATED" == true ]]; then
+    security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" || true
+  fi
   security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -27,8 +35,11 @@ umask 077
 printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$WORK/certificate.p12"
 printf '%s' "$MACOS_NOTARY_KEY_BASE64" | base64 --decode > "$WORK/notary.p8"
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+security list-keychains -d user -s "$KEYCHAIN" "${ORIGINAL_KEYCHAINS[@]}"
+SEARCH_LIST_UPDATED=true
 security set-keychain-settings -lut 21600 "$KEYCHAIN"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+security import .github/scripts/developer-id-g2.pem -k "$KEYCHAIN"
 security import "$WORK/certificate.p12" -k "$KEYCHAIN" \
   -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: \
@@ -66,12 +77,6 @@ print("Apple notarization:", result.get("status"), "submission:", result.get("id
 if result.get("status") != "Accepted":
     sys.exit("Apple did not accept the notarization submission")' "$WORK/notary-result.json"
 }
-
-ditto -c -k --keepParent "$APP" "$WORK/PeiPal.zip"
-notarize "$WORK/PeiPal.zip"
-xcrun stapler staple "$APP"
-xcrun stapler validate "$APP"
-spctl --assess --type execute --verbose=2 "$APP"
 
 mkdir "$WORK/installer"
 ditto "$APP" "$WORK/installer/PeiPal.app"
