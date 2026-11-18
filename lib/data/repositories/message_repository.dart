@@ -1,16 +1,38 @@
+import 'package:flutter/foundation.dart';
+
 import '../../domain/generation/generation_log.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/document_parse_info.dart';
 import '../database/database_helper.dart';
 
 class MessageRepository {
+  List<Message> _safeMapRows(List<Map<String, dynamic>> rows) {
+    final result = <Message>[];
+    for (final row in rows) {
+      try {
+        result.add(Message.fromMap(row));
+      } catch (e, st) {
+        debugPrint('跳过损坏的消息行 (${row['id']}): $e\n$st');
+      }
+    }
+    return result;
+  }
+
   Future<List<Message>> getInterruptedDocuments() async {
     final db = await DatabaseHelper.database;
-    final rows = await db.query('messages', where: "msg_type = 'document' AND document_parse IS NOT NULL");
-    return rows.map(Message.fromMap).where((m) => m.documentParse?.status == DocumentParseStatus.running).toList();
+    final rows = await db.query('messages',
+        where: "msg_type = 'document' AND document_parse IS NOT NULL");
+    return _safeMapRows(rows)
+        .where((m) => m.documentParse?.status == DocumentParseStatus.running)
+        .toList();
   }
-  /// 用于 UI 聊天瀑布流渲染（倒序展示，限制近期 100 条）。
-  Future<List<Message>> getByPatient(String patientId, {int limit = 100}) async {
+
+  /// 用于 UI 聊天瀑布流渲染（倒序展示，支持分页 limit/offset）。
+  Future<List<Message>> getByPatient(
+    String patientId, {
+    int limit = 100,
+    int offset = 0,
+  }) async {
     final db = await DatabaseHelper.database;
     final maps = await db.query(
       'messages',
@@ -18,8 +40,21 @@ class MessageRepository {
       whereArgs: [patientId],
       orderBy: 'created_at DESC',
       limit: limit,
+      offset: offset,
     );
-    return maps.map((m) => Message.fromMap(m)).toList();
+    return _safeMapRows(maps);
+  }
+
+  /// 用于文书管理页：无截断获取该会话下的全部已生成文书记录（倒序）。
+  Future<List<Message>> getAllRecordsByPatient(String patientId) async {
+    final db = await DatabaseHelper.database;
+    final maps = await db.query(
+      'messages',
+      where: "patient_id = ? AND msg_type = 'generatedRecord'",
+      whereArgs: [patientId],
+      orderBy: 'created_at DESC',
+    );
+    return _safeMapRows(maps);
   }
 
   /// 用于临床病历生成与 Dry Run：无截断全量获取，且严格按时间正序排列。
@@ -31,7 +66,7 @@ class MessageRepository {
       whereArgs: [patientId],
       orderBy: 'created_at ASC',
     );
-    return maps.map((m) => Message.fromMap(m)).toList();
+    return _safeMapRows(maps);
   }
 
   Future<Message?> getById(String id) async {

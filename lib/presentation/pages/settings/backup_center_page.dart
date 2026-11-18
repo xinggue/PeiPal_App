@@ -1,9 +1,12 @@
-import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:peipal/presentation/widgets/common/app_toast.dart';
 
+import '../../../data/services/backup/session_backup_service.dart';
 import '../../../data/services/ble/character_sanitizer.dart';
 import '../../../data/services/engine_c/config_file_io.dart';
 import '../../../data/services/engine_c/engine_c_models.dart';
@@ -13,6 +16,7 @@ import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
+import '../../widgets/backup/session_backup_cards.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 
 class BackupCenterPage extends ConsumerStatefulWidget {
@@ -34,11 +38,14 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
   bool _expPromptConfigs = true;
   bool _expBleAndQr = true;
 
-  // 导入状态
+  // 导入状态（文本配置 OR 会话压缩包自动分流）
   final TextEditingController _importInputCtrl = TextEditingController();
   bool _isImporting = false;
   EngineCImportPlan? _importPlan;
   String? _importParseError;
+  File? _pickedSessionZipFile;
+  String? _pickedSessionFileName;
+  int _sessionExportVersion = 0;
 
   @override
   void initState() {
@@ -50,7 +57,24 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
   void dispose() {
     _tabController.dispose();
     _importInputCtrl.dispose();
+    _cleanupPickedSessionZip();
     super.dispose();
+  }
+
+  void _cleanupPickedSessionZip() {
+    final f = _pickedSessionZipFile;
+    if (f != null) {
+      try {
+        if (f.parent.existsSync() &&
+            f.parent.path.contains('peipal_import_zip_')) {
+          f.parent.deleteSync(recursive: true);
+        } else if (f.existsSync()) {
+          f.deleteSync();
+        }
+      } catch (_) {}
+      _pickedSessionZipFile = null;
+      _pickedSessionFileName = null;
+    }
   }
 
   Future<String?> _generateExportText() async {
@@ -101,7 +125,7 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
         MaterialPageRoute(
           builder: (_) => ExportPreviewPage(
             text: text,
-            suggestedFilePrefix: '文书助手导出',
+            suggestedFilePrefix: '小培配置导出',
           ),
         ),
       );
@@ -113,8 +137,31 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
 
   Future<void> _pickImportFile() async {
     try {
-      final content = await ConfigFileIo.pickAndReadConfigFile();
+      final xfile = await ConfigFileIo.pickImportXFile();
+      if (xfile == null || !mounted) return;
+
+      final picked = await runWithBackupProgressDialog<PickedImportFile>(
+        context: context,
+        initialProgress: const SessionBackupProgress(message: '正在读取所选文件…'),
+        task: (_) => ConfigFileIo.readPickedImportFile(xfile),
+      );
+      if (!mounted) return;
+
+      if (picked.kind == PickedImportKind.zip && picked.tempZipFile != null) {
+        _cleanupPickedSessionZip();
+        setState(() {
+          _pickedSessionZipFile = picked.tempZipFile;
+          _pickedSessionFileName = picked.fileName;
+          _importInputCtrl.clear();
+          _importPlan = null;
+          _importParseError = null;
+        });
+        return;
+      }
+
+      final content = picked.textContent;
       if (content != null && content.trim().isNotEmpty) {
+        _cleanupPickedSessionZip();
         setState(() {
           _importInputCtrl.text = content;
         });
@@ -270,7 +317,7 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('导入与导出'),
+        title: const Text('导入与导出中心'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -407,11 +454,15 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
                 const SizedBox(height: 12),
                 FilledButton(
                   onPressed: _handleConfirmExport,
-                  child: const Text('确认导出'),
+                  child: const Text('确认导出配置'),
                 ),
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 16),
+        SessionExportCard(
+          key: ValueKey(_sessionExportVersion),
         ),
       ],
     );
@@ -484,86 +535,113 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
                     const SizedBox(width: 8),
                     const Expanded(
                       child: Text(
-                        '导入配置文本',
+                        '导入配置或会话',
                         style: TextStyle(
                             fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ),
                     TextButton.icon(
                       icon: const Icon(Icons.folder_open, size: 16),
-                      label: const Text('选择配置文件'),
+                      label: const Text('选择文件'),
                       onPressed: _pickImportFile,
                     ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.paste, size: 16),
-                      label: const Text('粘贴'),
-                      onPressed: () async {
-                        final data = await Clipboard.getData('text/plain');
-                        if (data?.text != null) {
-                          setState(() {
-                            _importInputCtrl.text = data!.text!;
-                          });
-                          await _analyzeImport();
-                        }
-                      },
-                    ),
+                    if (_pickedSessionZipFile == null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.paste, size: 16),
+                        label: const Text('粘贴'),
+                        onPressed: () async {
+                          final data = await Clipboard.getData('text/plain');
+                          if (data?.text != null) {
+                            setState(() {
+                              _importInputCtrl.text = data!.text!;
+                            });
+                            await _analyzeImport();
+                          }
+                        },
+                      ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                  TextField(
-                  controller: _importInputCtrl,
-                  maxLines: _importPlan == null ? 8 : 4,
-                  decoration: InputDecoration(
-                    hintText: '选择上方配置文件，或在此粘贴导出的配置文本...',
-                    border: const OutlineInputBorder(),
-                    filled: true,
-                    fillColor: Colors.grey.withAlpha(15),
-                    suffixIcon: _importInputCtrl.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              setState(() {
-                                _importInputCtrl.clear();
-                                _importPlan = null;
-                                _importParseError = null;
-                              });
-                            },
-                          )
-                        : null,
+                if (_pickedSessionZipFile != null) ...[
+                  SessionImportPreviewSection(
+                    zipFile: _pickedSessionZipFile!,
+                    fileName: _pickedSessionFileName ?? '会话备份包',
+                    onRestored: () {
+                      setState(() {
+                        _cleanupPickedSessionZip();
+                        _sessionExportVersion++;
+                      });
+                    },
                   ),
-                  onChanged: (_) => _analyzeImport(),
-                ),
-                if (_importParseError != null) ...[
                   const SizedBox(height: 8),
-                  Text(_importParseError!,
-                      style: const TextStyle(color: Colors.red, fontSize: 12.5)),
-                ],
-                if (_importPlan != null) ...[
-                  const SizedBox(height: 12),
-                  _buildImportOverview(_importPlan!),
-                ],
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.icon(
-                    icon: _isImporting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.check),
-                    label: Text(_isImporting ? '处理中…' : '确认导入'),
-                    onPressed: (_isImporting ||
-                            _importPlan == null ||
-                            !_importPlan!.hasAnyExecutable)
-                        ? null
-                        : _handleImport,
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _cleanupPickedSessionZip();
+                        });
+                      },
+                      child: const Text('改用配置文本导入'),
+                    ),
                   ),
-                ),
+                ] else ...[
+                  TextField(
+                    controller: _importInputCtrl,
+                    maxLines: _importPlan == null ? 8 : 4,
+                    decoration: InputDecoration(
+                      hintText: '点击上方选择配置或会话备份文件，也可在此粘贴导出的配置文本...',
+                      border: const OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Colors.grey.withAlpha(15),
+                      suffixIcon: _importInputCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  _importInputCtrl.clear();
+                                  _importPlan = null;
+                                  _importParseError = null;
+                                });
+                              },
+                            )
+                          : null,
+                    ),
+                    onChanged: (_) => _analyzeImport(),
+                  ),
+                  if (_importParseError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_importParseError!,
+                        style:
+                            const TextStyle(color: Colors.red, fontSize: 12.5)),
+                  ],
+                  if (_importPlan != null) ...[
+                    const SizedBox(height: 12),
+                    _buildImportOverview(_importPlan!),
+                  ],
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.icon(
+                      icon: _isImporting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check),
+                      label: Text(_isImporting ? '处理中…' : '确认导入配置'),
+                      onPressed: (_isImporting ||
+                              _importPlan == null ||
+                              !_importPlan!.hasAnyExecutable)
+                          ? null
+                          : _handleImport,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

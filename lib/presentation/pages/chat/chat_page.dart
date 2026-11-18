@@ -910,12 +910,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     }
                   }
 
+                  final totalCount =
+                      ref.watch(patientMessageCountProvider(widget.patientId)).valueOrNull ??
+                          list.length;
+                  final hasMoreHistory = list.length < totalCount;
+
                   return ListView.builder(
                         controller: _scrollController,
                         reverse: true,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 12),
-                        itemCount: list.length + pendingTasksCount,
+                        itemCount: list.length +
+                            pendingTasksCount +
+                            (hasMoreHistory ? 1 : 0),
                         itemBuilder: (_, i) {
                           // 优先在最底端（最新位置）展示正在生成中或等待贴回的手动挡卡片
                           if (i < pendingTasksCount) {
@@ -924,8 +931,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             );
                           }
 
-                            final int msgIndex = i - pendingTasksCount;
-                            final msg = list[msgIndex];
+                          final int msgIndex = i - pendingTasksCount;
+                          if (hasMoreHistory && msgIndex == list.length) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    ref
+                                        .read(chatMessageLimitProvider(
+                                                widget.patientId)
+                                            .notifier)
+                                        .state += 100;
+                                  },
+                                  child: Text(
+                                      '加载更早消息（已显示 ${list.length} / $totalCount 条）'),
+                                ),
+                              ),
+                            );
+                          }
+                          final msg = list[msgIndex];
                           Message? subMsg;
                           // With reverse:true, newer messages have lower index.
                           // A voice's asrResult is at i-1 (created after the voice).

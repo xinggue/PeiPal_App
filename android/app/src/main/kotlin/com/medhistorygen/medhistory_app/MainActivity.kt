@@ -15,6 +15,7 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val channelName = "com.xinggue.docmasterPei/config_file"
     private var pendingSaveContent: String? = null
+    private var pendingSaveSourcePath: String? = null
     private var pendingSaveResult: MethodChannel.Result? = null
     private val createDocRequestCode = 9401
 
@@ -38,10 +39,30 @@ class MainActivity : FlutterActivity() {
                         val content = call.argument<String>("content") ?: ""
                         pendingSaveResult?.success(null)
                         pendingSaveContent = content
+                        pendingSaveSourcePath = null
                         pendingSaveResult = result
                         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
                             type = "text/plain"
+                            putExtra(Intent.EXTRA_TITLE, fileName)
+                        }
+                        startActivityForResult(intent, createDocRequestCode)
+                    }
+                    "saveFileWithSafPicker" -> {
+                        val fileName = call.argument<String>("fileName") ?: "peipal_backup.zip"
+                        val sourcePath = call.argument<String>("sourcePath")
+                        val mimeType = call.argument<String>("mimeType") ?: "application/zip"
+                        if (sourcePath.isNullOrBlank()) {
+                            result.error("BAD_ARGS", "缺少源文件路径", null)
+                            return@setMethodCallHandler
+                        }
+                        pendingSaveResult?.success(null)
+                        pendingSaveContent = null
+                        pendingSaveSourcePath = sourcePath
+                        pendingSaveResult = result
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = mimeType
                             putExtra(Intent.EXTRA_TITLE, fileName)
                         }
                         startActivityForResult(intent, createDocRequestCode)
@@ -85,16 +106,28 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == createDocRequestCode) {
             val res = pendingSaveResult
-            val content = pendingSaveContent ?: ""
+            val content = pendingSaveContent
+            val sourcePath = pendingSaveSourcePath
             pendingSaveResult = null
             pendingSaveContent = null
+            pendingSaveSourcePath = null
 
             if (resultCode == Activity.RESULT_OK && data?.data != null) {
                 try {
                     val uri = data.data!!
-                    applicationContext.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-                        out.write(content.toByteArray(Charsets.UTF_8))
-                        out.flush()
+                    if (sourcePath != null) {
+                        val srcFile = File(sourcePath)
+                        srcFile.inputStream().use { input ->
+                            applicationContext.contentResolver.openOutputStream(uri)?.use { out ->
+                                input.copyTo(out)
+                                out.flush()
+                            }
+                        }
+                    } else {
+                        applicationContext.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                            out.write((content ?: "").toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
                     }
                     res?.success(uri.lastPathSegment ?: "已保存")
                 } catch (e: Exception) {

@@ -1,11 +1,25 @@
+import 'package:flutter/foundation.dart';
+
 import '../../domain/models/patient.dart';
 import '../database/database_helper.dart';
 
 class PatientRepository {
+  List<Patient> _safeMapRows(List<Map<String, dynamic>> rows) {
+    final result = <Patient>[];
+    for (final row in rows) {
+      try {
+        result.add(Patient.fromMap(row));
+      } catch (e, st) {
+        debugPrint('跳过损坏的患者行 (${row['id']}): $e\n$st');
+      }
+    }
+    return result;
+  }
+
   Future<List<Patient>> getAll() async {
     final db = await DatabaseHelper.database;
     final maps = await db.query('patients', orderBy: 'updated_at DESC');
-    return maps.map((m) => Patient.fromMap(m)).toList();
+    return _safeMapRows(maps);
   }
 
   Future<Patient?> getById(String id) async {
@@ -23,7 +37,7 @@ class PatientRepository {
       whereArgs: ['%$query%', '%$query%'],
       orderBy: 'updated_at DESC',
     );
-    return maps.map((m) => Patient.fromMap(m)).toList();
+    return _safeMapRows(maps);
   }
 
   Future<void> insert(Patient patient) async {
@@ -43,7 +57,9 @@ class PatientRepository {
 
   Future<void> delete(String id) async {
     final db = await DatabaseHelper.database;
-    await db.delete('messages', where: 'patient_id = ?', whereArgs: [id]);
-    await db.delete('patients', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      await txn.delete('messages', where: 'patient_id = ?', whereArgs: [id]);
+      await txn.delete('patients', where: 'id = ?', whereArgs: [id]);
+    });
   }
 }

@@ -30,6 +30,7 @@ import '../data/services/processing_service.dart';
 import '../data/services/generation_engine.dart';
 import '../data/services/content_template_extractor.dart';
 import '../data/services/sample_data_service.dart';
+import '../data/services/backup/session_backup_service.dart';
 import '../data/services/storage/macos_local_config_storage.dart';
 import '../domain/models/patient.dart';
 import '../domain/models/message.dart';
@@ -386,6 +387,10 @@ final sampleDataServiceProvider = Provider<SampleDataService>((ref) {
   );
 });
 
+final sessionBackupServiceProvider = Provider<SessionBackupService>((ref) {
+  return SessionBackupService();
+});
+
 // ---- Patients ----
 
 final patientsProvider = StreamProvider<List<Patient>>((ref) async* {
@@ -403,10 +408,26 @@ final patientProvider =
 
 // ---- Messages ----
 
+final chatMessageLimitProvider =
+    StateProvider.autoDispose.family<int, String>((ref, patientId) => 100);
+
 final messagesProvider =
     StreamProvider.autoDispose.family<List<Message>, String>((ref, patientId) async* {
+  final limit = ref.watch(chatMessageLimitProvider(patientId));
   final repo = ref.read(messageRepositoryProvider);
-  yield await repo.getByPatient(patientId);
+  yield await repo.getByPatient(patientId, limit: limit);
+});
+
+final patientMessageCountProvider =
+    FutureProvider.autoDispose.family<int, String>((ref, patientId) async {
+  ref.watch(messagesProvider(patientId));
+  return ref.read(messageRepositoryProvider).getCountByPatient(patientId);
+});
+
+final patientRecordsProvider =
+    FutureProvider.autoDispose.family<List<Message>, String>((ref, patientId) async {
+  ref.watch(messagesProvider(patientId));
+  return ref.read(messageRepositoryProvider).getAllRecordsByPatient(patientId);
 });
 
 final lastMessageProvider =

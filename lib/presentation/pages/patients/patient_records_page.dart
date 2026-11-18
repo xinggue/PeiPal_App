@@ -106,7 +106,7 @@ class _PatientRecordsPageState extends ConsumerState<PatientRecordsPage> {
   @override
   Widget build(BuildContext context) {
     final patientAsync = ref.watch(patientProvider(widget.patientId));
-    final messagesAsync = ref.watch(messagesProvider(widget.patientId));
+    final recordsAsync = ref.watch(patientRecordsProvider(widget.patientId));
 
     return Scaffold(
       appBar: AppBar(
@@ -124,11 +124,8 @@ class _PatientRecordsPageState extends ConsumerState<PatientRecordsPage> {
           const SizedBox(width: 4),
         ],
       ),
-      body: messagesAsync.when(
-        data: (allMessages) {
-          final records = allMessages
-              .where((m) => m.type == MessageType.generatedRecord)
-              .toList();
+      body: recordsAsync.when(
+        data: (records) {
 
           if (records.isEmpty) {
             return Center(

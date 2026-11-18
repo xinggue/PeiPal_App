@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
@@ -6,29 +7,103 @@ import 'package:path/path.dart' as p;
 import 'database_path.dart';
 import 'macos_database_permissions.dart';
 
+class DatabaseDowngradeException implements Exception {
+  final int dbVersion;
+  final int appVersion;
+
+  const DatabaseDowngradeException({
+    required this.dbVersion,
+    required this.appVersion,
+  });
+
+  @override
+  String toString() =>
+      '数据库版本 ($dbVersion) 高于当前应用支持的版本 ($appVersion)，请更新到最新版本后再打开。';
+}
+
 class DatabaseHelper {
+  static const int currentVersion = 12;
+
   static Database? _db;
   static Future<Database>? _initFuture;
 
   static Future<Database> get database async {
     if (_db != null) return _db!;
-    _initFuture ??= _initDb();
-    _db = await _initFuture!;
+    final future = _initFuture ??= _initDb().catchError((Object e, StackTrace st) {
+      _initFuture = null;
+      Error.throwWithStackTrace(e, st);
+    });
+    _db = await future;
     return _db!;
+  }
+
+  static Future<void> closeDatabase() async {
+    final db = _db;
+    _db = null;
+    _initFuture = null;
+    if (db != null && db.isOpen) {
+      await db.close();
+    }
   }
 
   static Future<Database> _initDb() async {
     final dbPath = await appDatabasesPath();
     final path = p.join(dbPath, 'medhistory.db');
     await restrictMacosDatabaseFiles(path);
+    await _snapshotBeforeUpgradeIfNeeded(path);
 
     return openDatabase(
       path,
-      version: 12,
+      version: currentVersion,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onDowngrade: (db, oldVersion, newVersion) async {
+        throw DatabaseDowngradeException(
+          dbVersion: oldVersion,
+          appVersion: newVersion,
+        );
+      },
     );
+  }
+
+  /// SQLite file header bytes 60..63 store `PRAGMA user_version` in big-endian.
+  /// Snapshotting before `openDatabase` preserves the untouched file if an upgrade fails.
+  static Future<void> _snapshotBeforeUpgradeIfNeeded(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return;
+      final len = await file.length();
+      if (len < 64) return;
+      final raf = await file.open();
+      final header = await raf.read(64);
+      await raf.close();
+      if (header.length < 64) return;
+      final fileVersion = (header[60] << 24) |
+          (header[61] << 16) |
+          (header[62] << 8) |
+          header[63];
+      if (fileVersion > 0 && fileVersion < currentVersion) {
+        final bakPath = '$path.pre_v$fileVersion.bak';
+        await file.copy(bakPath);
+        await restrictMacosDatabaseFiles(bakPath);
+      }
+    } catch (_) {
+      // Best-effort safeguard; do not block opening if snapshot copy fails.
+    }
+  }
+
+  static Future<void> _addColumnIfMissing(
+    DatabaseExecutor db,
+    String table,
+    String column,
+    String columnDef,
+  ) async {
+    final cols = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = cols.any((row) => row['name']?.toString() == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $columnDef');
+    }
   }
 
   static Future<void> _onConfigure(Database db) async {
@@ -266,9 +341,6 @@ class DatabaseHelper {
   }
 
   static Future<void> _onUpgrade(Database db, int oldV, int newV) async {
-    if (oldV < 12) {
-      await db.execute('ALTER TABLE messages ADD COLUMN document_parse TEXT');
-    }
     if (oldV < 2) {
       // Handled by v5 rewrite
     }
@@ -411,12 +483,15 @@ class DatabaseHelper {
       await _migrateLegacyTags(db, 'diagnosis', 'diagnosis_tags');
       await _migrateLegacyTags(db, 'procedure', 'procedure_tags');
     }
+    if (oldV < 12) {
+      await _addColumnIfMissing(db, 'messages', 'document_parse', 'TEXT');
+    }
   }
 
   static Future<void> deleteDatabase() async {
+    await closeDatabase();
     final dbPath = await appDatabasesPath();
     final path = p.join(dbPath, 'medhistory.db');
     await databaseFactory.deleteDatabase(path);
-    _db = null;
   }
 }

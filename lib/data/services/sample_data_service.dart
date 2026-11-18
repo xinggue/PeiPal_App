@@ -58,8 +58,12 @@ class SampleDataService {
       }
 
       // 旧版本示例或手动重走教程时，先清理旧的示例数据，避免残留。
+      // 若是版本升级触发（非 force）且用户已把示例会话当成真实会话追加了内容，则保留其患者与消息。
       if (version != currentSampleVersion || force) {
-        await _cleanupSampleData();
+        final preserveSamplePatient =
+            !force && await _hasUserModifiedSamplePatient();
+        await _cleanupSampleData(
+            preserveSamplePatient: preserveSamplePatient);
       }
 
       await _seedSampleTemplateIfNeeded();
@@ -72,14 +76,51 @@ class SampleDataService {
     }
   }
 
-  Future<void> _cleanupSampleData() async {
+  static const Set<String> _seededTextContents = {
+    '来摘息肉的，没什么不舒服，一个月前做的肠镜和病理，都做好的',
+    '有冠心病，吃阿司匹林和阿托伐，阿司匹林停6天了',
+  };
+
+  Future<bool> _hasUserModifiedSamplePatient() async {
     try {
-      await patientRepo.delete(samplePatientId);
-    } catch (_) {}
-    if (seedMedia) {
+      final existing = await patientRepo.getById(samplePatientId);
+      if (existing == null) return false;
+      if (existing.name != '示例会话' ||
+          existing.medicalRecordNumber != null ||
+          existing.status != PatientStatus.active ||
+          existing.extraData.isNotEmpty) {
+        return true;
+      }
+      final msgs = await messageRepo.getAllChronological(samplePatientId);
+      if (msgs.length > 4) return true;
+      for (final m in msgs) {
+        if (m.sender != MessageSender.user) return true;
+        if (m.type == MessageType.generatedRecord ||
+            m.type == MessageType.voice ||
+            m.type == MessageType.document) {
+          return true;
+        }
+        if (m.type == MessageType.text &&
+            !_seededTextContents.contains(m.content?.trim() ?? '')) {
+          return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _cleanupSampleData({bool preserveSamplePatient = false}) async {
+    if (!preserveSamplePatient) {
       try {
-        await MediaStorage.deletePatientMedia(samplePatientId);
+        await patientRepo.delete(samplePatientId);
       } catch (_) {}
+      if (seedMedia) {
+        try {
+          await MediaStorage.deletePatientMedia(samplePatientId);
+        } catch (_) {}
+      }
     }
     try {
       await contentTemplateRepo.delete(sampleContentTemplateId);

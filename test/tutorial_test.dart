@@ -58,8 +58,22 @@ class MockMessageRepo implements MessageRepository {
       _list.where((m) => m.patientId == patientId).toList();
 
   @override
-  Future<List<Message>> getByPatient(String patientId, {int limit = 100}) async =>
-      _list.where((m) => m.patientId == patientId).take(limit).toList();
+  Future<List<Message>> getByPatient(
+    String patientId, {
+    int limit = 100,
+    int offset = 0,
+  }) async =>
+      _list
+          .where((m) => m.patientId == patientId)
+          .skip(offset)
+          .take(limit)
+          .toList();
+
+  @override
+  Future<List<Message>> getAllRecordsByPatient(String patientId) async => _list
+      .where((m) =>
+          m.patientId == patientId && m.type == MessageType.generatedRecord)
+      .toList();
 
   @override
   Future<Message?> getById(String id) async =>

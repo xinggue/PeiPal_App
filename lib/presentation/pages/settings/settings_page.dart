@@ -220,9 +220,17 @@ class SettingsPage extends ConsumerWidget {
           _groupLabel(context, '数据'),
           _groupCard(context, [
             ListTile(
-              leading: const Icon(Icons.import_export),
-              title: const Text('导入与导出', style: _title),
-              subtitle: const Text('数据备份、模板导入与导出'),
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text('会话数据备份与恢复', style: _title),
+              subtitle: const Text('备份或恢复会话、消息、结果与媒体'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/session-backup'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.tune_outlined),
+              title: const Text('模板与配置导入导出', style: _title),
+              subtitle: const Text('模板、词条、AI 密钥与系统参数'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/backup'),
             ),

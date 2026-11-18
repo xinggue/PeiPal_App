@@ -21,20 +21,23 @@ private final class ConfigFileExportHandler: NSObject {
   }
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard call.method == "saveWithDocumentPicker" else {
+    let isTextExport = call.method == "saveWithDocumentPicker"
+    let isFileExport = call.method == "saveFileWithDocumentPicker"
+    guard isTextExport || isFileExport else {
       result(FlutterMethodNotImplemented)
       return
     }
 
-    guard let args = call.arguments as? [String: Any],
-          let content = args["content"] as? String else {
-      result(FlutterError(code: "BAD_ARGS", message: "缺少导出内容", details: nil))
+    guard let args = call.arguments as? [String: Any] else {
+      result(FlutterError(code: "BAD_ARGS", message: "缺少导出参数", details: nil))
       return
     }
 
     let rawName = (args["fileName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let lastComponent = (rawName as NSString).lastPathComponent
-    let fileName = lastComponent.isEmpty ? "docmaster_config.txt" : lastComponent
+    let fileName = lastComponent.isEmpty
+      ? (isFileExport ? "peipal_backup.zip" : "docmaster_config.txt")
+      : lastComponent
 
     guard let presenter = resolveTopViewController() else {
       result(FlutterError(code: "NO_VIEW_CONTROLLER", message: "无法获取当前界面控制器", details: nil))
@@ -47,12 +50,26 @@ private final class ConfigFileExportHandler: NSObject {
 
     do {
       try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-      guard let data = content.data(using: .utf8) else {
-        try? FileManager.default.removeItem(at: tempDir)
-        result(FlutterError(code: "ENCODE_FAILED", message: "无法编码导出文本", details: nil))
-        return
+      if isFileExport {
+        guard let sourcePath = args["sourcePath"] as? String, !sourcePath.isEmpty else {
+          try? FileManager.default.removeItem(at: tempDir)
+          result(FlutterError(code: "BAD_ARGS", message: "缺少导出源文件路径", details: nil))
+          return
+        }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: sourcePath), to: tempFile)
+      } else {
+        guard let content = args["content"] as? String else {
+          try? FileManager.default.removeItem(at: tempDir)
+          result(FlutterError(code: "BAD_ARGS", message: "缺少导出内容", details: nil))
+          return
+        }
+        guard let data = content.data(using: .utf8) else {
+          try? FileManager.default.removeItem(at: tempDir)
+          result(FlutterError(code: "ENCODE_FAILED", message: "无法编码导出文本", details: nil))
+          return
+        }
+        try data.write(to: tempFile, options: .atomic)
       }
-      try data.write(to: tempFile, options: .atomic)
     } catch {
       try? FileManager.default.removeItem(at: tempDir)
       result(FlutterError(code: "WRITE_FAILED", message: error.localizedDescription, details: nil))

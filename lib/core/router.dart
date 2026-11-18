@@ -29,6 +29,7 @@ import '../presentation/pages/settings/prompt_settings_page.dart';
 import '../presentation/pages/settings/extractor_settings_page.dart';
 import '../presentation/pages/settings/llm_providers_page.dart';
 import '../presentation/pages/settings/backup_center_page.dart';
+import '../presentation/pages/settings/session_backup_page.dart';
 import '../presentation/pages/hub/template_hub_page.dart';
 import '../presentation/pages/settings/char_replacement_settings_page.dart';
 import '../presentation/pages/settings/about_page.dart';
@@ -247,6 +248,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/extractor',
         name: 'extractor_settings',
         builder: (context, state) => const ExtractorSettingsPage(),
+      ),
+      GoRoute(
+        path: '/settings/session-backup',
+        name: 'session_backup',
+        builder: (context, state) => const SessionBackupPage(),
       ),
       GoRoute(
         path: '/settings/backup',

@@ -70,6 +70,33 @@ void main() {
     expect(await ConfigFileIo.pickAndReadConfigFile(), isNull);
   });
 
+  group('pickImportFile auto-routing', () {
+    test('routes text file to PickedImportKind.text', () async {
+      final file = File('${temp.path}/config.txt');
+      await file.writeAsString('{"hello":"cfg"}', encoding: utf8);
+      selector.selection = XFile(file.path);
+
+      final picked = await ConfigFileIo.pickImportFile();
+      expect(picked, isNotNull);
+      expect(picked!.kind, PickedImportKind.text);
+      expect(picked.textContent, '{"hello":"cfg"}');
+      expect(picked.tempZipFile, isNull);
+    });
+
+    test('routes ZIP magic header bytes to PickedImportKind.zip even without .zip suffix', () async {
+      final file = File('${temp.path}/backup.dat');
+      await file.writeAsBytes([0x50, 0x4B, 0x03, 0x04, 0x00, 0x00]);
+      selector.selection = XFile(file.path);
+
+      final picked = await ConfigFileIo.pickImportFile();
+      expect(picked, isNotNull);
+      expect(picked!.kind, PickedImportKind.zip);
+      expect(picked.tempZipFile, isNotNull);
+      expect(await picked.tempZipFile!.exists(), isTrue);
+      await picked.tempZipFile!.parent.delete(recursive: true);
+    });
+  });
+
   group('saveConfigTextFile on iOS', () {
     const channel = MethodChannel('com.xinggue.docmasterPei/config_file');
 
