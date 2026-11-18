@@ -51,9 +51,11 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
   static const _storageKeyProviders = 'ocr_providers_matrix_v1';
   static const _storageKeyActiveId = 'ocr_active_provider_id_v1';
 
+  late final Future<void> ready;
+
   OcrProvidersNotifier(this._ref, this._storage, this._service)
       : super(const OcrProvidersState()) {
-    _load();
+    ready = _load();
   }
 
   List<OcrProviderConfig> _filterPlatformPresets(List<OcrProviderConfig> list) {
@@ -80,57 +82,63 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
   }
 
   Future<void> _load() async {
-    final values = await Future.wait([
-      _storage.read(key: _storageKeyActiveId),
-      _storage.read(key: _storageKeyProviders),
-    ]);
-    final activeId = values[0];
-    final rawJson = values[1];
-
+    String? activeId;
     List<OcrProviderConfig> loaded = [];
 
-    if (rawJson != null && rawJson.trim().isNotEmpty) {
-      try {
-        final list = jsonDecode(rawJson) as List;
-        final savedList = list
-            .map((item) =>
-                OcrProviderConfig.fromJson(item as Map<String, dynamic>))
-            .toList();
+    try {
+      final values = await Future.wait([
+        _storage.read(key: _storageKeyActiveId),
+        _storage.read(key: _storageKeyProviders),
+      ]);
+      activeId = values[0];
+      final rawJson = values[1];
 
-        // 将内置预设中新增的 provider 与用户已有的合并（保证新版追加的预设不丢失）
-        final savedMap = {for (final p in savedList) p.id: p};
-        for (final preset in OcrProviderPresets.builtIn) {
-          if (!savedMap.containsKey(preset.id)) {
-            savedList.add(preset);
+      if (rawJson != null && rawJson.trim().isNotEmpty) {
+        try {
+          final list = jsonDecode(rawJson) as List;
+          final savedList = list
+              .map((item) =>
+                  OcrProviderConfig.fromJson(item as Map<String, dynamic>))
+              .toList();
+
+          // 将内置预设中新增的 provider 与用户已有的合并（保证新版追加的预设不丢失）
+          final savedMap = {for (final p in savedList) p.id: p};
+          for (final preset in OcrProviderPresets.builtIn) {
+            if (!savedMap.containsKey(preset.id)) {
+              savedList.add(preset);
+            }
           }
+          loaded = _filterPlatformPresets(savedList);
+        } catch (_) {}
+      }
+    } catch (_) {
+      // 存储读取异常时回退内置预设，保证不会卡在加载态
+    } finally {
+      if (loaded.isEmpty) {
+        loaded = _filterPlatformPresets(List.from(OcrProviderPresets.builtIn));
+      }
+
+      String targetActiveId = activeId ?? '';
+      if (targetActiveId.isEmpty ||
+          !loaded.any((p) => p.id == targetActiveId)) {
+        if (loaded.any((p) => p.requiresApiKey && p.isConfigured)) {
+          targetActiveId =
+              loaded.firstWhere((p) => p.requiresApiKey && p.isConfigured).id;
+        } else {
+          targetActiveId = _defaultLocalProviderId(loaded);
         }
-        loaded = _filterPlatformPresets(savedList);
-      } catch (_) {}
-    }
+      }
 
-    if (loaded.isEmpty) {
-      loaded = _filterPlatformPresets(List.from(OcrProviderPresets.builtIn));
-    }
-
-    String targetActiveId = activeId ?? '';
-    if (targetActiveId.isEmpty ||
-        !loaded.any((p) => p.id == targetActiveId)) {
-      if (loaded.any((p) => p.requiresApiKey && p.isConfigured)) {
-        targetActiveId =
-            loaded.firstWhere((p) => p.requiresApiKey && p.isConfigured).id;
-      } else {
-        targetActiveId = _defaultLocalProviderId(loaded);
+      if (mounted) {
+        state = OcrProvidersState(
+          activeProviderId: targetActiveId,
+          providers: loaded,
+          isLoading: false,
+        );
+        // 同步激活生效到全局 OcrConfig
+        _syncActiveToGlobal();
       }
     }
-
-    state = OcrProvidersState(
-      activeProviderId: targetActiveId,
-      providers: loaded,
-      isLoading: false,
-    );
-
-    // 同步激活生效到全局 OcrConfig
-    _syncActiveToGlobal();
   }
 
   OcrProvider _mapProtocol(OcrProtocol protocol) {
@@ -177,6 +185,7 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
 
   /// 切换当前生效的活跃服务商
   Future<void> setActiveProvider(String providerId, {String? model}) async {
+    await ready;
     final updatedList = List<OcrProviderConfig>.from(state.providers);
     if (model != null) {
       final idx = updatedList.indexWhere((p) => p.id == providerId);
@@ -194,6 +203,7 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
 
   /// 切换当前服务商的模型
   Future<void> setActiveModel(String providerId, String model) async {
+    await ready;
     final updatedList = List<OcrProviderConfig>.from(state.providers);
     final idx = updatedList.indexWhere((p) => p.id == providerId);
     if (idx >= 0) {
@@ -205,6 +215,7 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
 
   /// 更新单个服务商配置（独立保存其 Key、URL、模型等，互不串号）
   Future<void> updateProvider(OcrProviderConfig provider) async {
+    await ready;
     final updatedList = List<OcrProviderConfig>.from(state.providers);
     final idx = updatedList.indexWhere((p) => p.id == provider.id);
     if (idx >= 0) {

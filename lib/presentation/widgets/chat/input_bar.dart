@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
 import '../../../data/services/media/app_image_picker.dart';
@@ -107,68 +108,135 @@ class ChatInputBarState extends State<ChatInputBar> {
     setState(() {});
   }
 
+  Future<bool> _ensurePermissionOrGuide(
+    Permission permission,
+    String featureName,
+  ) async {
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
+      return true;
+    }
+    var status = await permission.status;
+    if (!status.isGranted && !status.isLimited) {
+      status = await permission.request();
+    }
+    if (status.isGranted || status.isLimited) {
+      return true;
+    }
+    if (mounted) {
+      await _showPermissionDeniedDialog(featureName);
+    }
+    return false;
+  }
+
+  Future<void> _showPermissionDeniedDialog(String featureName) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('需要$featureName权限'),
+        content: Text('当前未开启$featureName权限，无法使用该功能。可前往系统设置开启后重试。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings();
+            },
+            child: const Text('去系统设置'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _captureWithCamera() async {
-    final pages = <String>[];
-    bool done = false;
+    try {
+      final allowed = await _ensurePermissionOrGuide(Permission.camera, '相机');
+      if (!allowed) return;
 
-    while (!done) {
-      final path = await AppImagePicker.pickSingleImage(source: ImageSource.camera);
-      if (path == null) break;
-      pages.add(path);
+      final pages = <String>[];
+      bool done = false;
 
-      if (!mounted) return;
-      done = await showModalBottomSheet<bool>(
-            context: context,
-            builder: (ctx) => SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('当前材料：第 ${pages.length} 页已拍',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('继续拍下一页'),
+      while (!done) {
+        final path =
+            await AppImagePicker.pickSingleImage(source: ImageSource.camera);
+        if (path == null) break;
+        pages.add(path);
+
+        if (!mounted) return;
+        done = await showModalBottomSheet<bool>(
+              context: context,
+              builder: (ctx) => SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('当前材料：第 ${pages.length} 页已拍',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('继续拍下一页'),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('已拍完当前材料'),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('已拍完当前材料'),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ) ??
-          true;
-    }
+            ) ??
+            true;
+      }
 
-    if (pages.isNotEmpty) {
-      final sizes = pages.map((p) => File(p).lengthSync()).toList();
-      widget.onSendPhotos(filePaths: pages, fileSizes: sizes);
+      if (pages.isNotEmpty) {
+        final sizes = pages.map((p) => File(p).lengthSync()).toList();
+        widget.onSendPhotos(filePaths: pages, fileSizes: sizes);
+      }
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      if (e.code.contains('denied') || e.code.contains('permission')) {
+        await _showPermissionDeniedDialog('相机');
+      } else {
+        showAppToast(context, '调用相机失败: ${e.message ?? e.code}');
+      }
+    } catch (e) {
+      if (mounted) {
+        showAppToast(context, '拍照失败: $e');
+      }
     }
   }
 
   Future<void> _pickFromGallery() async {
-    final paths = await AppImagePicker.pickMultiImages();
-    if (paths.isEmpty) return;
+    var progressOpen = false;
+    try {
+      final allowed = await _ensurePermissionOrGuide(Permission.photos, '相册');
+      if (!allowed) return;
 
-    if (!mounted) return;
+      final paths = await AppImagePicker.pickMultiImages();
+      if (paths.isEmpty || !mounted) return;
 
-    if (paths.length == 1) {
-      final fileSizes = [File(paths.first).lengthSync()];
-      widget.onSendPhotos(filePaths: paths, fileSizes: fileSizes);
-    } else {
+      if (paths.length == 1) {
+        final fileSizes = [File(paths.first).lengthSync()];
+        widget.onSendPhotos(filePaths: paths, fileSizes: fileSizes);
+        return;
+      }
+
+      progressOpen = true;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -204,6 +272,7 @@ class ChatInputBarState extends State<ChatInputBar> {
       await Future.delayed(const Duration(milliseconds: 60));
       if (!mounted) return;
       Navigator.pop(context);
+      progressOpen = false;
 
       showModalBottomSheet(
         context: context,
@@ -220,13 +289,28 @@ class ChatInputBarState extends State<ChatInputBar> {
               widget.onSendDocuments!(batches);
             } else {
               for (final doc in documents) {
-                final sizes = doc.imagePaths.map((p) => File(p).lengthSync()).toList();
-                widget.onSendPhotos(filePaths: doc.imagePaths, fileSizes: sizes);
+                final sizes =
+                    doc.imagePaths.map((p) => File(p).lengthSync()).toList();
+                widget.onSendPhotos(
+                    filePaths: doc.imagePaths, fileSizes: sizes);
               }
             }
           },
         ),
       );
+    } on PlatformException catch (e) {
+      if (progressOpen && mounted) Navigator.pop(context);
+      if (!mounted) return;
+      if (e.code.contains('denied') || e.code.contains('permission')) {
+        await _showPermissionDeniedDialog('相册');
+      } else {
+        showAppToast(context, '读取相册失败: ${e.message ?? e.code}');
+      }
+    } catch (e) {
+      if (progressOpen && mounted) Navigator.pop(context);
+      if (mounted) {
+        showAppToast(context, '选择图片失败: $e');
+      }
     }
   }
 
@@ -273,8 +357,8 @@ class ChatInputBarState extends State<ChatInputBar> {
     if (!_hasMicPermission) {
       _hasMicPermission = await _recorder.hasPermission();
       if (!_hasMicPermission) {
-        if (mounted) showAppToast(context, '请允许麦克风权限以录制语音');
         _activePointerId = null;
+        if (mounted) await _showPermissionDeniedDialog('麦克风');
         return;
       }
     }

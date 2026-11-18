@@ -49,61 +49,72 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
   static const _storageKeyProviders = 'asr_providers_matrix_v1';
   static const _storageKeyActiveId = 'asr_active_provider_id_v1';
 
+  late final Future<void> ready;
+
   AsrProvidersNotifier(this._ref, this._storage, this._service)
       : super(const AsrProvidersState()) {
-    _load();
+    ready = _load();
   }
 
   Future<void> _load() async {
-    final values = await Future.wait([
-      _storage.read(key: _storageKeyActiveId),
-      _storage.read(key: _storageKeyProviders),
-    ]);
-    final activeId = values[0];
-    final rawJson = values[1];
-
+    String? activeId;
     List<AsrProviderConfig> loaded = [];
 
-    if (rawJson != null && rawJson.trim().isNotEmpty) {
-      try {
-        final list = jsonDecode(rawJson) as List;
-        final savedList = list
-            .map((item) =>
-                AsrProviderConfig.fromJson(item as Map<String, dynamic>))
-            .toList();
+    try {
+      final values = await Future.wait([
+        _storage.read(key: _storageKeyActiveId),
+        _storage.read(key: _storageKeyProviders),
+      ]);
+      activeId = values[0];
+      final rawJson = values[1];
 
-        final savedMap = {for (final p in savedList) p.id: p};
-        for (final preset in AsrProviderPresets.builtIn) {
-          if (!savedMap.containsKey(preset.id)) {
-            savedList.add(preset);
+      if (rawJson != null && rawJson.trim().isNotEmpty) {
+        try {
+          final list = jsonDecode(rawJson) as List;
+          final savedList = list
+              .map((item) =>
+                  AsrProviderConfig.fromJson(item as Map<String, dynamic>))
+              .toList();
+
+          final savedMap = {for (final p in savedList) p.id: p};
+          for (final preset in AsrProviderPresets.builtIn) {
+            if (!savedMap.containsKey(preset.id)) {
+              savedList.add(preset);
+            }
           }
+          loaded = savedList;
+        } catch (_) {}
+      }
+    } catch (_) {
+      // 存储读取异常时回退内置预设，保证不会卡在加载态
+    } finally {
+      if (loaded.isEmpty) {
+        loaded = List.from(AsrProviderPresets.builtIn);
+      }
+
+      String targetActiveId = activeId ?? '';
+      if (targetActiveId.isEmpty ||
+          !loaded.any((p) => p.id == targetActiveId)) {
+        if (loaded.any((p) => p.isConfigured)) {
+          targetActiveId = loaded.firstWhere((p) => p.isConfigured).id;
+        } else {
+          targetActiveId = loaded.any((p) => p.id == 'zhipu')
+              ? 'zhipu'
+              : loaded.isNotEmpty
+                  ? loaded.first.id
+                  : 'zhipu';
         }
-        loaded = savedList;
-      } catch (_) {}
-    }
+      }
 
-    if (loaded.isEmpty) {
-      loaded = List.from(AsrProviderPresets.builtIn);
-    }
-
-    String targetActiveId = activeId ?? '';
-    if (targetActiveId.isEmpty ||
-        !loaded.any((p) => p.id == targetActiveId)) {
-      if (loaded.any((p) => p.isConfigured)) {
-        targetActiveId = loaded.firstWhere((p) => p.isConfigured).id;
-      } else {
-        targetActiveId = loaded.any((p) => p.id == 'zhipu')
-            ? 'zhipu' : loaded.isNotEmpty ? loaded.first.id : 'zhipu';
+      if (mounted) {
+        state = AsrProvidersState(
+          activeProviderId: targetActiveId,
+          providers: loaded,
+          isLoading: false,
+        );
+        _syncActiveToGlobal();
       }
     }
-
-    state = AsrProvidersState(
-      activeProviderId: targetActiveId,
-      providers: loaded,
-      isLoading: false,
-    );
-
-    _syncActiveToGlobal();
   }
 
   AsrProvider _mapProtocol(AsrProtocol protocol) {
@@ -143,6 +154,7 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
 
   /// 切换当前生效的活跃服务商
   Future<void> setActiveProvider(String providerId, {String? model}) async {
+    await ready;
     final updatedList = List<AsrProviderConfig>.from(state.providers);
     if (model != null) {
       final idx = updatedList.indexWhere((p) => p.id == providerId);
@@ -160,6 +172,7 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
 
   /// 切换当前服务商的模型
   Future<void> setActiveModel(String providerId, String model) async {
+    await ready;
     final updatedList = List<AsrProviderConfig>.from(state.providers);
     final idx = updatedList.indexWhere((p) => p.id == providerId);
     if (idx >= 0) {
@@ -171,6 +184,7 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
 
   /// 更新单个服务商配置（独立保存其 Key、URL、模型、语言等，互不串号）
   Future<void> updateProvider(AsrProviderConfig provider) async {
+    await ready;
     final updatedList = List<AsrProviderConfig>.from(state.providers);
     final idx = updatedList.indexWhere((p) => p.id == provider.id);
     if (idx >= 0) {

@@ -7,6 +7,7 @@ import '../../../domain/models/llm_provider.dart';
 import '../../../domain/models/llm_reasoning_effort.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../widgets/common/api_key_tutorial_notice_banner.dart';
 
 class LlmProvidersPage extends ConsumerStatefulWidget {
   const LlmProvidersPage({super.key});
@@ -25,6 +26,7 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
   bool _isTestingActive = false;
   bool _isCheckingActiveBalance = false;
   String? _activeStatusMessage;
+  bool _tutorialBannerDismissed = false;
 
   @override
   void dispose() {
@@ -72,6 +74,8 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
     setState(() => _loadingModels.add(p.id));
     try {
       final models = await notifier.fetchModelsForProvider(p.id);
+      // 同步激活刚保存并拉取模型的服务商，避免仅更新 Key 却未切换生效
+      await notifier.setActiveProvider(p.id);
       if (mounted) {
         final updatedState = ref.read(llmProvidersProvider);
         final updatedProvider = updatedState.providers
@@ -80,7 +84,7 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
         if (updatedProvider != null) {
           _getModelCtrl(updatedProvider).text = updatedProvider.selectedModel;
         }
-        showAppToast(context, 'Key 已保存，成功获取到 ${models.length} 个模型');
+        showAppToast(context, 'Key 已保存并启用，获取到 ${models.length} 个模型');
         _showModelPickerSheet(p.id);
       }
     } catch (e) {
@@ -239,7 +243,7 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
                               _getModelCtrl(p).text = m;
                               ref
                                   .read(llmProvidersProvider.notifier)
-                                  .setActiveModel(p.id, m);
+                                  .setActiveProvider(p.id, model: m);
                               Navigator.pop(ctx);
                               setState(() {});
                             },
@@ -381,6 +385,14 @@ class _LlmProvidersPageState extends ConsumerState<LlmProvidersPage> {
               children: [
                 // 1. 顶部当前选用模型状态卡片（带测试连接与余额查询）
                 _buildActiveStatusBanner(theme, active),
+                if (!(active?.isConfigured ?? false) &&
+                    !_tutorialBannerDismissed) ...[
+                  const SizedBox(height: 10),
+                  ApiKeyTutorialNoticeBanner(
+                    onDismiss: () =>
+                        setState(() => _tutorialBannerDismissed = true),
+                  ),
+                ],
                 const SizedBox(height: 18),
 
                 Row(

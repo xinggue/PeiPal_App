@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../domain/models/document_parser_provider.dart';
 import '../../../providers/document_parser_provider.dart';
+import '../../widgets/common/api_key_tutorial_notice_banner.dart';
 import '../../widgets/common/app_toast.dart';
 
 class DocumentParserSettingsPage extends ConsumerStatefulWidget {
@@ -23,6 +24,7 @@ class _DocumentParserSettingsPageState
   final _saving = <String>{};
   bool _isTestingActive = false;
   String? _activeStatusMessage;
+  bool _tutorialBannerDismissed = false;
 
   @override
   void dispose() {
@@ -122,6 +124,14 @@ class _DocumentParserSettingsPageState
                 padding: const EdgeInsets.all(16),
                 children: [
                   _buildActiveStatusBanner(theme, active),
+                  if (!(active?.isConfigured ?? false) &&
+                      !_tutorialBannerDismissed) ...[
+                    const SizedBox(height: 10),
+                    ApiKeyTutorialNoticeBanner(
+                      onDismiss: () =>
+                          setState(() => _tutorialBannerDismissed = true),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   Row(
                     children: [

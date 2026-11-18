@@ -170,19 +170,30 @@ class _TutorialSpotlightOverlayState extends State<TutorialSpotlightOverlay>
     return Stack(
       key: _overlayKey,
       children: [
+        // 0. 拦截背景与非高亮区域的点击，避免教程步骤中被底层界面穿透误触
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {},
+            child: const SizedBox.expand(),
+          ),
+        ),
+
         // 1. 半透明挖孔高亮遮罩与呼吸脉冲光晕
-        AnimatedBuilder(
-          animation: _pulseAnimation,
-          builder: (context, _) {
-            return CustomPaint(
-              size: screenSize,
-              painter: _SpotlightPainter(
-                targetRect: target,
-                borderRadius: widget.borderRadius,
-                pulseValue: _pulseAnimation.value,
-              ),
-            );
-          },
+        IgnorePointer(
+          child: AnimatedBuilder(
+            animation: _pulseAnimation,
+            builder: (context, _) {
+              return CustomPaint(
+                size: screenSize,
+                painter: _SpotlightPainter(
+                  targetRect: target,
+                  borderRadius: widget.borderRadius,
+                  pulseValue: _pulseAnimation.value,
+                ),
+              );
+            },
+          ),
         ),
 
         // 2. 目标高亮可触控区域

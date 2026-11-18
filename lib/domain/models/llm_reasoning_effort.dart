@@ -3,7 +3,7 @@ class LlmReasoningEffort {
   static const labels = {
     '': '服务商默认',
     'none': '关闭',
-    'low': '低',
+    'low': '低（默认）',
     'high': '高',
     'max': '最高',
   };

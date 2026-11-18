@@ -104,8 +104,12 @@ class SettingsPage extends ConsumerWidget {
               title: const Text('大语言模型', style: _title),
               subtitle: Consumer(
                 builder: (ctx, ref, _) {
-                  final model = ref.watch(llmProvidersProvider).activeProvider?.selectedModel ?? '';
-                  return Text(model.isEmpty ? '未设定模型' : model);
+                  final active = ref.watch(llmProvidersProvider).activeProvider;
+                  if (active == null || !active.isConfigured) {
+                    return const Text('未配置 Key');
+                  }
+                  final model = active.selectedModel.trim();
+                  return Text(model.isEmpty ? '${active.name} · 未设定模型' : model);
                 },
               ),
               trailing: const Icon(Icons.chevron_right),

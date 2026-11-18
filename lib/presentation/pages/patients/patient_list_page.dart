@@ -285,15 +285,21 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
     TutorialState state,
     List<Patient> patients,
   ) {
-    final samplePatient = patients
-            .where((p) => p.id == SampleDataService.samplePatientId)
-            .firstOrNull ??
-        patients.firstOrNull ??
-        Patient(name: '示例会话', status: PatientStatus.active);
+    final existingSample = patients
+        .where((p) => p.id == SampleDataService.samplePatientId)
+        .firstOrNull;
 
-    void enterSample() {
+    Future<void> enterSample() async {
+      var targetId = existingSample?.id;
+      if (targetId == null) {
+        // 示例会话被删除或尚未入库时先重建落库，避免携带未入库 ID 跳转导致外键崩溃
+        await ref.read(sampleDataServiceProvider).ensureSampleData(force: true);
+        ref.invalidate(patientsProvider);
+        targetId = SampleDataService.samplePatientId;
+      }
+      if (!context.mounted) return;
       ref.read(tutorialProvider.notifier).goToStep(3);
-      context.push('/patients/${samplePatient.id}/chat');
+      context.push('/patients/$targetId/chat');
     }
 
     if (state.currentStep == 1) {
@@ -394,10 +400,7 @@ class _PatientListPageState extends ConsumerState<PatientListPage> {
               );
             }
             final p = sorted[index - 1];
-            final isSampleCard = p.id == SampleDataService.samplePatientId ||
-                (index == 1 &&
-                    !sorted.any((item) =>
-                        item.id == SampleDataService.samplePatientId));
+            final isSampleCard = p.id == SampleDataService.samplePatientId;
             return _PatientCardItem(
               key: isSampleCard ? _sampleCardKey : ValueKey(p.id),
               patient: p,

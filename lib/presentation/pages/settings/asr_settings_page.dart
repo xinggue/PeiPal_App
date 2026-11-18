@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/models/asr_provider.dart';
 import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../widgets/common/api_key_tutorial_notice_banner.dart';
 
 class AsrSettingsPage extends ConsumerStatefulWidget {
   const AsrSettingsPage({super.key});
@@ -25,6 +26,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
   bool _isTestingActive = false;
   bool _isCheckingActiveStatus = false;
   String? _activeStatusMessage;
+  bool _tutorialBannerDismissed = false;
 
   @override
   void dispose() {
@@ -457,6 +459,14 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
               children: [
                 // 1. 顶部当前选用识别引擎状态卡片
                 _buildActiveStatusBanner(theme, active),
+                if (!(active?.isConfigured ?? false) &&
+                    !_tutorialBannerDismissed) ...[
+                  const SizedBox(height: 10),
+                  ApiKeyTutorialNoticeBanner(
+                    onDismiss: () =>
+                        setState(() => _tutorialBannerDismissed = true),
+                  ),
+                ],
                 const SizedBox(height: 18),
 
                 Row(
@@ -586,7 +596,9 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
             ),
           ],
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               OutlinedButton.icon(
                 icon: _isTestingActive
@@ -599,7 +611,6 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                 label: const Text('测试当前连接', style: TextStyle(fontSize: 12)),
                 onPressed: _isTestingActive ? null : _testActiveConnection,
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
                 icon: _isCheckingActiveStatus
                     ? const SizedBox(

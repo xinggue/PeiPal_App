@@ -1,32 +1,21 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../data/services/api/quick_ai_setup_service.dart';
 import '../../../data/services/sample_data_service.dart';
 import '../../../domain/models/asr_provider.dart';
-import '../../../domain/models/document_parser_provider.dart';
 import '../../../domain/models/llm_provider.dart';
 import '../../../domain/models/ocr_provider.dart';
 import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/document_parser_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
-import '../../../providers/providers.dart';
-import '../../../providers/tutorial_provider.dart';
 import '../../widgets/common/app_toast.dart';
 
-final apiKeyGuideDioProvider = Provider<Dio>((ref) {
-  final dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 25),
-    ),
-  );
-  ref.onDispose(() => dio.close());
-  return dio;
-});
+export '../../../data/services/api/quick_ai_setup_service.dart'
+    show ApiKeyGuideProvider, apiKeyGuideDioProvider;
 
 class _GuideStep {
   final int number;
@@ -40,13 +29,6 @@ class _GuideStep {
     required this.description,
     required this.assetPath,
   });
-}
-
-enum ApiKeyGuideProvider {
-  deepseek,
-  zhipu;
-
-  String get label => this == deepseek ? 'DeepSeek' : '智谱';
 }
 
 class ApiKeyGuidePage extends ConsumerStatefulWidget {
@@ -323,170 +305,29 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
       _verifyError = null;
     });
 
-    try {
-      final dio = ref.read(apiKeyGuideDioProvider);
-
-      final resp = await dio.post(
-        '${_llmPreset.baseUrl}/chat/completions',
-        data: {
-          'model': _defaultLlmModel,
-          'messages': [
-            {'role': 'user', 'content': 'hi'},
-          ],
-          'max_tokens': _isDeepSeek ? 16 : 1,
-          if (_isDeepSeek) ...{
-            'thinking': {'type': 'enabled'},
-            'reasoning_effort': 'low',
-          },
-        },
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-          validateStatus: (_) => true,
-        ),
-      );
-      if (!mounted) return;
-
-      final ok = resp.statusCode == 200;
-      if (!ok) {
-        String detail = '验证未通过 (HTTP ${resp.statusCode})';
-        final data = resp.data;
-        if (data is Map && data['error'] is Map) {
-          final err = data['error'] as Map;
-          final msg = err['message']?.toString() ?? '';
-          final code = err['code']?.toString() ?? '';
-          if (resp.statusCode == 401) {
-            detail = 'API Key 无效或未复制完整 (401)';
-          } else if (code == '1113' ||
-              msg.contains('余额') ||
-              msg.contains('欠费')) {
-            detail = _isDeepSeek
-                ? '余额不足，请到 DeepSeek 开放平台确认余额并充值。'
-                : '账号余额或免费额度不足，请先确认是否已完成第 10 步实名认证或第 11 步充值（$msg）';
-          } else if (resp.statusCode == 402) {
-            detail = '余额不足，请到$_providerName开放平台确认余额并充值。';
-          } else if (msg.isNotEmpty) {
-            detail = '$msg${code.isNotEmpty ? " ($code)" : ""}';
-          }
-        } else if (resp.statusCode == 401) {
-          detail = 'API Key 无效或未复制完整 (401)';
-        }
-        if (mounted) {
-          setState(() {
-            _isVerifying = false;
-            _verifyError = detail;
-          });
-        }
-        return;
-      }
-
-      // 写入并激活所选服务商的文本、识图和语音服务。
-      final llmNotifier = ref.read(llmProvidersProvider.notifier);
-      final existingLlm = ref
-          .read(llmProvidersProvider)
-          .providers
-          .where((p) => p.id == _providerId)
-          .firstOrNull;
-      final baseLlm = existingLlm ?? _llmPreset;
-      await llmNotifier.updateProvider(
-        baseLlm.copyWith(
-          baseUrl: _llmPreset.baseUrl,
+    final error = await ref
+        .read(quickAiSetupServiceProvider)
+        .verifyAndConfigureAllInOne(
+          provider: widget.provider,
           apiKey: apiKey,
-          selectedModel: _defaultLlmModel,
-          isEnabled: true,
-          reasoningEfforts: _isDeepSeek
-              ? {...baseLlm.reasoningEfforts, _defaultLlmModel: 'low'}
-              : baseLlm.reasoningEfforts,
-        ),
-      );
-      await llmNotifier.setActiveProvider(_providerId, model: _defaultLlmModel);
+          fromGuide: true,
+          ensureSampleAndResetTutorial: true,
+        );
 
-      final ocrNotifier = ref.read(ocrProvidersProvider.notifier);
-      final existingOcr = ref
-          .read(ocrProvidersProvider)
-          .providers
-          .where((p) => p.id == _providerId)
-          .firstOrNull;
-      final baseOcr = existingOcr ?? _ocrPreset;
-      await ocrNotifier.updateProvider(
-        baseOcr.copyWith(
-          baseUrl: _ocrPreset.baseUrl,
-          apiKey: apiKey,
-          selectedModel: _defaultOcrModel,
-          isEnabled: true,
-        ),
-      );
-      await ocrNotifier.setActiveProvider(_providerId, model: _defaultOcrModel);
-
-      final asrNotifier = ref.read(asrProvidersProvider.notifier);
-      final existingAsr = ref
-          .read(asrProvidersProvider)
-          .providers
-          .where((p) => p.id == _providerId)
-          .firstOrNull;
-      final baseAsr = existingAsr ?? _asrPreset;
-      await asrNotifier.updateProvider(
-        baseAsr.copyWith(
-          baseUrl: _asrPreset.baseUrl,
-          apiKey: apiKey,
-          selectedModel: _defaultAsrModel,
-          isEnabled: true,
-        ),
-      );
-      await asrNotifier.setActiveProvider(_providerId, model: _defaultAsrModel);
-
-      final docPreset = DocumentParserProviderConfig.presets
-          .firstWhere((p) => p.id == _providerId);
-      final docNotifier = ref.read(documentParserProvider.notifier);
-      await docNotifier.ready;
-      final existingDoc = ref
-          .read(documentParserProvider)
-          .valueOrNull
-          ?.providers
-          .where((p) => p.id == _providerId)
-          .firstOrNull;
-      final baseDoc = existingDoc ?? docPreset;
-      await docNotifier.saveProvider(
-        baseDoc.copyWith(
-          baseUrl: docPreset.baseUrl,
-          apiKey: apiKey,
-          toolType: _isDeepSeek ? baseDoc.toolType : 'prime-sync',
-          isEnabled: true,
-        ),
-        select: true,
-      );
-
-      // 4. 确保示例会话存在，并从第 4 步（文书生成按钮）重开生成教程
-      await ref.read(sampleDataServiceProvider).ensureSampleData();
-      ref.invalidate(patientsProvider);
-      await ref
-          .read(tutorialProvider.notifier)
-          .resetTutorial(TutorialType.basicFlow, step: 4);
-
-      if (mounted) {
-        setState(() {
-          _isVerifying = false;
-          _verified = true;
-        });
-        showAppToast(context, '验证通过，文本 / 识图 / 文件 / 语音已全部配置好');
-      }
-    } on DioException catch (e) {
-      if (mounted) {
-        setState(() {
-          _isVerifying = false;
-          _verifyError = '网络请求失败，请检查网络连接 (${e.message ?? e.type.name})';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isVerifying = false;
-          _verifyError = '验证出错: $e';
-        });
-      }
+    if (!mounted) return;
+    if (error != null) {
+      setState(() {
+        _isVerifying = false;
+        _verifyError = error;
+      });
+      return;
     }
+
+    setState(() {
+      _isVerifying = false;
+      _verified = true;
+    });
+    showAppToast(context, '验证通过，文本 / 识图 / 文件 / 语音已全部配置好');
   }
 
   @override
@@ -617,6 +458,10 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                       ? '注册登录 → 实名认证 → 确认余额 → 创建并复制 Key → 回到本页配置。'
                       : '用电脑打开官网 → 注册登录 → 创建并复制 Key → 实名认证 → 回到本页粘贴验证。',
                 ),
+                _buildIntroLine(
+                  '一个 Key 通用全部服务',
+                  '同一个 API Key 可以被大语言模型、图像识别（OCR）、文件解析和语音识别（ASR）等多个服务共同调用，不需要单独再申请其他 Key。',
+                ),
               ],
             ),
           ),
@@ -679,8 +524,6 @@ class _ApiKeyGuidePageState extends ConsumerState<ApiKeyGuidePage> {
                     runSpacing: 6,
                     children: [
                       _ModelBadge(label: '大语言模型', model: _defaultLlmModel),
-                      if (_isDeepSeek)
-                        const _ModelBadge(label: '思考强度', model: '低'),
                       _ModelBadge(
                         label: '图像识别',
                         model: _isDeepSeek ? 'DeepSeek OCR' : _defaultOcrModel,

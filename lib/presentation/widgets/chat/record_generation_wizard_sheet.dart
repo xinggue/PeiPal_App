@@ -271,7 +271,7 @@ class _RecordGenerationWizardSheetState
                       '第 ${_currentStep + 1} / 4 步',
                       style: TextStyle(
                         fontSize: 22,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         color: theme.colorScheme.primary,
                         letterSpacing: 0.5,
                       ),

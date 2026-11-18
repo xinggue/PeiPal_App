@@ -60,7 +60,7 @@ void main() {
       final bounds = tester.getRect(dropdown);
       expect(bounds.width, greaterThanOrEqualTo(300));
       expect(bounds.height, greaterThanOrEqualTo(56));
-      final selected = tester.getRect(find.text('低'));
+      final selected = tester.getRect(find.text('低（默认）'));
       expect(bounds.contains(selected.topLeft), isTrue);
       expect(bounds.contains(selected.bottomRight), isTrue);
       await tester.tap(dropdown);

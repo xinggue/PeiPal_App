@@ -49,56 +49,64 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
   static const _storageKeyProviders = 'llm_providers_matrix_v1';
   static const _storageKeyActiveId = 'llm_active_provider_id_v1';
 
+  late final Future<void> ready;
+
   LlmProvidersNotifier(this._ref, this._storage, this._service)
       : super(const LlmProvidersState()) {
-    _load();
+    ready = _load();
   }
 
   Future<void> _load() async {
-    final values = await Future.wait([
-      _storage.read(key: _storageKeyActiveId),
-      _storage.read(key: _storageKeyProviders),
-    ]);
-    final activeId = values[0];
-    final rawJson = values[1];
-
+    String? activeId;
     List<LlmProviderConfig> loaded = [];
 
-    if (rawJson != null && rawJson.trim().isNotEmpty) {
-      try {
-        final list = jsonDecode(rawJson) as List;
-        final savedList = list
-            .map((item) => LlmProviderConfig.fromJson(item as Map<String, dynamic>))
-            .toList();
+    try {
+      final values = await Future.wait([
+        _storage.read(key: _storageKeyActiveId),
+        _storage.read(key: _storageKeyProviders),
+      ]);
+      activeId = values[0];
+      final rawJson = values[1];
 
-        // 将内置预设中新增的 provider 与用户已有的合并（保证新版追加的预设不丢失）
-        final savedMap = {for (final p in savedList) p.id: p};
-        for (final preset in LlmProviderPresets.builtIn) {
-          if (!savedMap.containsKey(preset.id)) {
-            savedList.add(preset);
+      if (rawJson != null && rawJson.trim().isNotEmpty) {
+        try {
+          final list = jsonDecode(rawJson) as List;
+          final savedList = list
+              .map((item) => LlmProviderConfig.fromJson(item as Map<String, dynamic>))
+              .toList();
+
+          // 将内置预设中新增的 provider 与用户已有的合并（保证新版追加的预设不丢失）
+          final savedMap = {for (final p in savedList) p.id: p};
+          for (final preset in LlmProviderPresets.builtIn) {
+            if (!savedMap.containsKey(preset.id)) {
+              savedList.add(preset);
+            }
           }
-        }
-        loaded = savedList;
-      } catch (_) {}
+          loaded = savedList;
+        } catch (_) {}
+      }
+    } catch (_) {
+      // 存储读取异常时回退内置预设，保证不会卡在加载态
+    } finally {
+      if (loaded.isEmpty) {
+        loaded = List.from(LlmProviderPresets.builtIn);
+      }
+
+      final targetActiveId = activeId ??
+          (loaded.any((p) => p.isConfigured)
+              ? loaded.firstWhere((p) => p.isConfigured).id
+              : 'deepseek');
+
+      if (mounted) {
+        state = LlmProvidersState(
+          activeProviderId: targetActiveId,
+          providers: loaded,
+          isLoading: false,
+        );
+        // 同步激活生效到全局 LlmConfig
+        _syncActiveToGlobal();
+      }
     }
-
-    if (loaded.isEmpty) {
-      loaded = List.from(LlmProviderPresets.builtIn);
-    }
-
-    final targetActiveId = activeId ??
-        (loaded.any((p) => p.isConfigured)
-            ? loaded.firstWhere((p) => p.isConfigured).id
-            : 'deepseek');
-
-    state = LlmProvidersState(
-      activeProviderId: targetActiveId,
-      providers: loaded,
-      isLoading: false,
-    );
-
-    // 同步激活生效到全局 LlmConfig
-    _syncActiveToGlobal();
   }
 
   Future<void> _persist() async {
@@ -122,6 +130,7 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
 
   /// 切换当前生效的活跃服务商
   Future<void> setActiveProvider(String providerId, {String? model}) async {
+    await ready;
     final updatedList = List<LlmProviderConfig>.from(state.providers);
     if (model != null) {
       final idx = updatedList.indexWhere((p) => p.id == providerId);
@@ -139,6 +148,7 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
 
   /// 切换当前服务商的模型
   Future<void> setActiveModel(String providerId, String model) async {
+    await ready;
     final updatedList = List<LlmProviderConfig>.from(state.providers);
     final idx = updatedList.indexWhere((p) => p.id == providerId);
     if (idx >= 0) {
@@ -150,6 +160,7 @@ class LlmProvidersNotifier extends StateNotifier<LlmProvidersState> {
 
   /// 更新单个服务商配置（Key、URL、状态等）
   Future<void> updateProvider(LlmProviderConfig provider) async {
+    await ready;
     final updatedList = List<LlmProviderConfig>.from(state.providers);
     final idx = updatedList.indexWhere((p) => p.id == provider.id);
     if (idx >= 0) {
