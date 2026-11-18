@@ -244,58 +244,70 @@ class _PatientFormPageState extends ConsumerState<PatientFormPage> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate() || _isLoading) return;
 
     setState(() => _isLoading = true);
 
-    final repo = ref.read(patientRepositoryProvider);
-    final rawName = _nameCtrl.text.trim();
-    final effectiveName = rawName.isEmpty ? _generateDefaultSessionName() : rawName;
-    final parsedAge = int.tryParse(_ageCtrl.text.trim());
-    final mrn = _mrnCtrl.text.trim().isEmpty ? null : _mrnCtrl.text.trim();
-    final notes = _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
+    try {
+      final repo = ref.read(patientRepositoryProvider);
+      final rawName = _nameCtrl.text.trim();
+      final effectiveName =
+          rawName.isEmpty ? _generateDefaultSessionName() : rawName;
+      final parsedAge = int.tryParse(_ageCtrl.text.trim());
+      final mrn = _mrnCtrl.text.trim().isEmpty ? null : _mrnCtrl.text.trim();
+      final notes =
+          _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
 
-    if (_isEditing && widget.patientId != null) {
-      final existing = await repo.getById(widget.patientId!);
-      if (existing != null) {
-        await repo.update(existing.copyWith(
+      if (_isEditing && widget.patientId != null) {
+        final existing = await repo.getById(widget.patientId!);
+        if (existing != null) {
+          await repo.update(existing.copyWith(
+            name: effectiveName,
+            gender: _gender,
+            age: parsedAge,
+            clearAge: parsedAge == null,
+            medicalRecordNumber: mrn,
+            clearMrn: mrn == null,
+            notes: notes,
+            clearNotes: notes == null,
+            status: _status,
+            extraData: _extraData,
+          ));
+        }
+      } else {
+        final newPatient = Patient(
           name: effectiveName,
           gender: _gender,
           age: parsedAge,
-          clearAge: parsedAge == null,
           medicalRecordNumber: mrn,
-          clearMrn: mrn == null,
           notes: notes,
-          clearNotes: notes == null,
           status: _status,
           extraData: _extraData,
-        ));
+        );
+        await repo.insert(newPatient);
+        ref.invalidate(patientsProvider);
+        if (mounted) {
+          context.pushReplacement('/patients/${newPatient.id}/chat');
+        }
+        return;
       }
-    } else {
-      final newPatient = Patient(
-        name: effectiveName,
-        gender: _gender,
-        age: parsedAge,
-        medicalRecordNumber: mrn,
-        notes: notes,
-        status: _status,
-        extraData: _extraData,
-      );
-      await repo.insert(newPatient);
-      ref.invalidate(patientsProvider);
-      if (mounted) {
-        context.pushReplacement('/patients/${newPatient.id}/chat');
-      }
-      return;
-    }
 
-    ref.invalidate(patientsProvider);
-    if (widget.patientId != null) {
-      ref.invalidate(patientProvider(widget.patientId!));
-      ref.invalidate(lastMessageProvider(widget.patientId!));
-      ref.invalidate(messagesProvider(widget.patientId!));
+      ref.invalidate(patientsProvider);
+      if (widget.patientId != null) {
+        ref.invalidate(patientProvider(widget.patientId!));
+        ref.invalidate(lastMessageProvider(widget.patientId!));
+        ref.invalidate(messagesProvider(widget.patientId!));
+      }
+      if (mounted) context.pop();
+    } catch (e) {
+      if (mounted) {
+        showAppToast(context, '保存失败：$e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
-    if (mounted) context.pop();
   }
 
   static const _inputBoldStyle = TextStyle(

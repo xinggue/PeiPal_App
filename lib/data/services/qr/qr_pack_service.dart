@@ -38,7 +38,7 @@ class QrConfig {
 
   const QrConfig({
     this.chunkSize = 200,
-    this.scannerType = QrScannerType.dedicated,
+    this.scannerType = QrScannerType.standard,
   });
 
   bool get isStandardScanner => scannerType == QrScannerType.standard;

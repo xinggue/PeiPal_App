@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../data/services/qr/qr_pack_service.dart';
 
 class QrSettingsPage extends ConsumerStatefulWidget {
@@ -76,14 +77,14 @@ class _QrSettingsPageState extends ConsumerState<QrSettingsPage> {
                     child: SegmentedButton<QrScannerType>(
                       segments: const [
                         ButtonSegment(
-                          value: QrScannerType.dedicated,
-                          label: Text('专用扫码器'),
-                          icon: Icon(Icons.devices_other, size: 18),
-                        ),
-                        ButtonSegment(
                           value: QrScannerType.standard,
                           label: Text('常规扫码枪'),
                           icon: Icon(Icons.usb, size: 18),
+                        ),
+                        ButtonSegment(
+                          value: QrScannerType.dedicated,
+                          label: Text('专用扫码器'),
+                          icon: Icon(Icons.devices_other, size: 18),
                         ),
                       ],
                       selected: {qrConfig.scannerType},
@@ -96,9 +97,23 @@ class _QrSettingsPageState extends ConsumerState<QrSettingsPage> {
                   Text(
                     qrConfig.isStandardScanner
                         ? '常规扫码枪：直连电脑输入纯文本，自动过滤硬件按键指令，长文本不含分包协议头。'
-                        : '专用扫码器：配备专用硬件接收端，支持多包乱序聚合与按键动作方案。',
+                        : '专用扫码器：配备自制专用硬件接收端，支持多包乱序聚合与按键动作方案。',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
+                  if (!qrConfig.isStandardScanner) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.build_outlined, size: 16),
+                        label: const Text('专用接收器 DIY 与固件教程'),
+                        onPressed: () => launchUrl(
+                          Uri.parse('https://github.com/xinggue/PeiPal_Keyboard'),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

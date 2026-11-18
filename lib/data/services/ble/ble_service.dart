@@ -96,7 +96,7 @@ class BleService extends ChangeNotifier {
   bool _disconnecting = false;
 
   // 先进先出发送队列：支持随时追加发送，写入仍串行、完成回执按唯一 ID 区分
-  int _doneSeq = 0;
+  int _doneSeq = DateTime.now().millisecondsSinceEpoch % 100000;
   final List<_QueuedSend> _queue = [];
   _QueuedSend? _currentSending;
   void Function(bool)? _activeWaiterFinish;

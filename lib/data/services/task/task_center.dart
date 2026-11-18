@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -473,7 +474,7 @@ class TaskCenter extends ChangeNotifier {
 
     final message = Message.generatedRecord(
       patientId: plan.patient.id,
-      recordJson: _mapToJsonString(orderedMap),
+      recordJson: const JsonEncoder.withIndent('  ').convert(orderedMap),
       templateId: plan.template.id,
       recordMeta: meta,
       createdAt: plan.now ?? DateTime.now(),
@@ -526,21 +527,6 @@ class TaskCenter extends ChangeNotifier {
     task.resultMessageId = msgId;
     notifyListeners();
     return msgId;
-  }
-
-  static String _mapToJsonString(Map<String, String> map) {
-    final buffer = StringBuffer('{\n');
-    final entries = map.entries.toList();
-    for (int i = 0; i < entries.length; i++) {
-      final e = entries[i];
-      final keyEscaped = e.key.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n');
-      final valEscaped = e.value.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n');
-      buffer.write('  "$keyEscaped": "$valEscaped"');
-      if (i < entries.length - 1) buffer.write(',');
-      buffer.writeln();
-    }
-    buffer.write('}');
-    return buffer.toString();
   }
 }
 

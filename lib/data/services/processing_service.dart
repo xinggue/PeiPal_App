@@ -142,7 +142,7 @@ class ProcessingService extends StateNotifier<int> {
     });
     stopwatch.stop();
 
-    await _repo.update(placeholder.copyWith(transcribedText: resultText));
+    await _repo.updateTextColumns(placeholder.id, transcribedText: resultText);
     state++;
 
     if (bgTask != null && _taskCenter != null) {
@@ -219,15 +219,9 @@ class ProcessingService extends StateNotifier<int> {
     stopwatch.stop();
 
     if (targetPhotoMsgId != null) {
-      final photoMsg = await _repo.getById(targetPhotoMsgId);
-      if (photoMsg != null) {
-        await _repo.update(photoMsg.copyWith(extractedText: resultText));
-      }
+      await _repo.updateTextColumns(targetPhotoMsgId, extractedText: resultText);
     } else {
-      final msg = await _repo.getById(taskId);
-      if (msg != null) {
-        await _repo.update(msg.copyWith(extractedText: resultText));
-      }
+      await _repo.updateTextColumns(taskId, extractedText: resultText);
     }
     state++;
 

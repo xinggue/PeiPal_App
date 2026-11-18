@@ -43,6 +43,8 @@ class LlmErrorMapper {
       switch (status) {
         case 401:
           return 'API Key 无效或已过期，请前往「设置」更新';
+        case 402:
+          return '账户余额不足或额度已用尽，请前往服务商平台充值';
         case 403:
           return '无权访问该模型，请检查账户权限或模型名称';
         case 404:
@@ -62,6 +64,20 @@ class LlmErrorMapper {
       return '网络请求异常: ${error.message ?? error.toString()}';
     }
     return error.toString();
+  }
+
+  /// 是否属于密钥/模型/余额/接口配置类错误，可用于在界面提供直达配置入口。
+  static bool isConfigOrQuotaErrorText(String? message) {
+    if (message == null || message.isEmpty) return false;
+    return message.contains('API Key') ||
+        message.contains('余额不足') ||
+        message.contains('无权访问') ||
+        message.contains('模型未找到') ||
+        message.contains('Base URL') ||
+        message.contains('HTTP 401') ||
+        message.contains('HTTP 402') ||
+        message.contains('HTTP 403') ||
+        message.contains('HTTP 404');
   }
 
   static String _extractServerMessage(dynamic data) {

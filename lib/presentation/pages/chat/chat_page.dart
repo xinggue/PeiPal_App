@@ -24,6 +24,7 @@ import '../../widgets/chat/recording_overlay.dart';
 import '../../widgets/chat/generation_pending_bubble.dart';
 import '../../widgets/chat/manual_prompt_preview_dialog.dart';
 import '../../widgets/chat/record_generation_wizard_sheet.dart';
+import '../../widgets/chat/record_output_actions.dart';
 import '../../widgets/chat/session_info_quick_sheet.dart';
 import 'llm_dry_run_preview_page.dart';
 import 'generation_run_page.dart';
@@ -58,6 +59,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Stream<Amplitude>? _amplitudeStream;
   bool _showOverlay = false;
   bool _hasScrolledToHighlight = false;
+  bool _isStartingGeneration = false;
   Timer? _recordTimer;
   int _recordDurationMs = 0;
   String? _previewWavPath;
@@ -89,7 +91,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       filePaths: filePaths,
       fileSizes: fileSizes,
     );
-    List<String> finalPaths = filePaths;
+    final List<String> finalPaths;
     try {
       finalPaths = await MediaStorage.savePhotos(
         widget.patientId,
@@ -98,6 +100,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     } catch (e) {
       debugPrint('保存照片到永久目录失败: $e');
+      if (mounted) {
+        showAppToast(context, '保存照片失败，请重试');
+      }
+      return;
     }
 
     final msg = draft.copyWith(filePaths: finalPaths);
@@ -111,9 +117,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// 接收文书装订工作台交付的多份文书批量投递
   Future<void> _onSendDocuments(List<List<String>> documentPhotoBatches) async {
-    for (final paths in documentPhotoBatches) {
-      final sizes = paths.map((p) => File(p).lengthSync()).toList();
-      await _onSendPhotos(filePaths: paths, fileSizes: sizes);
+    try {
+      for (final paths in documentPhotoBatches) {
+        final validPaths = <String>[];
+        final sizes = <int>[];
+        for (final path in paths) {
+          final f = File(path);
+          if (await f.exists()) {
+            validPaths.add(path);
+            sizes.add(await f.length());
+          }
+        }
+        if (validPaths.isEmpty) {
+          if (mounted) {
+            showAppToast(context, '部分照片文件已失效，请重新选择');
+          }
+          continue;
+        }
+        await _onSendPhotos(filePaths: validPaths, fileSizes: sizes);
+      }
+    } catch (e) {
+      if (mounted) {
+        showAppToast(context, '导入照片失败：$e');
+      }
     }
   }
 
@@ -128,7 +154,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       fileSize: fileSize,
       durationMs: durationMs,
     );
-    String finalPath = filePath;
+    final String finalPath;
     try {
       finalPath = await MediaStorage.saveAudio(
         widget.patientId,
@@ -137,6 +163,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     } catch (e) {
       debugPrint('保存语音到永久目录失败: $e');
+      if (mounted) {
+        showAppToast(context, '保存语音失败，请重试');
+      }
+      return;
     }
 
     final msg = draft.copyWith(filePaths: [finalPath]);
@@ -293,6 +323,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _onGenerateRecord({bool forceManual = false}) async {
+    if (_isStartingGeneration) return;
+    _isStartingGeneration = true;
+    try {
+      await _runGenerateRecordFlow(forceManual: forceManual);
+    } finally {
+      _isStartingGeneration = false;
+    }
+  }
+
+  Future<void> _runGenerateRecordFlow({bool forceManual = false}) async {
     final inputs = await _collectGenerationInputs(isDryRun: false);
     if (inputs == null || !mounted) return;
 
@@ -579,6 +619,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (msg.type == MessageType.generatedRecord) ...[
+              ListTile(
+                leading: const Icon(Icons.copy_all_outlined),
+                title: const Text('复制全文'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  RecordOutputActions.copyRecord(
+                    context,
+                    recordJson: msg.recordJson,
+                    title: msg.recordMeta?.templateName,
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.file_download_outlined),
+                title: const Text('导出为文件'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  RecordOutputActions.exportRecordFile(
+                    context,
+                    recordJson: msg.recordJson,
+                    title: msg.recordMeta?.templateName,
+                  );
+                },
+              ),
+            ],
             if (canDelete)
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),

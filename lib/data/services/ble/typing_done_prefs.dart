@@ -9,7 +9,7 @@ class TypingDonePrefs {
 
   const TypingDonePrefs({
     this.systemBanner = false,
-    this.inAppNotify = false,
+    this.inAppNotify = true,
     this.vibrate = false,
   });
 

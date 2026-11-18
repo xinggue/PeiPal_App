@@ -136,6 +136,26 @@ class MessageRepository {
     );
   }
 
+  /// 仅局部更新转写/识别文本列，避免异步耗时期间整行覆盖并发改动。
+  Future<void> updateTextColumns(
+    String id, {
+    String? transcribedText,
+    String? extractedText,
+  }) async {
+    final values = <String, Object?>{
+      'transcribed_text': ?transcribedText,
+      'extracted_text': ?extractedText,
+    };
+    if (values.isEmpty) return;
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'messages',
+      values,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> delete(String id) async {
     final db = await DatabaseHelper.database;
     await db.delete('messages', where: 'id = ?', whereArgs: [id]);

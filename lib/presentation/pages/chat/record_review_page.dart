@@ -1,9 +1,10 @@
-import 'package:peipal/presentation/widgets/common/app_toast.dart';
-import 'package:peipal/presentation/widgets/common/app_sheet.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:peipal/presentation/widgets/common/app_toast.dart';
+import 'package:peipal/presentation/widgets/common/app_sheet.dart';
 
 import '../../../domain/generation/generation_log.dart';
 import '../../../domain/generation/generation_result.dart';
@@ -18,6 +19,7 @@ import '../../../providers/providers.dart';
 import '../../widgets/diagnosis/his_diagnosis_picker.dart';
 import '../../widgets/chat/char_replacement_confirm_dialog.dart';
 import '../../widgets/chat/generation_fields_and_requirements.dart';
+import '../../widgets/chat/record_output_actions.dart';
 import 'typing_send_sheet.dart';
 import 'generation_log_page.dart';
 import 'generation_run_page.dart';
@@ -57,6 +59,9 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
 
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isCorruptedJson = false;
+  bool _isDirty = false;
+  Map<String, String> _baselineValues = {};
   Timer? _debounceTimer;
 
   void _recomputeValidationCache() {
@@ -85,7 +90,21 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
         issues.where((i) => i.type == FieldIssueType.notInOptions).length;
   }
 
+  bool _hasUnsavedChanges() {
+    if (_isCorruptedJson) return false;
+    final current = _collectValues();
+    if (current.length != _baselineValues.length) return true;
+    for (final e in current.entries) {
+      if (_baselineValues[e.key] != e.value) return true;
+    }
+    return false;
+  }
+
   void _onFieldChanged() {
+    final dirtyNow = _hasUnsavedChanges();
+    if (dirtyNow != _isDirty && mounted) {
+      setState(() => _isDirty = dirtyNow);
+    }
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 180), () {
       if (mounted) {
@@ -117,11 +136,20 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
 
     if (msg != null && mounted) {
       Map<String, dynamic> rawJson = {};
+      var corrupted = false;
       try {
         if (msg.recordJson != null && msg.recordJson!.isNotEmpty) {
-          rawJson = jsonDecode(msg.recordJson!) as Map<String, dynamic>;
+          final decoded = jsonDecode(msg.recordJson!);
+          if (decoded is Map<String, dynamic>) {
+            rawJson = decoded;
+          } else {
+            corrupted = true;
+          }
         }
-      } catch (_) {}
+      } catch (_) {
+        corrupted = true;
+      }
+      _isCorruptedJson = corrupted;
       _originalRawJson = Map.from(rawJson);
 
       List<TemplateSlot> slots = [];
@@ -175,6 +203,8 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
         _message = msg;
         _patient = patient;
         _genLog = log;
+        _baselineValues = _collectValues();
+        _isDirty = false;
         _isLoading = false;
       });
     } else if (mounted) {
@@ -203,8 +233,14 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
     return map;
   }
 
-  Future<void> _save({bool showFeedback = true}) async {
-    if (_message == null || _isSaving) return;
+  Future<bool> _save({bool showFeedback = true}) async {
+    if (_message == null || _isSaving) return false;
+    if (_isCorruptedJson) {
+      if (mounted) {
+        showAppToast(context, '原始内容格式异常，已禁止覆盖保存');
+      }
+      return false;
+    }
     setState(() => _isSaving = true);
 
     try {
@@ -235,6 +271,8 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
         setState(() {
           _message = updatedMsg;
           _originalRawJson = Map.from(updatedMap);
+          _baselineValues = Map.from(updatedMap);
+          _isDirty = false;
           _recomputeValidationCache();
         });
       }
@@ -242,6 +280,12 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
       if (showFeedback && mounted) {
         showAppToast(context, '已保存修改');
       }
+      return true;
+    } catch (e) {
+      if (mounted) {
+        showAppToast(context, '保存失败：$e');
+      }
+      return false;
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
@@ -251,13 +295,72 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
 
   Future<void> _saveAndOpenSendSheet({required bool isQrMode}) async {
     if (_message == null || _isSaving) return;
-    await _save(showFeedback: false);
-    if (!mounted || _message == null) return;
+    final ok = await _save(showFeedback: false);
+    if (!ok || !mounted || _message == null) return;
     TypingSendSheet.show(
       context: context,
       message: _message!,
       isQrMode: isQrMode,
     );
+  }
+
+  Future<void> _saveAndCopyRecord() async {
+    if (_message == null || _isSaving) return;
+    final ok = await _save(showFeedback: false);
+    if (!ok || !mounted) return;
+    await RecordOutputActions.copyRecord(
+      context,
+      values: _collectValues(),
+      orderedSlots: _effectiveSlots,
+      title: _effectiveTemplateName,
+      successMessage: '已保存并复制全文',
+    );
+  }
+
+  Future<void> _saveAndExportRecord() async {
+    if (_message == null || _isSaving) return;
+    final ok = await _save(showFeedback: false);
+    if (!ok || !mounted) return;
+    await RecordOutputActions.exportRecordFile(
+      context,
+      values: _collectValues(),
+      orderedSlots: _effectiveSlots,
+      title: _effectiveTemplateName,
+    );
+  }
+
+  Future<void> _handleBackWithUnsavedChanges() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('有未保存的修改'),
+        content: const Text('当前文书修改尚未保存，离开将会丢失修改。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'discard'),
+            child: const Text('放弃修改', style: TextStyle(color: Colors.red)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'stay'),
+            child: const Text('继续编辑'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('保存并退出'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'discard') {
+      setState(() => _isDirty = false);
+      Navigator.of(context).pop();
+    } else if (choice == 'save') {
+      final ok = await _save(showFeedback: false);
+      if (ok && mounted) {
+        Navigator.of(context).pop();
+      }
+    }
   }
 
   Future<void> _openRewriteSheet() async {
@@ -431,7 +534,14 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
     final notInOptionsCount = _cachedNotInOptionsCount;
     final allUnsupportedChars = _cachedAllUnsupported;
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty && !_isSaving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_isSaving) {
+          _handleBackWithUnsavedChanges();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('审阅文书 · $_effectiveTemplateName'),
         actions: [
@@ -447,6 +557,41 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
         children: [
+          if (_isCorruptedJson)
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.45)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline, size: 18, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '文书原始内容格式异常，为防止清空记录已锁定保存。可先复制原始内容核查。',
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade900),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: _message?.recordJson ?? ''),
+                      );
+                      if (context.mounted) {
+                        showAppToast(context, '已复制原始内容');
+                      }
+                    },
+                    child: const Text('复制原文'),
+                  ),
+                ],
+              ),
+            ),
+
           // Template missing banner
           if (_isTemplateMissing)
             Container(
@@ -653,7 +798,9 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.auto_fix_high, size: 18),
                       label: const Text('重写'),
-                      onPressed: _isSaving ? null : _openRewriteSheet,
+                      onPressed: (_isSaving || _isCorruptedJson)
+                          ? null
+                          : _openRewriteSheet,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -661,8 +808,41 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
                     child: FilledButton.icon(
                       icon: const Icon(Icons.save_outlined, size: 18),
                       label: const Text('保存'),
-                      onPressed:
-                          _isSaving ? null : () => _save(showFeedback: true),
+                      onPressed: (_isSaving || _isCorruptedJson)
+                          ? null
+                          : () => _save(showFeedback: true),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.copy_all_outlined, size: 18),
+                      label: const Text(
+                        '保存并复制全文',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onPressed: (_isSaving || _isCorruptedJson)
+                          ? null
+                          : _saveAndCopyRecord,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.file_download_outlined, size: 18),
+                      label: const Text(
+                        '保存并导出为文件',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onPressed: (_isSaving || _isCorruptedJson)
+                          ? null
+                          : _saveAndExportRecord,
                     ),
                   ),
                 ],
@@ -678,7 +858,7 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      onPressed: _isSaving
+                      onPressed: (_isSaving || _isCorruptedJson)
                           ? null
                           : () => _saveAndOpenSendSheet(isQrMode: true),
                     ),
@@ -692,7 +872,7 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      onPressed: _isSaving
+                      onPressed: (_isSaving || _isCorruptedJson)
                           ? null
                           : () => _saveAndOpenSendSheet(isQrMode: false),
                     ),
@@ -703,6 +883,7 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
           ),
         ),
       ),
+    ),
     );
   }
 

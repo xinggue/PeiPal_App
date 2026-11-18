@@ -11,6 +11,7 @@ import '../../../domain/models/message.dart';
 import '../../../providers/providers.dart';
 import '../../widgets/common/typing_done_feedback.dart';
 import '../../widgets/chat/qr_code_display_sheet.dart';
+import '../../widgets/chat/record_output_actions.dart';
 import '../../widgets/ble/draggable_typing_overlay.dart';
 
 class PatientRecordsPage extends ConsumerStatefulWidget {
@@ -274,11 +275,44 @@ class _PatientRecordsPageState extends ConsumerState<PatientRecordsPage> {
                     icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
                     tooltip: '更多操作',
                     onSelected: (val) {
-                      if (val == 'delete') {
+                      if (val == 'copy') {
+                        RecordOutputActions.copyRecord(
+                          context,
+                          recordJson: record.recordJson,
+                          title: templateName,
+                        );
+                      } else if (val == 'export') {
+                        RecordOutputActions.exportRecordFile(
+                          context,
+                          recordJson: record.recordJson,
+                          title: templateName,
+                        );
+                      } else if (val == 'delete') {
                         _deleteRecord(record);
                       }
                     },
                     itemBuilder: (ctx) => [
+                      const PopupMenuItem(
+                        value: 'copy',
+                        child: Row(
+                          children: [
+                            Icon(Icons.copy_all_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text('复制全文'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'export',
+                        child: Row(
+                          children: [
+                            Icon(Icons.file_download_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text('导出为文件'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
                       const PopupMenuItem(
                         value: 'delete',
                         child: Row(

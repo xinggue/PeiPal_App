@@ -2,7 +2,9 @@ import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../data/services/generation/llm_error_mapper.dart';
 import '../../../data/services/generation/pipeline_executor.dart';
 import '../../../data/services/task/task_center.dart';
 import '../../../domain/generation/generation_log.dart';
@@ -348,7 +350,11 @@ class _GenerationRunPageState extends ConsumerState<GenerationRunPage> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           if (task.generationResult?.stageLogs.isNotEmpty == true)
                             TextButton.icon(
@@ -356,7 +362,12 @@ class _GenerationRunPageState extends ConsumerState<GenerationRunPage> {
                               label: const Text('查看日志'),
                               onPressed: () => _onViewLog(task),
                             ),
-                          const Spacer(),
+                          if (LlmErrorMapper.isConfigOrQuotaErrorText(task.error))
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.tune, size: 16),
+                              label: const Text('前往配置'),
+                              onPressed: () => context.push('/settings/llm-providers'),
+                            ),
                           if (task.generationResult?.fieldValues.isNotEmpty == true)
                             OutlinedButton.icon(
                               icon: const Icon(Icons.save_outlined, size: 16),
@@ -364,7 +375,6 @@ class _GenerationRunPageState extends ConsumerState<GenerationRunPage> {
                                   '保存已产出的 ${task.generationResult!.fieldValues.length} 项'),
                               onPressed: _onSavePartial,
                             ),
-                          const SizedBox(width: 8),
                           FilledButton.icon(
                             icon: _isRetrying
                                 ? const SizedBox(

@@ -101,6 +101,21 @@ class MockMessageRepo implements MessageRepository {
   }
 
   @override
+  Future<void> updateTextColumns(
+    String id, {
+    String? transcribedText,
+    String? extractedText,
+  }) async {
+    final idx = _list.indexWhere((m) => m.id == id);
+    if (idx != -1) {
+      _list[idx] = _list[idx].copyWith(
+        transcribedText: transcribedText,
+        extractedText: extractedText,
+      );
+    }
+  }
+
+  @override
   Future<void> delete(String id) async => _list.removeWhere((m) => m.id == id);
 }
 

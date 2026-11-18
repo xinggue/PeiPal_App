@@ -53,6 +53,8 @@ class ConfigFileIo {
     required String content,
     required String suggestedName,
     bool preferDirectDownloadOnAndroid = false,
+    String typeLabel = '配置文本',
+    List<String> extensions = const ['txt', 'json'],
   }) async {
     if (!kIsWeb && Platform.isAndroid) {
       if (preferDirectDownloadOnAndroid) {
@@ -85,8 +87,8 @@ class ConfigFileIo {
         (Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
       final location = await getSaveLocation(
         suggestedName: suggestedName,
-        acceptedTypeGroups: const [
-          XTypeGroup(label: '配置文本', extensions: ['txt', 'json']),
+        acceptedTypeGroups: [
+          XTypeGroup(label: typeLabel, extensions: extensions),
         ],
       );
       if (location == null) return null;

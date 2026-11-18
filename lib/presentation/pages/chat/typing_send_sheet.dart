@@ -294,6 +294,8 @@ class _TypingSendSheetState extends ConsumerState<TypingSendSheet> {
     if (mounted) {
       if (ok) {
         notifyTypingDone(context, prefs);
+      } else {
+        showAppToast(context, '发送失败或超时，请检查蓝牙连接');
       }
     }
   }
