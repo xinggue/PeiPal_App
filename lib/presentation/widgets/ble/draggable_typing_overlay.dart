@@ -537,7 +537,7 @@ class _DraggableTypingOverlayState
   Widget build(BuildContext context) {
     final enabled = ref.watch(floatingOverlayEnabledProvider);
     final typingCtrl = ref.watch(typingProgressControllerProvider);
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -572,11 +572,12 @@ class _DraggableTypingOverlayState
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        widget.child,
+        // Floating controls animate independently of the underlying page.
+        RepaintBoundary(child: widget.child),
         if (shouldShow)
           _isExpanded
               ? AnimatedPositioned(
-                  duration: _isDragging
+                  duration: _isDragging || screenSizeChanged
                       ? Duration.zero
                       : const Duration(milliseconds: 300),
                   curve: Curves.fastOutSlowIn,

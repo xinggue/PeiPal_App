@@ -70,6 +70,30 @@ Future<ProviderContainer> _mount(
 }
 
 void main() {
+  testWidgets('live resize does not restart panel position animations', (
+    tester,
+  ) async {
+    await _mount(tester);
+    await tester.tapAt(
+      Offset(410, tester.getRect(find.byKey(_ball)).center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(_panel), findsOneWidget);
+
+    for (var i = 0; i < 10; i++) {
+      tester.view.physicalSize = Size(420 + i * 10, 880 - i * 10);
+      await tester.pump();
+      final position = tester.widget<AnimatedPositioned>(
+        find.ancestor(
+          of: find.byKey(_panel),
+          matching: find.byType(AnimatedPositioned),
+        ),
+      );
+      expect(position.duration, Duration.zero);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets(
     'slow horizontal drags escape both edges before pointer release',
     (tester) async {

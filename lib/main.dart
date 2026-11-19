@@ -13,6 +13,7 @@ import 'data/services/logging/app_log_service.dart';
 import 'data/services/media/ocr_image_optimizer.dart';
 import 'presentation/pages/onboarding/onboarding_flow.dart';
 import 'presentation/widgets/ble/draggable_typing_overlay.dart';
+import 'presentation/widgets/common/root_overlay_host.dart';
 import 'providers/asr_providers_provider.dart';
 import 'providers/llm_providers_provider.dart';
 import 'providers/ocr_providers_provider.dart';
@@ -136,7 +137,7 @@ class DocMasterPeiApp extends ConsumerWidget {
         data: MediaQuery.of(context).copyWith(
           textScaler: TextScaler.linear(fontScale),
         ),
-        child: _RootOverlayHost(
+        child: RootOverlayHost(
           child: SafeArea(
             top: false,
             bottom: true,
@@ -149,46 +150,5 @@ class DocMasterPeiApp extends ConsumerWidget {
       routerConfig: router,
       locale: const Locale('zh', 'CN'),
     );
-  }
-}
-
-/// 将整棵应用树（含悬浮窗）挂在一个常驻 [Overlay] 内，
-/// 从而让悬浮窗里的 TextField 拥有 Overlay 祖先，长按可正常呼出系统编辑菜单。
-class _RootOverlayHost extends StatefulWidget {
-  const _RootOverlayHost({required this.child});
-
-  final Widget child;
-
-  @override
-  State<_RootOverlayHost> createState() => _RootOverlayHostState();
-}
-
-class _RootOverlayHostState extends State<_RootOverlayHost> {
-  late final OverlayEntry _entry = OverlayEntry(
-    builder: (_) => widget.child,
-  );
-
-  @override
-  void didUpdateWidget(covariant _RootOverlayHost oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.child, widget.child)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _entry.markNeedsBuild();
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Overlay(initialEntries: [_entry]);
-  }
-
-  @override
-  void dispose() {
-    if (_entry.mounted) {
-      _entry.remove();
-    }
-    _entry.dispose();
-    super.dispose();
   }
 }

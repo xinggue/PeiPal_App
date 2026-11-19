@@ -148,6 +148,9 @@ jobs:
       - name: Enable Windows Desktop
         run: flutter config --enable-windows-desktop
 
+      - name: Record Windows Flutter SDK
+        run: flutter --version
+
       - name: Install Dependencies
         run: flutter pub get
 
@@ -163,6 +166,10 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text, $utf8)
           }
           flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Windows Release Bundle
+        run: python .github/scripts/verify_windows_bundle.py build/windows/x64/runner/Release
 
       - name: Compress Release Folder to Portable ZIP
         shell: pwsh
@@ -176,7 +183,10 @@ jobs:
             choco install innosetup --no-progress
             $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
           }
-          iscc /O. windows/packaging/installer.iss
+          $versionLine = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches[0].Groups[1].Value
+          $version = ($versionLine -split '\+')[0]
+          iscc "/DMyAppVersion=$version" /O. windows/packaging/installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Item PeiPal-Windows-x64-Setup.exe
 
       - name: Upload Windows Setup Installer
