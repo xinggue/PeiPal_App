@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import 'database_path.dart';
 import 'macos_database_permissions.dart';
+import '../services/logging/app_log_service.dart';
 
 class DatabaseDowngradeException implements Exception {
   final int dbVersion;
@@ -51,6 +52,7 @@ class DatabaseHelper {
     final path = p.join(dbPath, 'medhistory.db');
     await restrictMacosDatabaseFiles(path);
     await _snapshotBeforeUpgradeIfNeeded(path);
+    AppLogService.instance.info('DB', '打开本地数据库 schema=v$currentVersion');
 
     return openDatabase(
       path,
@@ -59,6 +61,10 @@ class DatabaseHelper {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onDowngrade: (db, oldVersion, newVersion) async {
+        AppLogService.instance.error(
+          'DB',
+          '检测到数据库降级: file=v$oldVersion app=v$newVersion',
+        );
         throw DatabaseDowngradeException(
           dbVersion: oldVersion,
           appVersion: newVersion,

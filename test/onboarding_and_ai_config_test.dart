@@ -303,8 +303,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Page 0: Welcome
+      // Page 0: Welcome (disclaimer must be accepted before '开始' becomes enabled)
       expect(find.text('欢迎使用小培同学'), findsOneWidget);
+      final startBtn = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, '开始'),
+      );
+      expect(startBtn.onPressed, isNull);
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始'));
       await tester.pumpAndSettle();
 
@@ -318,8 +324,9 @@ void main() {
       // Page 2: Concise AI prompt matching other onboarding steps
       expect(find.text('已经有 API Key 了吗？'), findsOneWidget);
       expect(find.text('有，去配置'), findsOneWidget);
-      expect(find.text('没有，先跳过'), findsOneWidget);
-      await tester.tap(find.text('没有，先跳过'));
+      expect(find.text('稍后配置'), findsOneWidget);
+      expect(find.textContaining('跳过'), findsNothing);
+      await tester.tap(find.text('稍后配置'));
       await tester.pumpAndSettle();
 
       // Page 3: Unchanged tutorial prompt page
@@ -364,6 +371,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('下一步'));
@@ -456,6 +465,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('下一步'));

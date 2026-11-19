@@ -35,6 +35,19 @@ class ConfigFileIo {
   static const _channel =
       MethodChannel('com.xinggue.docmasterPei/config_file');
 
+  /// 是否支持系统原生分享面板（微信、QQ、邮箱、AirDrop、LocalSend 等）
+  static bool get supportsSystemShare =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+
+  /// 是否支持在文件管理器中高亮显示已保存的文件
+  static bool get supportsRevealInFolder =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows);
+
   /// 生成带时间戳的默认导出文件名
   static String buildFileName(String prefix, {String extension = 'txt'}) {
     final safePrefix = prefix
@@ -56,7 +69,7 @@ class ConfigFileIo {
     String typeLabel = '配置文本',
     List<String> extensions = const ['txt', 'json'],
   }) async {
-    if (!kIsWeb && Platform.isAndroid) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       if (preferDirectDownloadOnAndroid) {
         final saved = await _channel.invokeMethod<String>('saveToDownloads', {
           'fileName': suggestedName,
@@ -175,7 +188,7 @@ class ConfigFileIo {
     String typeLabel = '数据备份包',
     List<String> extensions = const ['zip'],
   }) async {
-    if (!kIsWeb && Platform.isAndroid) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return _channel.invokeMethod<String>('saveFileWithSafPicker', {
         'fileName': suggestedName,
         'sourcePath': sourcePath,
@@ -207,6 +220,54 @@ class ConfigFileIo {
     final dest = '${dir.path}/$suggestedName';
     await File(sourcePath).copy(dest);
     return dest;
+  }
+
+  /// 调用系统原生分享面板直接分享文本文件（如微信、QQ、邮箱、隔空投送等）。
+  /// 返回 true 表示已调起或完成分享，false 表示用户取消或当前平台不支持。
+  static Future<bool> shareTextFile({
+    required String content,
+    required String fileName,
+    String mimeType = 'text/plain',
+    String? subject,
+  }) async {
+    if (!supportsSystemShare) return false;
+    final result = await _channel.invokeMethod<bool>('shareTextFile', {
+      'fileName': fileName,
+      'content': content,
+      'mimeType': mimeType,
+      if (subject != null && subject.trim().isNotEmpty) 'subject': subject.trim(),
+    });
+    return result ?? false;
+  }
+
+  /// 调用系统原生分享面板直接分享二进制文件（如 .zip 备份包）。
+  /// 通过文件路径传给原生层，避免跨进程传递大文件字节流。
+  static Future<bool> shareBinaryFile({
+    required String sourcePath,
+    required String fileName,
+    String mimeType = 'application/octet-stream',
+    String? subject,
+  }) async {
+    if (!supportsSystemShare) return false;
+    final result = await _channel.invokeMethod<bool>('shareBinaryFile', {
+      'fileName': fileName,
+      'sourcePath': sourcePath,
+      'mimeType': mimeType,
+      if (subject != null && subject.trim().isNotEmpty) 'subject': subject.trim(),
+    });
+    return result ?? false;
+  }
+
+  /// 在桌面端文件管理器中打开并高亮已保存的文件。
+  static Future<void> revealSavedFile(String savedPath) async {
+    if (kIsWeb || savedPath.trim().isEmpty) return;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.macOS) {
+        await _channel.invokeMethod<bool>('revealInFinder', {'path': savedPath});
+      } else if (defaultTargetPlatform == TargetPlatform.windows) {
+        await Process.run('explorer.exe', ['/select,', savedPath]);
+      }
+    } catch (_) {}
   }
 
   /// 从本地选取二进制文件（如 .zip 备份包）。

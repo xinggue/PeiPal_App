@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'api_config.dart';
 import 'deepseek_tools_service.dart';
+import '../logging/app_log_service.dart';
 import '../media/apple_vision_ocr.dart';
 import '../media/ocr_image_optimizer.dart';
 import '../media/paddle_local_ocr.dart';
@@ -275,9 +276,14 @@ class ApiService {
         final status = e.response?.statusCode;
         // 只有 400/422 且还有下一个降级模式时才继续尝试
         if ((status == 400 || status == 422) && mode != candidateModes.last) {
+          AppLogService.instance.info('LLM', '降级响应格式 mode=$mode status=$status');
           last400Error = e;
           continue;
         }
+        AppLogService.instance.warn(
+          'LLM',
+          '请求异常 model=${_llmConfig.model} mode=$mode status=$status type=${e.type.name}',
+        );
         rethrow;
       }
     }

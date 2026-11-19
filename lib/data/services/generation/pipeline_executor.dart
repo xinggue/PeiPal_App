@@ -7,6 +7,7 @@ import '../../../domain/generation/record_validator.dart';
 import '../../../domain/models/pipeline_graph.dart';
 import '../../../domain/models/template.dart';
 import '../api/api_service.dart';
+import '../logging/app_log_service.dart';
 import 'llm_error_mapper.dart';
 import 'output_sanitizer.dart';
 import 'output_schema_builder.dart';
@@ -465,6 +466,10 @@ class PipelineExecutor {
       stageLogs.add(log);
 
       if (batchResult == null) {
+        AppLogService.instance.warn(
+          'Pipeline',
+          '阶段失败 stage=$stageIndex/$totalStages attempts=$attempt err=$stageError',
+        );
         onEvent?.call(StageProgressEvent(
           stageIndex: stageIndex,
           totalStages: totalStages,
@@ -499,6 +504,10 @@ class PipelineExecutor {
     }
 
     stopwatch.stop();
+    AppLogService.instance.info(
+      'Pipeline',
+      '生成完成 stages=$totalStages duration=${stopwatch.elapsedMilliseconds}ms',
+    );
 
     // 校验全部字段，记录告警（如选项不符、必填为空）
     final issues = RecordValidator.validateAll(

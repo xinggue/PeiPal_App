@@ -32,6 +32,7 @@ import '../data/services/content_template_extractor.dart';
 import '../data/services/sample_data_service.dart';
 import '../data/services/backup/session_backup_service.dart';
 import '../data/services/storage/macos_local_config_storage.dart';
+import '../data/services/telemetry/telemetry_service.dart';
 import '../domain/models/patient.dart';
 import '../domain/models/message.dart';
 import '../domain/models/template.dart';
@@ -810,3 +811,31 @@ final activeTimingControllerProvider =
 final appPackageInfoProvider = FutureProvider<PackageInfo>((ref) {
   return PackageInfo.fromPlatform();
 });
+
+// ---- 匿名使用统计（仅包含版本号与系统类型，可随时关闭） ----
+
+final telemetryServiceProvider = Provider<TelemetryService>((ref) {
+  return TelemetryService(ref.read(settingsRepositoryProvider));
+});
+
+final telemetryEnabledProvider =
+    StateNotifierProvider<TelemetryEnabledNotifier, bool>((ref) {
+  return TelemetryEnabledNotifier(ref.read(telemetryServiceProvider));
+});
+
+class TelemetryEnabledNotifier extends StateNotifier<bool> {
+  final TelemetryService _service;
+
+  TelemetryEnabledNotifier(this._service) : super(true) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    state = await _service.isEnabled();
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    await _service.setEnabled(enabled);
+  }
+}

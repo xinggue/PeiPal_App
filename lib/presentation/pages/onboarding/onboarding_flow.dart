@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,8 +12,10 @@ import '../../../data/services/api/quick_ai_setup_service.dart';
 import '../../../domain/models/asr_provider.dart';
 import '../../../domain/models/llm_provider.dart';
 import '../../../domain/models/ocr_provider.dart';
+import '../../../providers/providers.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/common/app_toast.dart';
+import '../settings/disclaimer_page.dart';
 
 /// 首次启动的四页引导：欢迎 -> 权限 -> 接入 AI -> 是否学习教程。
 class OnboardingFlow extends ConsumerStatefulWidget {
@@ -25,6 +29,9 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
     with WidgetsBindingObserver {
   final PageController _controller = PageController();
   int _page = 0;
+
+  bool _acceptedDisclaimer = false;
+  bool _telemetryEnabled = true;
 
   bool _requesting = false;
   bool _pendingSettingsRefresh = false;
@@ -142,6 +149,22 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
     await openAppSettings();
   }
 
+  Future<void> _handleWelcomeStart() async {
+    if (!_acceptedDisclaimer) return;
+    final repo = ref.read(settingsRepositoryProvider);
+    await repo.set('disclaimer_accepted_version', kDisclaimerVersion);
+    await repo.set(
+      'disclaimer_accepted_at',
+      DateTime.now().toIso8601String(),
+    );
+    await ref
+        .read(telemetryEnabledProvider.notifier)
+        .setEnabled(_telemetryEnabled);
+    if (mounted) {
+      _goTo(1);
+    }
+  }
+
   Future<void> _finish({required bool learnTutorial}) async {
     if (learnTutorial) {
       await ref
@@ -169,7 +192,15 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
                 physics: const NeverScrollableScrollPhysics(),
                 onPageChanged: (i) => setState(() => _page = i),
                 children: [
-                  _WelcomePage(onNext: () => _goTo(1)),
+                  _WelcomePage(
+                    acceptedDisclaimer: _acceptedDisclaimer,
+                    telemetryEnabled: _telemetryEnabled,
+                    onDisclaimerChanged: (v) =>
+                        setState(() => _acceptedDisclaimer = v),
+                    onTelemetryChanged: (v) =>
+                        setState(() => _telemetryEnabled = v),
+                    onNext: _handleWelcomeStart,
+                  ),
                   _PermissionPage(
                     granted: _granted,
                     requesting: _requesting,
@@ -214,86 +245,219 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
   }
 }
 
-class _WelcomePage extends StatelessWidget {
+class _WelcomePage extends StatefulWidget {
+  final bool acceptedDisclaimer;
+  final bool telemetryEnabled;
+  final ValueChanged<bool> onDisclaimerChanged;
+  final ValueChanged<bool> onTelemetryChanged;
   final VoidCallback onNext;
 
-  const _WelcomePage({required this.onNext});
+  const _WelcomePage({
+    required this.acceptedDisclaimer,
+    required this.telemetryEnabled,
+    required this.onDisclaimerChanged,
+    required this.onTelemetryChanged,
+    required this.onNext,
+  });
+
+  @override
+  State<_WelcomePage> createState() => _WelcomePageState();
+}
+
+class _WelcomePageState extends State<_WelcomePage> {
+  late final TapGestureRecognizer _disclaimerTapRecognizer =
+      TapGestureRecognizer()..onTap = _showDisclaimerDialog;
+
+  @override
+  void dispose() {
+    _disclaimerTapRecognizer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showDisclaimerDialog() async {
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('免责声明与隐私说明'),
+        content: const SizedBox(
+          width: 440,
+          child: SingleChildScrollView(
+            child: DisclaimerPrivacyContent(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('阅读并同意'),
+          ),
+        ],
+      ),
+    );
+    if (agreed == true && mounted) {
+      widget.onDisclaimerChanged(true);
+    }
+  }
+
+  void _showTelemetryFieldsDialog() {
+    showTelemetryFieldsDialog(context, mentionCloseSetting: true);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 104,
-            height: 104,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: colorScheme.primary.withValues(alpha: 0.22),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(26),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colorScheme.primary.withValues(alpha: 0.22),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: Image.asset(
-                'assets/icons/app_icon.png',
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => Container(
-                  color: colorScheme.primary,
-                  child: const Icon(Icons.auto_awesome,
-                      color: Colors.white, size: 44),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 28),
-          Text(
-            '欢迎使用小培同学',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: colorScheme.onSurface,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '把零散的文字、语音和图片\n整理成一份结构清晰的结果',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14.5,
-              height: 1.55,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 44),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: FilledButton(
-              onPressed: onNext,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(26),
+                  child: Image.asset(
+                    'assets/icons/app_icon.png',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      color: colorScheme.primary,
+                      child: const Icon(Icons.auto_awesome,
+                          color: Colors.white, size: 44),
+                    ),
+                  ),
                 ),
               ),
-              child: const Text(
-                '开始',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              const SizedBox(height: 24),
+              Text(
+                '欢迎使用小培同学',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: colorScheme.onSurface,
+                  letterSpacing: -0.4,
+                ),
               ),
-            ),
+              const SizedBox(height: 10),
+              Text(
+                '把零散的文字、语音和图片\n整理成一份结构清晰的结果',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  height: 1.55,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 28),
+              // 两行独立勾选：必选免责声明 + 可选匿名统计
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Checkbox(
+                    value: widget.acceptedDisclaimer,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: (v) => widget.onDisclaimerChanged(v ?? false),
+                  ),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colorScheme.onSurface,
+                          height: 1.4,
+                        ),
+                        children: [
+                          const TextSpan(text: '我已阅读并同意'),
+                          TextSpan(
+                            text: '《免责声明与隐私说明》',
+                            style: TextStyle(
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            recognizer: _disclaimerTapRecognizer,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Checkbox(
+                    value: widget.telemetryEnabled,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: (v) => widget.onTelemetryChanged(v ?? true),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () =>
+                          widget.onTelemetryChanged(!widget.telemetryEnabled),
+                      child: Text(
+                        '发送匿名使用统计（仅含版本号与系统类型）',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.help_outline_rounded,
+                      size: 17,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    tooltip: '查看上报字段',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    onPressed: _showTelemetryFieldsDialog,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: FilledButton(
+                  onPressed: widget.acceptedDisclaimer ? widget.onNext : null,
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    '开始',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -560,7 +724,7 @@ class _AiPromptPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '现在配好就可以直接启用 AI 能力；\n暂时没有也可以先跳过，随时可在「设置」里补配。',
+            '现在配好就可以直接启用 AI 能力；\n暂时没有也可以稍后配置，随时可在「设置」里补配。',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -589,7 +753,7 @@ class _AiPromptPage extends StatelessWidget {
           TextButton(
             onPressed: onNext,
             child: Text(
-              '没有，先跳过',
+              '稍后配置',
               style:
                   TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14),
             ),

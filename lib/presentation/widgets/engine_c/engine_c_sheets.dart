@@ -581,6 +581,9 @@ class _EngineCExportSheetState extends ConsumerState<EngineCExportSheet> {
 }
 
 class ExportPreviewPage extends StatefulWidget {
+  /// 兼容微信单条文本发送的安全加权长度上限（ASCII 计 1，非 ASCII 计 2）。
+  static const int copyWeightedLimit = 3800;
+
   final String text;
   final String suggestedFilePrefix;
 
@@ -590,24 +593,65 @@ class ExportPreviewPage extends StatefulWidget {
     required this.suggestedFilePrefix,
   });
 
+  /// 去除 JSON 缩进美化，用于剪贴板复制。非 JSON 文本原样返回。
+  static String compactForCopy(String raw) {
+    try {
+      return jsonEncode(jsonDecode(raw));
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  /// 按微信规则计算文本加权长度（ASCII 字符计 1，其余字符计 2）。
+  static int wechatWeightedLength(String text) {
+    var total = 0;
+    for (final rune in text.runes) {
+      total += rune < 0x80 ? 1 : 2;
+    }
+    return total;
+  }
+
   @override
   State<ExportPreviewPage> createState() => _ExportPreviewPageState();
 }
 
 class _ExportPreviewPageState extends State<ExportPreviewPage> {
-  static const _copyLimit = 1000;
+  late String _compactText;
   bool _saving = false;
+  bool _sharing = false;
 
-  bool get _canCopy => widget.text.length <= _copyLimit;
+  @override
+  void initState() {
+    super.initState();
+    _compactText = ExportPreviewPage.compactForCopy(widget.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant ExportPreviewPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _compactText = ExportPreviewPage.compactForCopy(widget.text);
+    }
+  }
+
+  bool get _canCopy =>
+      ExportPreviewPage.wechatWeightedLength(_compactText) <=
+      ExportPreviewPage.copyWeightedLimit;
 
   Future<void> _copy() async {
     if (!_canCopy) return;
-    await Clipboard.setData(ClipboardData(text: widget.text));
-    if (!mounted) return;
-    showAppToast(context, '已复制配置文本');
+    try {
+      await Clipboard.setData(ClipboardData(text: _compactText));
+      if (!mounted) return;
+      showAppToast(context, '已复制配置文本');
+    } catch (_) {
+      if (!mounted) return;
+      showAppToast(context, '复制失败，请使用分享发送文件');
+    }
   }
 
   Future<void> _saveFile() async {
+    if (_saving || _sharing) return;
     setState(() => _saving = true);
     try {
       final fileName = ConfigFileIo.buildFileName(widget.suggestedFilePrefix);
@@ -627,9 +671,31 @@ class _ExportPreviewPageState extends State<ExportPreviewPage> {
     }
   }
 
+  Future<void> _shareFile() async {
+    if (_saving || _sharing) return;
+    setState(() => _sharing = true);
+    try {
+      final fileName = ConfigFileIo.buildFileName(widget.suggestedFilePrefix);
+      await ConfigFileIo.shareTextFile(
+        content: widget.text,
+        fileName: fileName,
+        mimeType: 'text/plain',
+        subject: widget.suggestedFilePrefix,
+      );
+    } catch (e) {
+      if (mounted) {
+        showAppToast(context, '分享失败: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _sharing = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final count = widget.text.length;
+    final count = _compactText.length;
     return Scaffold(
       appBar: AppBar(title: const Text('确认导出')),
       body: Column(
@@ -644,11 +710,13 @@ class _ExportPreviewPageState extends State<ExportPreviewPage> {
                 ),
                 if (!_canCopy) ...[
                   const SizedBox(width: 8),
-                  Text(
-                    '超过 $_copyLimit 字，不能复制',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Theme.of(context).colorScheme.error,
+                  Expanded(
+                    child: Text(
+                      '内容长度超出上限，请使用分享发送文件',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 ],
@@ -676,34 +744,80 @@ class _ExportPreviewPageState extends State<ExportPreviewPage> {
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.copy, size: 18),
-                      label: const Text('复制配置文本'),
-                      onPressed: _canCopy ? _copy : null,
+              child: ConfigFileIo.supportsSystemShare
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.copy, size: 18),
+                            label: const Text('复制'),
+                            onPressed: _canCopy ? _copy : null,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: _saving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.save_alt, size: 18),
+                            label: const Text('保存'),
+                            onPressed: (_saving || _sharing) ? null : _saveFile,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: _sharing
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.share_outlined, size: 18),
+                            label: const Text('分享'),
+                            onPressed:
+                                (_saving || _sharing) ? null : _shareFile,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.copy, size: 18),
+                            label: const Text('复制配置文本'),
+                            onPressed: _canCopy ? _copy : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: _saving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.save_alt, size: 18),
+                            label: const Text('导出为配置文件'),
+                            onPressed: _saving ? null : _saveFile,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.save_alt, size: 18),
-                      label: const Text('导出为配置文件'),
-                      onPressed: _saving ? null : _saveFile,
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
         ],

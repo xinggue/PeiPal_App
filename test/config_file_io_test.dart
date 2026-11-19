@@ -138,4 +138,76 @@ void main() {
       expect(result, isNull);
     });
   });
+
+  group('system share channels', () {
+    const channel = MethodChannel('com.xinggue.docmasterPei/config_file');
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('shareTextFile invokes native shareTextFile on Android, iOS, and macOS', () async {
+      for (final platform in [
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+        TargetPlatform.macOS,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        MethodCall? recorded;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          recorded = call;
+          return true;
+        });
+
+        expect(ConfigFileIo.supportsSystemShare, isTrue);
+        final ok = await ConfigFileIo.shareTextFile(
+          content: 'diagnostic-log',
+          fileName: 'diag.txt',
+          mimeType: 'text/plain',
+          subject: '诊断日志',
+        );
+        expect(ok, isTrue);
+        expect(recorded?.method, 'shareTextFile');
+        expect(recorded?.arguments, {
+          'fileName': 'diag.txt',
+          'content': 'diagnostic-log',
+          'mimeType': 'text/plain',
+          'subject': '诊断日志',
+        });
+      }
+    });
+
+    test('shareBinaryFile passes sourcePath and returns false on Windows', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      MethodCall? recorded;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        recorded = call;
+        return true;
+      });
+
+      final ok = await ConfigFileIo.shareBinaryFile(
+        sourcePath: '/tmp/backup.zip',
+        fileName: 'backup.zip',
+        mimeType: 'application/zip',
+      );
+      expect(ok, isTrue);
+      expect(recorded?.method, 'shareBinaryFile');
+      expect(recorded?.arguments, {
+        'fileName': 'backup.zip',
+        'sourcePath': '/tmp/backup.zip',
+        'mimeType': 'application/zip',
+      });
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      expect(ConfigFileIo.supportsSystemShare, isFalse);
+      expect(ConfigFileIo.supportsRevealInFolder, isTrue);
+      expect(
+        await ConfigFileIo.shareTextFile(content: 'x', fileName: 'x.txt'),
+        isFalse,
+      );
+    });
+  });
 }

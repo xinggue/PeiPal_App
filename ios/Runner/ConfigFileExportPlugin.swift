@@ -23,7 +23,9 @@ private final class ConfigFileExportHandler: NSObject {
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let isTextExport = call.method == "saveWithDocumentPicker"
     let isFileExport = call.method == "saveFileWithDocumentPicker"
-    guard isTextExport || isFileExport else {
+    let isTextShare = call.method == "shareTextFile"
+    let isFileShare = call.method == "shareBinaryFile"
+    guard isTextExport || isFileExport || isTextShare || isFileShare else {
       result(FlutterMethodNotImplemented)
       return
     }
@@ -36,7 +38,7 @@ private final class ConfigFileExportHandler: NSObject {
     let rawName = (args["fileName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let lastComponent = (rawName as NSString).lastPathComponent
     let fileName = lastComponent.isEmpty
-      ? (isFileExport ? "peipal_backup.zip" : "docmaster_config.txt")
+      ? ((isFileExport || isFileShare) ? "peipal_backup.zip" : "docmaster_config.txt")
       : lastComponent
 
     guard let presenter = resolveTopViewController() else {
@@ -50,7 +52,7 @@ private final class ConfigFileExportHandler: NSObject {
 
     do {
       try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-      if isFileExport {
+      if isFileExport || isFileShare {
         guard let sourcePath = args["sourcePath"] as? String, !sourcePath.isEmpty else {
           try? FileManager.default.removeItem(at: tempDir)
           result(FlutterError(code: "BAD_ARGS", message: "缺少导出源文件路径", details: nil))
@@ -73,6 +75,32 @@ private final class ConfigFileExportHandler: NSObject {
     } catch {
       try? FileManager.default.removeItem(at: tempDir)
       result(FlutterError(code: "WRITE_FAILED", message: error.localizedDescription, details: nil))
+      return
+    }
+
+    if isTextShare || isFileShare {
+      let activityVC = UIActivityViewController(activityItems: [tempFile], applicationActivities: nil)
+      if let subject = args["subject"] as? String, !subject.isEmpty {
+        activityVC.setValue(subject, forKey: "subject")
+      }
+      if let popover = activityVC.popoverPresentationController {
+        popover.sourceView = presenter.view
+        popover.sourceRect = CGRect(
+          x: presenter.view.bounds.midX,
+          y: presenter.view.bounds.midY,
+          width: 0,
+          height: 0
+        )
+        popover.permittedArrowDirections = []
+      }
+      var completedOnce = false
+      activityVC.completionWithItemsHandler = { _, completed, _, _ in
+        if completedOnce { return }
+        completedOnce = true
+        try? FileManager.default.removeItem(at: tempDir)
+        result(completed)
+      }
+      presenter.present(activityVC, animated: true)
       return
     }
 

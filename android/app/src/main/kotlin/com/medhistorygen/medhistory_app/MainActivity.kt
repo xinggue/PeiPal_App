@@ -1,16 +1,19 @@
 package com.medhistorygen.medhistory_app
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.xinggue.docmasterPei/config_file"
@@ -67,9 +70,84 @@ class MainActivity : FlutterActivity() {
                         }
                         startActivityForResult(intent, createDocRequestCode)
                     }
+                    "shareTextFile" -> {
+                        val rawName = call.argument<String>("fileName") ?: "peipal_export.txt"
+                        val content = call.argument<String>("content")
+                        val mimeType = call.argument<String>("mimeType") ?: "text/plain"
+                        val subject = call.argument<String>("subject")
+                        if (content == null) {
+                            result.error("BAD_ARGS", "缺少分享内容", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val targetFile = prepareShareFile(rawName)
+                            targetFile.writeText(content, Charsets.UTF_8)
+                            launchShareSheet(targetFile, mimeType, subject)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SHARE_FAILED", e.message, null)
+                        }
+                    }
+                    "shareBinaryFile" -> {
+                        val rawName = call.argument<String>("fileName") ?: "peipal_backup.zip"
+                        val sourcePath = call.argument<String>("sourcePath")
+                        val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+                        val subject = call.argument<String>("subject")
+                        if (sourcePath.isNullOrBlank()) {
+                            result.error("BAD_ARGS", "缺少源文件路径", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val srcFile = File(sourcePath)
+                            if (!srcFile.exists()) {
+                                result.error("FILE_NOT_FOUND", "分享源文件不存在", null)
+                                return@setMethodCallHandler
+                            }
+                            val targetFile = prepareShareFile(rawName)
+                            srcFile.copyTo(targetFile, overwrite = true)
+                            launchShareSheet(targetFile, mimeType, subject)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SHARE_FAILED", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun prepareShareFile(rawName: String): File {
+        val shareRoot = File(cacheDir, "shared_exports")
+        if (!shareRoot.exists()) {
+            shareRoot.mkdirs()
+        } else {
+            val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+            shareRoot.listFiles()?.forEach { child ->
+                if (child.lastModified() < cutoff) {
+                    child.deleteRecursively()
+                }
+            }
+        }
+        val cleanName = File(rawName.trim()).name.ifEmpty { "peipal_export.txt" }
+        val batchDir = File(shareRoot, UUID.randomUUID().toString())
+        batchDir.mkdirs()
+        return File(batchDir, cleanName)
+    }
+
+    private fun launchShareSheet(file: File, mimeType: String, subject: String?) {
+        val authority = "${applicationContext.packageName}.fileprovider"
+        val uri = FileProvider.getUriForFile(this, authority, file)
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            if (!subject.isNullOrBlank()) {
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+            }
+            clipData = ClipData.newRawUri("", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(sendIntent, subject ?: file.name)
+        startActivity(chooser)
     }
 
     private fun saveTextToPublicDownloads(fileName: String, content: String): String {

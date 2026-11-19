@@ -11,6 +11,8 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
     let registrar = flutterViewController.registrar(forPlugin: "AppleVisionOcrPlugin")
     registerAppleVisionOcr(with: registrar)
+    let shareRegistrar = flutterViewController.registrar(forPlugin: "ConfigFileSharePlugin")
+    registerConfigFileShare(with: shareRegistrar, window: self)
 
     super.awakeFromNib()
   }

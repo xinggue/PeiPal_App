@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../logging/app_log_service.dart';
 import 'timing_params.dart';
 
 class BleDeviceConfig {
@@ -257,6 +258,7 @@ class BleService extends ChangeNotifier {
       }
 
       if (tx == null) {
+        AppLogService.instance.warn('BLE', '未找到串口写入特征值，断开连接');
         await device.disconnect();
         _setStatus(BleConnectionStatus.disconnected);
         return false;
@@ -289,8 +291,10 @@ class BleService extends ChangeNotifier {
       _startRssiPolling(device);
       _setStatus(BleConnectionStatus.connected);
       _eventController.add('connected');
+      AppLogService.instance.info('BLE', '已连接设备 name=${info.name}');
       return true;
-    } catch (_) {
+    } catch (e) {
+      AppLogService.instance.warn('BLE', '连接设备失败: $e');
       await _cancelWatch();
       await _cancelRx();
       _device = null;

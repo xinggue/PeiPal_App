@@ -9,6 +9,7 @@ import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import '../../../data/services/backup/session_backup_service.dart';
 import '../../../data/services/engine_c/config_file_io.dart';
 import '../../../providers/providers.dart';
+import '../common/export_action_sheet.dart';
 
 /// 展示不可误触关闭的中继进度弹窗并执行异步任务。
 Future<T> runWithBackupProgressDialog<T>({
@@ -282,26 +283,63 @@ class _SessionExportCardState extends ConsumerState<SessionExportCard> {
                 password: password.isEmpty ? null : password,
                 onProgress: updateProgress,
               );
-          updateProgress(const SessionBackupProgress(message: '正在打开系统保存界面…'));
+          updateProgress(const SessionBackupProgress(message: '备份包已生成…'));
           return exportRes;
         },
       );
 
       if (!mounted) return;
-      final savedLocation = await ConfigFileIo.saveBinaryFile(
-        sourcePath: result.file.path,
-        suggestedName: fileName,
-      );
+      final summaryText =
+          '${result.patientCount} 个会话、${result.messageCount} 条记录 (${_formatBytes(result.zipBytes)})';
 
-      if (!mounted) return;
-      if (savedLocation == null) {
-        showAppToast(context, '已取消备份');
-      } else {
-        showAppToast(
+      if (ConfigFileIo.supportsSystemShare) {
+        var exportedAny = false;
+        await showExportFileSheet(
           context,
-          '已备份 ${result.patientCount} 个会话、${result.messageCount} 条记录 (${_formatBytes(result.zipBytes)})',
+          title: '备份包已就绪',
+          summary: summaryText,
+          allowMultipleActions: true,
+          savedSuccessPrefix: '已保存备份包',
+          sharedSuccessMessage: '已发起系统分享',
+          onShare: () async {
+            final ok = await ConfigFileIo.shareBinaryFile(
+              sourcePath: result.file.path,
+              fileName: fileName,
+              mimeType: 'application/zip',
+              subject: '小培同学会话备份',
+            );
+            if (ok) exportedAny = true;
+            return ok;
+          },
+          onSave: () async {
+            final saved = await ConfigFileIo.saveBinaryFile(
+              sourcePath: result.file.path,
+              suggestedName: fileName,
+            );
+            if (saved != null) exportedAny = true;
+            return saved;
+          },
         );
-        widget.onExported?.call();
+        if (exportedAny && mounted) {
+          widget.onExported?.call();
+        }
+      } else {
+        final savedLocation = await ConfigFileIo.saveBinaryFile(
+          sourcePath: result.file.path,
+          suggestedName: fileName,
+        );
+
+        if (!mounted) return;
+        if (savedLocation == null) {
+          showAppToast(context, '已取消备份');
+        } else {
+          showSavedFileNotice(
+            context,
+            message: '已备份 $summaryText',
+            savedPath: savedLocation,
+          );
+          widget.onExported?.call();
+        }
       }
     } catch (e) {
       if (mounted) {

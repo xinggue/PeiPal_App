@@ -766,14 +766,6 @@ class ChatInputBarState extends State<ChatInputBar> {
             widget.onManualGenerateRecord!();
           },
         ),
-      _buildPanelItem(
-        icon: Icons.draw_rounded,
-        label: '手写画板',
-        color: Colors.blueGrey,
-        onTap: () {
-          showAppToast(context, '手写画板功能正在规划中，敬请期待');
-        },
-      ),
       if (widget.isDryRunEnabled)
         _buildPanelItem(
           icon: Icons.bug_report_outlined,

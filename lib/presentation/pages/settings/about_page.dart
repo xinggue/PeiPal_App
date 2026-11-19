@@ -4,10 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../data/services/engine_c/config_file_io.dart';
+import '../../../data/services/logging/app_log_service.dart';
 import '../../../data/services/update/app_update_service.dart';
+import '../../../providers/asr_providers_provider.dart';
+import '../../../providers/llm_providers_provider.dart';
+import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/common/app_toast.dart';
+import '../../widgets/common/export_action_sheet.dart';
+import 'disclaimer_page.dart';
 
 class AboutPage extends ConsumerStatefulWidget {
   const AboutPage({super.key});
@@ -20,11 +27,90 @@ class _AboutPageState extends ConsumerState<AboutPage> {
   bool _isCheckingUpdate = false;
   AppUpdateInfo? _updateInfo;
   String? _checkError;
+  AppLogStats? _logStats;
+  bool _isExportingLogs = false;
 
   @override
   void initState() {
     super.initState();
     _checkUpdateSilently();
+    _loadLogStats();
+  }
+
+  Future<void> _loadLogStats() async {
+    final stats = await AppLogService.instance.getStats();
+    if (mounted) {
+      setState(() => _logStats = stats);
+    }
+  }
+
+  String _formatLogSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _exportDiagnostics() async {
+    if (_isExportingLogs) return;
+    setState(() => _isExportingLogs = true);
+    try {
+      final llm = ref.read(llmProvidersProvider).activeProvider;
+      final asr = ref.read(asrProvidersProvider).activeProvider;
+      final ocr = ref.read(ocrProvidersProvider).activeProvider;
+      final summary = <String, String>{
+        'LLM': llm == null
+            ? '未配置'
+            : '${llm.name} (${llm.selectedModel}) key=${llm.apiKey.isNotEmpty ? '已配置' : '空'}',
+        'ASR': asr == null
+            ? '未配置'
+            : '${asr.name} key=${asr.apiKey.isNotEmpty ? '已配置' : '空'}',
+        'OCR': ocr == null
+            ? '未配置'
+            : '${ocr.name} (${ocr.selectedModel}) key=${ocr.apiKey.isNotEmpty ? '已配置' : '空'}',
+      };
+      final report = await AppLogService.instance.buildDiagnosticReport(
+        configSummary: summary,
+      );
+      if (!mounted) return;
+      setState(() => _isExportingLogs = false);
+
+      final fileName = ConfigFileIo.buildFileName('小培诊断日志', extension: 'txt');
+      await showExportFileSheet(
+        context,
+        title: '导出诊断日志',
+        summary: '已脱敏处理，不含 API 密钥与任何会话正文',
+        savedSuccessPrefix: '已保存诊断日志',
+        onShare: () => ConfigFileIo.shareTextFile(
+          content: report,
+          fileName: fileName,
+          mimeType: 'text/plain',
+          subject: '小培同学诊断日志',
+        ),
+        onSave: () => ConfigFileIo.saveConfigTextFile(
+          content: report,
+          suggestedName: fileName,
+          typeLabel: '诊断日志',
+          extensions: const ['txt'],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isExportingLogs = false);
+        showAppToast(context, '导出日志失败：$e');
+      }
+    }
+  }
+
+  Future<void> _clearLogs() async {
+    await AppLogService.instance.clearLogs();
+    await _loadLogStats();
+    if (mounted) {
+      showAppToast(context, '已清理本地日志', type: ToastType.success);
+    }
+  }
+
+  void _showTelemetryFieldsDialog() {
+    showTelemetryFieldsDialog(context);
   }
 
   Future<void> _checkUpdateSilently() async {
@@ -232,7 +318,7 @@ class _AboutPageState extends ConsumerState<AboutPage> {
               titleAlignment: ListTileTitleAlignment.center,
               leading: Icon(Icons.school_outlined, color: colorScheme.primary),
               title: const Text('重新开启入门操作演练', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: const Text('演练会话管理、素材整理与病历生成流程', style: TextStyle(fontSize: 12)),
+              subtitle: const Text('演练会话管理、素材整理与结果生成流程', style: TextStyle(fontSize: 12)),
               trailing: _trailingIcon(Icons.play_circle_outline_rounded),
               onTap: () async {
                 final sampleService = ref.read(sampleDataServiceProvider);
@@ -282,13 +368,77 @@ class _AboutPageState extends ConsumerState<AboutPage> {
 
           const SizedBox(height: 16),
 
+          // 4. 诊断与统计
+          _buildGroupLabel('诊断与统计'),
+          _buildCard([
+            ListTile(
+              titleAlignment: ListTileTitleAlignment.center,
+              leading: Icon(Icons.bug_report_outlined, color: colorScheme.primary),
+              title: const Text('导出诊断日志', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: Text(
+                _logStats == null
+                    ? '本地运行与异常日志（已脱敏）'
+                    : '本地共 ${_formatLogSize(_logStats!.totalBytes)}'
+                        '${_logStats!.crashCount > 0 ? ' · ${_logStats!.crashCount} 条异常记录' : ''}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              trailing: _isExportingLogs
+                  ? const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  : _trailingIcon(Icons.share_outlined),
+              onTap: _isExportingLogs ? null : _exportDiagnostics,
+            ),
+            if ((_logStats?.totalBytes ?? 0) > 0) ...[
+              const Divider(height: 1),
+              ListTile(
+                titleAlignment: ListTileTitleAlignment.center,
+                leading: Icon(Icons.cleaning_services_outlined, color: colorScheme.onSurfaceVariant),
+                title: const Text('清理本地日志', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                subtitle: const Text('释放本地缓存的运行与崩溃日志', style: TextStyle(fontSize: 12)),
+                onTap: _clearLogs,
+              ),
+            ],
+            const Divider(height: 1),
+            SwitchListTile(
+              secondary: Icon(Icons.analytics_outlined, color: colorScheme.primary),
+              title: Row(
+                children: [
+                  const Text('匿名使用统计', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: _showTelemetryFieldsDialog,
+                    child: Icon(
+                      Icons.help_outline_rounded,
+                      size: 16,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              subtitle: const Text('仅含版本号与系统类型，不含业务数据', style: TextStyle(fontSize: 12)),
+              value: ref.watch(telemetryEnabledProvider),
+              onChanged: (v) => ref.read(telemetryEnabledProvider.notifier).setEnabled(v),
+            ),
+          ]),
+
+          const SizedBox(height: 16),
+
           _buildGroupLabel('其他'),
           _buildCard([
             ListTile(
               titleAlignment: ListTileTitleAlignment.center,
               leading: Icon(Icons.gavel_rounded, color: colorScheme.primary),
-              title: const Text('免责声明', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: const Text('功能边界与数据责任说明', style: TextStyle(fontSize: 12)),
+              title: const Text('免责声明与隐私说明', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: const Text('软件定位、第三方服务与隐私边界', style: TextStyle(fontSize: 12)),
               trailing: _trailingIcon(Icons.chevron_right),
               onTap: () => context.push('/settings/disclaimer'),
             ),

@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../logging/app_log_service.dart';
+
 class AppUpdateInfo {
   final bool hasUpdate;
   final String currentVersion;
@@ -93,7 +95,9 @@ class AppUpdateService {
           releasePageUrl: releasePage,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogService.instance.warn('Update', 'Gitee 检查更新失败: $e');
+    }
 
     // 2. 备用尝试 GitHub release-manifest.json
     try {
@@ -132,7 +136,9 @@ class AppUpdateService {
           releasePageUrl: giteeRel.isNotEmpty ? giteeRel : githubRel,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogService.instance.warn('Update', 'GitHub 检查更新失败: $e');
+    }
 
     // 网络不可达或未发现新版
     return AppUpdateInfo(

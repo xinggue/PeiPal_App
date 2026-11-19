@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import '../../domain/models/message.dart';
 import '../repositories/message_repository.dart';
 import 'api/api_service.dart';
+import 'logging/app_log_service.dart';
 import 'task/task_center.dart';
 
 /// 异步并发控制器：限制同时发往云端接口的最大请求数，防止突发多图请求触发第三方限流或封禁
@@ -151,11 +152,13 @@ class ProcessingService extends StateNotifier<int> {
         bgTask.status = TaskStatus.failed;
         bgTask.error = resultText;
         bgTask.stageDescription = '转写失败';
+        AppLogService.instance.warn('ASR', '语音转写失败 duration=${stopwatch.elapsedMilliseconds}ms');
       } else {
         bgTask.status = TaskStatus.success;
         bgTask.progress = 1.0;
         bgTask.stageDescription = '转写完成';
         bgTask.resultMessageId = placeholder.id;
+        AppLogService.instance.info('ASR', '语音转写完成 duration=${stopwatch.elapsedMilliseconds}ms');
       }
       _taskCenter.notifyTaskUpdated();
     }
@@ -233,11 +236,19 @@ class ProcessingService extends StateNotifier<int> {
         bgTask.stageDescription = resultText.contains('【部分页面识别失败】')
             ? '部分页面异常'
             : 'OCR失败';
+        AppLogService.instance.warn(
+          'OCR',
+          'OCR异常 pages=${filePaths.length} duration=${stopwatch.elapsedMilliseconds}ms',
+        );
       } else {
         bgTask.status = TaskStatus.success;
         bgTask.progress = 1.0;
         bgTask.stageDescription = '识别完成';
         bgTask.resultMessageId = taskId;
+        AppLogService.instance.info(
+          'OCR',
+          'OCR完成 pages=${filePaths.length} duration=${stopwatch.elapsedMilliseconds}ms',
+        );
       }
       _taskCenter.notifyTaskUpdated();
     }
@@ -253,13 +264,17 @@ class ProcessingService extends StateNotifier<int> {
       final code = e.response?.statusCode;
       if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout) {
+        AppLogService.instance.warn(service, '请求超时 type=${e.type.name}');
         return '$service超时\n服务器未在预期时间内响应';
       }
       if (e.type == DioExceptionType.connectionError) {
+        AppLogService.instance.warn(service, '网络连接失败');
         return '$service失败\n无法连接到服务器\n请检查网络和接口地址';
       }
+      AppLogService.instance.warn(service, '请求失败 status=$code type=${e.type.name}');
       return '$service失败\n${code != null ? "HTTP $code" : "网络错误"}\n${e.message ?? ''}';
-    } catch (e) {
+    } catch (e, st) {
+      AppLogService.instance.error(service, '处理异常', e, st);
       return '$service失败\n$e';
     }
   }

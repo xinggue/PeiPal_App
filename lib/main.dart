@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/services/ble/character_sanitizer.dart';
+import 'data/services/logging/app_log_service.dart';
 import 'data/services/media/ocr_image_optimizer.dart';
 import 'presentation/pages/onboarding/onboarding_flow.dart';
 import 'presentation/widgets/ble/draggable_typing_overlay.dart';
@@ -21,6 +23,41 @@ import 'providers/tutorial_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  final log = AppLogService.instance;
+  unawaited(log.init());
+  log.info('App', '启动平台=${kIsWeb ? 'web' : Platform.operatingSystem}');
+
+  final previousOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    unawaited(log.recordCrash('FlutterError', details.exception, details.stack));
+    if (previousOnError != null) {
+      previousOnError(details);
+    } else {
+      FlutterError.presentError(details);
+    }
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    unawaited(log.recordCrash('PlatformDispatcher', error, stack));
+    return kReleaseMode;
+  };
+
+  if (kReleaseMode) {
+    ErrorWidget.builder = (details) => Material(
+          color: Colors.white,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                '页面渲染出现异常，请返回重试',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
+              ),
+            ),
+          ),
+        );
+  }
 
   // 为 Windows / Linux / macOS 桌面端启用 sqflite_common_ffi 引擎
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
@@ -69,16 +106,20 @@ class DocMasterPeiApp extends ConsumerWidget {
         ),
       ),
       error: (_, _) => _buildMainApp(router, fontScale),
-      data: (done) => done
-          ? _buildMainApp(router, fontScale)
-          : MaterialApp(
-              title: '小培同学',
-              debugShowCheckedModeBanner: false,
-              themeMode: ThemeMode.light,
-              theme: AppTheme.lightTheme,
-              locale: const Locale('zh', 'CN'),
-              home: const OnboardingFlow(),
-            ),
+      data: (done) {
+        if (done) {
+          unawaited(ref.read(telemetryServiceProvider).pingIfNeeded());
+          return _buildMainApp(router, fontScale);
+        }
+        return MaterialApp(
+          title: '小培同学',
+          debugShowCheckedModeBanner: false,
+          themeMode: ThemeMode.light,
+          theme: AppTheme.lightTheme,
+          locale: const Locale('zh', 'CN'),
+          home: const OnboardingFlow(),
+        );
+      },
     );
   }
 
