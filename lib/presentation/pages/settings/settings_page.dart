@@ -1,15 +1,11 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../data/services/ble/character_sanitizer.dart';
-import '../../../data/services/qr/qr_pack_service.dart';
 import '../../../providers/asr_providers_provider.dart';
+import '../../../providers/document_parser_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
-import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
 import '../../../providers/storefront_compliance_provider.dart';
 import '../../../providers/tutorial_provider.dart';
@@ -26,7 +22,6 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final fontScale = ref.watch(appFontScaleProvider);
     final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
-    final isIos = !kIsWeb && Platform.isIOS;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final tutorial = ref.watch(tutorialProvider);
@@ -113,10 +108,20 @@ class SettingsPage extends ConsumerWidget {
                   builder: (ctx, ref, _) {
                     final active = ref.watch(llmProvidersProvider).activeProvider;
                     if (active == null || !active.isConfigured) {
-                      return const Text('未配置 Key');
+                      return const _InlineCodeRow(
+                        badges: [_InlineCodeSpec('未配置 Key', muted: true)],
+                      );
                     }
                     final model = active.selectedModel.trim();
-                    return Text(model.isEmpty ? '${active.name} · 未设定模型' : model);
+                    return _InlineCodeRow(
+                      badges: [
+                        _InlineCodeSpec(active.name),
+                        if (model.isNotEmpty)
+                          _InlineCodeSpec(model, mono: true, highlighted: true)
+                        else
+                          const _InlineCodeSpec('未设定模型', muted: true),
+                      ],
+                    );
                   },
                 ),
                 trailing: const Icon(Icons.chevron_right),
@@ -127,7 +132,6 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.notes_outlined),
               title: const Text('提示词', style: _title),
-              subtitle: const Text('系统提示词与阶段生成编排'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/prompts'),
             ),
@@ -137,12 +141,23 @@ class SettingsPage extends ConsumerWidget {
               title: const Text('图像识别', style: _title),
               subtitle: Consumer(
                 builder: (ctx, ref, _) {
-                  final active =
-                      ref.watch(ocrProvidersProvider).activeProvider;
+                  final active = ref.watch(ocrProvidersProvider).activeProvider;
                   if (active == null || !active.isConfigured) {
-                    return const Text('未配置');
+                    return const _InlineCodeRow(
+                      badges: [_InlineCodeSpec('未配置', muted: true)],
+                    );
                   }
-                  return Text('${active.name} (${active.selectedModel})');
+                  final model = active.selectedModel.trim();
+                  return _InlineCodeRow(
+                    badges: [
+                      _InlineCodeSpec(
+                        active.name,
+                        highlighted: model.isEmpty || model == active.name,
+                      ),
+                      if (model.isNotEmpty && model != active.name)
+                        _InlineCodeSpec(model, mono: true, highlighted: true),
+                    ],
+                  );
                 },
               ),
               trailing: const Icon(Icons.chevron_right),
@@ -152,8 +167,20 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.description_outlined),
               title: const Text('文件解析', style: _title),
-              subtitle: Text(ref.watch(documentParserProvider).valueOrNull?.activeProvider?.isConfigured == true
-                  ? ref.watch(documentParserProvider).requireValue.activeProvider!.name : '未配置'),
+              subtitle: Consumer(
+                builder: (ctx, ref, _) {
+                  final active =
+                      ref.watch(documentParserProvider).valueOrNull?.activeProvider;
+                  if (active == null || !active.isConfigured) {
+                    return const _InlineCodeRow(
+                      badges: [_InlineCodeSpec('未配置', muted: true)],
+                    );
+                  }
+                  return _InlineCodeRow(
+                    badges: [_InlineCodeSpec(active.name, highlighted: true)],
+                  );
+                },
+              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/document-parser'),
             ),
@@ -163,15 +190,25 @@ class SettingsPage extends ConsumerWidget {
               title: const Text('语音识别', style: _title),
               subtitle: Consumer(
                 builder: (ctx, ref, _) {
-                  final active =
-                      ref.watch(asrProvidersProvider).activeProvider;
+                  final active = ref.watch(asrProvidersProvider).activeProvider;
                   if (active == null || !active.isConfigured) {
-                    return const Text('未配置');
+                    return const _InlineCodeRow(
+                      badges: [_InlineCodeSpec('未配置', muted: true)],
+                    );
                   }
-                  if (active.isLocal) {
-                    return Text(active.name);
-                  }
-                  return Text('${active.name} (${active.selectedModel})');
+                  final model = active.selectedModel.trim();
+                  return _InlineCodeRow(
+                    badges: [
+                      _InlineCodeSpec(
+                        active.name,
+                        highlighted: active.isLocal || model.isEmpty,
+                      ),
+                      if (!active.isLocal &&
+                          model.isNotEmpty &&
+                          model != active.name)
+                        _InlineCodeSpec(model, mono: true, highlighted: true),
+                    ],
+                  );
                 },
               ),
               trailing: const Icon(Icons.chevron_right),
@@ -186,11 +223,17 @@ class SettingsPage extends ConsumerWidget {
               subtitle: Consumer(
                 builder: (ctx, ref, _) {
                   final ble = ref.watch(bleServiceProvider);
-                  return Text(
-                    ble.isConnected ? '已连接: ${ble.connectedName ?? "键盘"}' : '未连接',
-                    style: TextStyle(
-                      color: ble.isConnected ? colorScheme.primary : colorScheme.onSurfaceVariant,
-                    ),
+                  if (!ble.isConnected) {
+                    return const _InlineCodeRow(
+                      badges: [_InlineCodeSpec('未连接', muted: true)],
+                    );
+                  }
+                  final name = (ble.connectedName ?? '').trim();
+                  return _InlineCodeRow(
+                    badges: [
+                      const _InlineCodeSpec('已连接', highlighted: true),
+                      if (name.isNotEmpty) _InlineCodeSpec(name, mono: true),
+                    ],
                   );
                 },
               ),
@@ -201,7 +244,6 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.speed),
               title: const Text('键盘参数与输入速度', style: _title),
-              subtitle: const Text('打字节奏、按键延迟与时序预设'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/timing'),
             ),
@@ -209,25 +251,13 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.qr_code_2),
               title: const Text('二维码', style: _title),
-              subtitle: Consumer(
-                builder: (ctx, ref, _) {
-                  final qr = ref.watch(qrConfigProvider);
-                  return Text('单包限额 ${qr.chunkSize} 字符');
-                },
-              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/qr'),
             ),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.spellcheck),
-              title: const Text('字符替换', style: _title),
-              subtitle: Consumer(
-                builder: (ctx, ref, _) {
-                  final rules = ref.watch(charReplacementRulesProvider);
-                  return Text(rules.isEmpty ? '默认转义规则' : '${rules.length} 条替换规则');
-                },
-              ),
+              title: const Text('特殊字符替换', style: _title),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/char-replacement'),
             ),
@@ -237,7 +267,6 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.forum_outlined),
               title: const Text('会话数据备份与恢复', style: _title),
-              subtitle: const Text('备份或恢复会话、消息、结果与媒体'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/session-backup'),
             ),
@@ -245,7 +274,6 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.tune_outlined),
               title: const Text('模板与配置导入导出', style: _title),
-              subtitle: Text(isAiRestricted ? '模板、词条与系统参数' : '模板、词条、AI 密钥与系统参数'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/backup'),
             ),
@@ -255,7 +283,6 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('关于与帮助', style: _title),
-              subtitle: Text(isIos ? '新手教程、开源社区与隐私说明' : '版本检测、新手教程与开源社区'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/about'),
             ),
@@ -307,6 +334,89 @@ class SettingsPage extends ConsumerWidget {
         side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.15)),
       ),
       child: Column(children: children),
+    );
+  }
+}
+
+class _InlineCodeSpec {
+  final String text;
+  final bool mono;
+  final bool highlighted;
+  final bool muted;
+
+  const _InlineCodeSpec(
+    this.text, {
+    this.mono = false,
+    this.highlighted = false,
+    this.muted = false,
+  });
+}
+
+class _InlineCodeRow extends StatelessWidget {
+  final List<_InlineCodeSpec> badges;
+
+  const _InlineCodeRow({required this.badges});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        children: [
+          for (final b in badges) _InlineCodePill(spec: b),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineCodePill extends StatelessWidget {
+  final _InlineCodeSpec spec;
+
+  const _InlineCodePill({required this.spec});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final Color bg;
+    final Color border;
+    final Color fg;
+
+    if (spec.highlighted) {
+      bg = scheme.primary.withValues(alpha: 0.10);
+      border = scheme.primary.withValues(alpha: 0.25);
+      fg = scheme.primary;
+    } else if (spec.muted) {
+      bg = scheme.surfaceContainerHighest.withValues(alpha: 0.45);
+      border = scheme.outlineVariant.withValues(alpha: 0.45);
+      fg = scheme.onSurfaceVariant.withValues(alpha: 0.8);
+    } else {
+      bg = scheme.surfaceContainerHighest.withValues(alpha: 0.65);
+      border = scheme.outlineVariant.withValues(alpha: 0.6);
+      fg = scheme.onSurfaceVariant;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: border, width: 0.8),
+      ),
+      child: Text(
+        spec.text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 11.5,
+          height: 1.25,
+          fontFamily: spec.mono ? 'monospace' : null,
+          fontWeight: spec.highlighted ? FontWeight.w600 : FontWeight.w500,
+          color: fg,
+        ),
+      ),
     );
   }
 }

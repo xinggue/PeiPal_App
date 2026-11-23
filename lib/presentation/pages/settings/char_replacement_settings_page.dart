@@ -70,7 +70,7 @@ class CharReplacementSettingsPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('字符替换'),
+        title: const Text('特殊字符替换'),
         actions: [
           IconButton(
             icon: const Icon(Icons.restart_alt),

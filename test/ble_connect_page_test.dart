@@ -119,21 +119,21 @@ void main() {
       // 2. 初始未扫描时设备列表收起（不占位）
       expect(find.textContaining('未发现设备'), findsNothing);
 
-      // 3. 保留可用提醒芯片，并验证自上而下排列顺序：扫描 -> 测试输入 -> 键盘参数与输入速度 -> 悬浮窗/快捷动作库/字符替换
+      // 3. 保留可用提醒芯片，并验证自上而下排列顺序：扫描 -> 测试输入 -> 键盘参数与输入速度 -> 悬浮窗/快捷动作库/特殊字符替换
       expect(find.text('应用内通知'), findsOneWidget);
       expect(find.text('震动'), findsOneWidget);
       expect(find.byType(SpeedPresetSquareGrid), findsOneWidget);
       expect(find.text('测试输入'), findsOneWidget);
       expect(find.text('微调参数'), findsOneWidget);
       expect(find.textContaining('· 微调'), findsNothing);
-      expect(find.text('字符替换'), findsOneWidget);
+      expect(find.text('特殊字符替换'), findsOneWidget);
 
       final scanY = tester.getTopLeft(find.text('扫描设备')).dy;
       final testY = tester.getTopLeft(find.text('测试输入')).dy;
       final speedY = tester.getTopLeft(find.text('键盘参数与输入速度')).dy;
       final overlayY = tester.getTopLeft(find.text('全局键盘悬浮窗')).dy;
       final quickPresetY = tester.getTopLeft(find.text('快捷动作预设库')).dy;
-      final charReplaceY = tester.getTopLeft(find.text('字符替换')).dy;
+      final charReplaceY = tester.getTopLeft(find.text('特殊字符替换')).dy;
       expect(scanY, lessThan(testY));
       expect(testY, lessThan(speedY));
       expect(speedY, lessThan(overlayY));
@@ -177,11 +177,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('TIMING_FINE_TUNE'), findsOneWidget);
 
-      // 返回后点击“字符替换”可进入字符替换页
+      // 返回后点击“特殊字符替换”可进入特殊字符替换页
       router.pop();
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('字符替换'));
-      await tester.tap(find.text('字符替换'));
+      await tester.ensureVisible(find.text('特殊字符替换'));
+      await tester.tap(find.text('特殊字符替换'));
       await tester.pumpAndSettle();
       expect(find.text('CHAR_REPLACEMENT_PAGE'), findsOneWidget);
 

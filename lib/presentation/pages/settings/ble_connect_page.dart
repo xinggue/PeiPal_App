@@ -293,7 +293,7 @@ class _BleConnectPageState extends ConsumerState<BleConnectPage> {
                 ListTile(
                   leading: Icon(Icons.spellcheck, color: scheme.primary),
                   title: const Text(
-                    '字符替换',
+                    '特殊字符替换',
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                   trailing: const Icon(Icons.chevron_right),
