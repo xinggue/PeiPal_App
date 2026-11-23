@@ -196,7 +196,7 @@ class _BleConnectManualSheetState extends ConsumerState<BleConnectManualSheet> {
           ),
           const SizedBox(height: 6),
           Text(
-            '当前尚未连接键盘。请在下方选择你的 ESP32 小培键盘完成连接。',
+            '当前尚未连接键盘。请在下方选择你的小培键盘完成连接。',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
           ),
           const Divider(height: 20),

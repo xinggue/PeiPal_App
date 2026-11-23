@@ -598,7 +598,7 @@ class _StatusCard extends ConsumerWidget {
     showDialog<void>(
       context: context,
       builder: (_) => _RenameKeyboardDialog(
-        initialName: ble.connectedName ?? 'ESP32C3 键盘',
+        initialName: ble.connectedName ?? '小培键盘',
         ble: ble,
         parentContext: context,
         ref: ref,
