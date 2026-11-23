@@ -155,8 +155,10 @@ class _StructureSection extends ConsumerWidget {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: theme.copyWith(dividerColor: Colors.transparent),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Theme(
+          data: theme.copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           initiallyExpanded: true,
           tilePadding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
@@ -256,9 +258,11 @@ class _StructureSection extends ConsumerWidget {
                               width: 1,
                             ),
                           ),
-                          child: ListTile(
+                          child: Material(
+                            type: MaterialType.transparency,
+                            child: ListTile(
                             dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                             leading: Container(
                               width: 32,
                               height: 32,
@@ -275,10 +279,6 @@ class _StructureSection extends ConsumerWidget {
                             title: Text(
                               ct.name,
                               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                            ),
-                            subtitle: Text(
-                              '${ct.filledSlotCount}/${template.slots.length} 个字段已填入范例',
-                              style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
                             ),
                             trailing: PopupMenuButton<String>(
                               onSelected: (action) {
@@ -335,6 +335,7 @@ class _StructureSection extends ConsumerWidget {
                             ),
                             onTap: () => context.push(
                                 '/templates/${template.id}/content/${ct.id}/edit'),
+                            ),
                           ),
                         ),
                     ],
@@ -351,6 +352,7 @@ class _StructureSection extends ConsumerWidget {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

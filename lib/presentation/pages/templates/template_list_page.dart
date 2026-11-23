@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
+import 'template_actions_sheet.dart';
 
 class TemplateListPage extends ConsumerWidget {
   const TemplateListPage({super.key});
@@ -37,108 +38,6 @@ class TemplateListPage extends ConsumerWidget {
         data: (list) => _buildList(context, ref, list),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('加载失败: $err')),
-      ),
-    );
-  }
-
-  void _showTemplateActions(BuildContext context, WidgetRef ref, Template t) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(t.name,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('编辑'),
-              onTap: () {
-                Navigator.pop(ctx);
-                context.push('/templates/${t.id}/edit');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.add_box_outlined),
-              title: const Text('新建内容模板（基于该结构）'),
-              onTap: () {
-                Navigator.pop(ctx);
-                context.push('/templates/${t.id}/content/new');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.article_outlined),
-              title: const Text('查看其内容模板'),
-              onTap: () {
-                Navigator.pop(ctx);
-                context.push('/content-templates');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.cloud_upload_outlined),
-              title: const Text('发布到在线模板广场'),
-              onTap: () {
-                Navigator.pop(ctx);
-                EngineCExportSheet.showForTemplate(
-                  context,
-                  t,
-                  publishKind: 'structure',
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.ios_share),
-              title: const Text('导出模板'),
-              onTap: () {
-                Navigator.pop(ctx);
-                EngineCExportSheet.showForTemplate(context, t);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('删除文书类型', style: TextStyle(color: Colors.red)),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final cts = await ref
-                    .read(contentTemplateRepositoryProvider)
-                    .getByStructure(t.id);
-                if (!context.mounted) return;
-
-                final warning = cts.isEmpty
-                    ? '确定要删除文书类型「${t.name}」吗？'
-                    : '确定要删除文书类型「${t.name}」吗？\n\n'
-                        '⚠️ 警告：该结构下的 ${cts.length} 个内容模板也将被一并永久删除！';
-
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (c) => AlertDialog(
-                    title: const Text('确认删除'),
-                    content: Text(warning),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(c, false),
-                          child: const Text('取消')),
-                      TextButton(
-                        onPressed: () => Navigator.pop(c, true),
-                        child: const Text('删除',
-                            style: TextStyle(color: Colors.red)),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirm == true) {
-                  await ref.read(templateRepositoryProvider).delete(t.id);
-                  ref.invalidate(templatesProvider);
-                  ref.invalidate(contentTemplatesProvider(t.id));
-                }
-              },
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -213,7 +112,7 @@ class TemplateListPage extends ConsumerWidget {
             ),
             trailing: IconButton(
               icon: const Icon(Icons.more_vert),
-              onPressed: () => _showTemplateActions(context, ref, t),
+              onPressed: () => showTemplateActionsSheet(context, ref, t),
             ),
             onTap: () => context.push('/templates/${t.id}/edit'),
           ),
