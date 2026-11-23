@@ -1,5 +1,6 @@
 import AppKit
 import FlutterMacOS
+import ImageIO
 import Vision
 
 func registerAppleVisionOcr(with registrar: FlutterPluginRegistrar) {
@@ -47,8 +48,8 @@ private func recognizeImages(paths: [String], languages: [String]) -> String {
 
 private func recognizeImage(path: String, languages: [String]) -> String {
   let url = URL(fileURLWithPath: path)
-  guard let image = NSImage(contentsOf: url),
-        let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+  guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+        CGImageSourceGetCount(source) > 0 else {
     return "[无法读取图片]"
   }
 
@@ -57,22 +58,59 @@ private func recognizeImage(path: String, languages: [String]) -> String {
   request.usesLanguageCorrection = true
   request.recognitionLanguages = languages
 
-  let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+  // 传文件 URL 让 Vision 自动读取并应用 EXIF 方向，避免竖拍/旋转图识别错乱
+  let handler = VNImageRequestHandler(url: url, options: [:])
   do {
     try handler.perform([request])
   } catch {
     return "[识别失败 \(error.localizedDescription)]"
   }
 
-  let observations = request.results ?? []
-  let sorted = observations.sorted { a, b in
-    let ay = a.boundingBox.midY
-    let by = b.boundingBox.midY
-    if abs(ay - by) > 0.012 {
-      return ay > by
+  return formatObservations(request.results ?? [])
+}
+
+/// 先严格按 Y 降序排列并聚类成行，再在行内严格按 X 升序排列，避免单次比较器不满足严格弱序导致崩溃。
+private func formatObservations(_ observations: [VNRecognizedTextObservation]) -> String {
+  let verticalSorted = observations.sorted { a, b in
+    if a.boundingBox.midY != b.boundingBox.midY {
+      return a.boundingBox.midY > b.boundingBox.midY
     }
     return a.boundingBox.minX < b.boundingBox.minX
   }
 
-  return sorted.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+  var lines: [[VNRecognizedTextObservation]] = []
+  var anchorMidY: CGFloat = 0
+  var anchorHeight: CGFloat = 0
+
+  for obs in verticalSorted {
+    let box = obs.boundingBox
+    if lines.isEmpty {
+      lines.append([obs])
+      anchorMidY = box.midY
+      anchorHeight = box.height
+      continue
+    }
+    let tolerance = max(0.012, min(anchorHeight, box.height) * 0.45)
+    if abs(box.midY - anchorMidY) <= tolerance {
+      lines[lines.count - 1].append(obs)
+    } else {
+      lines.append([obs])
+      anchorMidY = box.midY
+      anchorHeight = box.height
+    }
+  }
+
+  return lines.compactMap { line in
+    let horizontal = line.sorted { a, b in
+      if a.boundingBox.minX != b.boundingBox.minX {
+        return a.boundingBox.minX < b.boundingBox.minX
+      }
+      return a.boundingBox.midY > b.boundingBox.midY
+    }
+    let joined = horizontal
+      .compactMap { $0.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+    return joined.isEmpty ? nil : joined
+  }.joined(separator: "\n")
 }

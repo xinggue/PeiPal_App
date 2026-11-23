@@ -75,12 +75,6 @@ class LlmPromptConfig {
           templateText: '【你当前需要生成的字段规格列表】：\n{field_specs}',
         ),
         SystemPromptBlock(
-          id: 'standardCatalogs',
-          label: '标准术语库对齐参考',
-          description: '当字段关联标准库时，注入对应的标准术语名称及编码参考',
-          templateText: '{catalog_specs}',
-        ),
-        SystemPromptBlock(
           id: 'outputFormat',
           label: '输出格式硬约束 (纯 JSON)',
           description: '强制模型输出合规 JSON 对象，严禁 Markdown 围栏或废话',
@@ -158,6 +152,7 @@ class LlmPromptConfig {
     if (rawBlocks is List) {
       blocks = rawBlocks
           .map((b) => SystemPromptBlock.fromJson(b as Map<String, dynamic>))
+          .where((b) => b.id != 'standardCatalogs')
           .toList();
     }
 

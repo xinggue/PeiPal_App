@@ -77,4 +77,50 @@ void main() {
       expect(requests.last.containsKey('reasoning_effort'), isFalse);
     },
   );
+
+  test('SSE streaming decodes multi-byte UTF-8 split across chunks without corruption',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+
+    final payload =
+        'data: ${jsonEncode({'choices': [{'delta': {'content': '{"主诉":"胸闷气短三天"}'}}]})}\n\n'
+        'data: [DONE]\n\n';
+    final bytes = utf8.encode(payload);
+    // 故意在“主”(3 字节 UTF-8) 中间和“闷”中间切开分包
+    final zhIndex = payload.indexOf('主');
+    final byteOffset = utf8.encode(payload.substring(0, zhIndex)).length + 1;
+    final zhIndex2 = payload.indexOf('闷');
+    final byteOffset2 = utf8.encode(payload.substring(0, zhIndex2)).length + 2;
+
+    server.listen((request) async {
+      request.response.bufferOutput = false;
+      request.response.headers.contentType = ContentType('text', 'event-stream');
+      request.response.add(bytes.sublist(0, byteOffset));
+      await request.response.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      request.response.add(bytes.sublist(byteOffset, byteOffset2));
+      await request.response.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      request.response.add(bytes.sublist(byteOffset2));
+      await request.response.close();
+    });
+
+    final service = ApiService()
+      ..updateLlmConfig(LlmConfig(
+        baseUrl: 'http://${server.address.address}:${server.port}',
+        model: 'deepseek-chat',
+      ));
+
+    final chunks = <String>[];
+    final result = await service.chatCompletion(
+      systemPrompt: 'Return JSON',
+      userPrompt: 'hello',
+      jsonMode: false,
+      onChunk: (piece, _) => chunks.add(piece),
+    );
+    expect(result, '{"主诉":"胸闷气短三天"}');
+    expect(result, isNot(contains('\uFFFD')));
+    expect(chunks.join(), '{"主诉":"胸闷气短三天"}');
+  });
 }

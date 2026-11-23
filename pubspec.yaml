@@ -17,7 +17,6 @@ dependencies:
 
   # State Management
   flutter_riverpod: ^2.6.1
-  riverpod_annotation: ^2.6.1
 
   # Routing
   go_router: ^17.3.0
@@ -45,15 +44,12 @@ dependencies:
   # Utilities
   uuid: ^4.5.1
   intl: ^0.20.2
-  json_annotation: ^4.9.0
   flutter_slidable: ^4.0.3
   flutter_image_compress: ^2.5.1
   paddle_ocr_flutter: ^0.0.3
   sqflite_common_ffi: ^2.4.4
   file_selector: ^1.1.0
-  syncfusion_flutter_pdf: ^35.1.40+1
   archive: ^4.5.2
-  pdfx: ^2.11.0
   permission_handler: ^12.0.1
   url_launcher: ^6.3.3
   package_info_plus: ^9.0.1
@@ -64,15 +60,6 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   file_selector_platform_interface: ^2.7.0
-
-  # Riverpod Codegen
-  riverpod_generator: ^2.6.3
-  build_runner: ^2.4.15
-  riverpod_lint: ^2.6.3
-  custom_lint: ^0.7.5
-
-  # JSON Codegen
-  json_serializable: ^6.9.4
 
 flutter:
   uses-material-design: true

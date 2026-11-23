@@ -6,20 +6,121 @@ import 'deepseek_tools_service.dart';
 import '../media/apple_vision_ocr.dart';
 import '../media/paddle_local_ocr.dart';
 
+class OcrProbeResult {
+  final bool ok;
+  final String message;
+
+  const OcrProbeResult({required this.ok, required this.message});
+}
+
 class OcrProviderService {
-  final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 20),
-  ));
+  final Dio _dio;
+
+  OcrProviderService([Dio? dio])
+      : _dio = dio ??
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 20),
+            ));
 
   /// 规范化 baseUrl，去除尾部斜杠
-  String _normalizeBaseUrl(String url) {
+  static String normalizeBaseUrl(String url) {
     var trimmed = url.trim();
     while (trimmed.endsWith('/')) {
       trimmed = trimmed.substring(0, trimmed.length - 1);
     }
     return trimmed;
   }
+
+  /// 计算 MinerU 代理基址（默认官方地址）
+  static String mineruAgentBaseUrl(String rawBaseUrl) {
+    var base = normalizeBaseUrl(rawBaseUrl);
+    if (base.isEmpty) return 'https://mineru.net/api/v1/agent';
+    if (base.endsWith('/parse/file')) {
+      base = base.substring(0, base.length - '/parse/file'.length);
+    }
+    return base.isEmpty ? 'https://mineru.net/api/v1/agent' : base;
+  }
+
+  /// 计算 MinerU 文件解析探测端点
+  static String mineruParseFileUrl(String rawBaseUrl) {
+    return '${mineruAgentBaseUrl(rawBaseUrl)}/parse/file';
+  }
+
+  /// 探测百度飞桨星河 PaddleOCR 异步任务端点（以 multipart 缺省 file 请求触发鉴权，避免无 body 导致 500）
+  static Future<OcrProbeResult> probePaddleOcr({
+    required Dio dio,
+    required String baseUrl,
+    required String apiKey,
+    String model = 'PaddleOCR-VL-1.6',
+  }) async {
+    final normalizedUrl = normalizeBaseUrl(baseUrl);
+    final trimmedKey = apiKey.trim();
+    if (normalizedUrl.isEmpty) {
+      return const OcrProbeResult(ok: false, message: '接口地址不能为空');
+    }
+    if (trimmedKey.isEmpty) {
+      return const OcrProbeResult(ok: false, message: '未填写 API Key');
+    }
+
+    final stopwatch = Stopwatch()..start();
+    final formData = FormData.fromMap({
+      'model': model.trim().isNotEmpty ? model.trim() : 'PaddleOCR-VL-1.6',
+    });
+    final resp = await dio.post(
+      normalizedUrl,
+      data: formData,
+      options: Options(
+        headers: {'Authorization': 'bearer $trimmedKey'},
+        validateStatus: (status) => status != null && status < 600,
+      ),
+    );
+    stopwatch.stop();
+    final code = resp.statusCode ?? 0;
+    if (code == 401 || code == 403) {
+      return OcrProbeResult(ok: false, message: 'Token 无效 ($code)');
+    }
+    if (code == 404) {
+      return const OcrProbeResult(ok: false, message: '接口地址无效 (404)');
+    }
+    if (code >= 500 || code < 200) {
+      return OcrProbeResult(ok: false, message: '服务端异常 ($code)');
+    }
+    return OcrProbeResult(
+      ok: true,
+      message: '连通正常 (${stopwatch.elapsedMilliseconds}ms)',
+    );
+  }
+
+  /// 探测 MinerU 无鉴权云端解析端点（发送空 JSON 触发参数校验 400，确认端点可达且未限频）
+  static Future<OcrProbeResult> probeMineru({
+    required Dio dio,
+    required String baseUrl,
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    final resp = await dio.post(
+      mineruParseFileUrl(baseUrl),
+      data: const <String, dynamic>{},
+      options: Options(
+        headers: {'Content-Type': 'application/json'},
+        validateStatus: (status) => status != null && status < 600,
+      ),
+    );
+    stopwatch.stop();
+    final code = resp.statusCode ?? 0;
+    if (code == 429) {
+      return const OcrProbeResult(ok: false, message: '公网 IP 触发限频 (429)');
+    }
+    if (code == 401 || code == 403 || code == 404 || code >= 500 || code < 200) {
+      return OcrProbeResult(ok: false, message: '接口异常 ($code)');
+    }
+    return OcrProbeResult(
+      ok: true,
+      message: '连通正常 (${stopwatch.elapsedMilliseconds}ms)',
+    );
+  }
+
+  String _normalizeBaseUrl(String url) => normalizeBaseUrl(url);
 
   /// 从服务商端点获取可用的 OCR / 视觉模型列表
   Future<List<String>> fetchModels(OcrProviderConfig provider) async {
@@ -43,21 +144,14 @@ class OcrProviderService {
       if (baseUrl.isEmpty) {
         throw Exception('接口地址不能为空');
       }
-      try {
-        final resp = await _dio.post(
-          baseUrl,
-          options: Options(
-            headers: {'Authorization': 'bearer $apiKey'},
-            validateStatus: (status) => status != null && status < 500,
-          ),
-        );
-        if (resp.statusCode == 401 || resp.statusCode == 403) {
-          throw Exception('Token 无效或未授权 (${resp.statusCode})');
-        }
-      } on DioException catch (e) {
-        if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
-          throw Exception('Token 无效或未授权 (${e.response?.statusCode})');
-        }
+      final probe = await probePaddleOcr(
+        dio: _dio,
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        model: provider.selectedModel,
+      );
+      if (!probe.ok) {
+        throw Exception(probe.message);
       }
       return const ['PaddleOCR-VL-1.6', 'PaddleOCR-VL-0.9B'];
     }
@@ -207,20 +301,9 @@ class OcrProviderService {
 
     if (provider.protocol == OcrProtocol.mineru) {
       try {
-        final resp = await _dio.post(
-          'https://mineru.net/api/v1/agent/parse/file',
-          options: Options(
-            headers: {'Content-Type': 'application/json'},
-            validateStatus: (status) => status != null && status < 500,
-          ),
-        );
-        stopwatch.stop();
-        if (resp.statusCode == 429) {
-          return '公网 IP 触发限频 (429)';
-        }
-        return '连通正常 (${stopwatch.elapsedMilliseconds}ms)';
+        final probe = await probeMineru(dio: _dio, baseUrl: provider.baseUrl);
+        return probe.message;
       } catch (e) {
-        stopwatch.stop();
         return '网络异常: $e';
       }
     }
@@ -235,20 +318,14 @@ class OcrProviderService {
     // 1. 百度飞桨星河 PaddleOCR
     if (provider.protocol == OcrProtocol.paddleOcr) {
       try {
-        final resp = await _dio.post(
-          baseUrl,
-          options: Options(
-            headers: {'Authorization': 'bearer $apiKey'},
-            validateStatus: (status) => status != null && status < 500,
-          ),
+        final probe = await probePaddleOcr(
+          dio: _dio,
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          model: provider.selectedModel,
         );
-        stopwatch.stop();
-        if (resp.statusCode == 401 || resp.statusCode == 403) {
-          return 'Token 无效 (${resp.statusCode})';
-        }
-        return '连通正常 (${stopwatch.elapsedMilliseconds}ms)';
+        return probe.message;
       } catch (e) {
-        stopwatch.stop();
         return '连接失败: $e';
       }
     }

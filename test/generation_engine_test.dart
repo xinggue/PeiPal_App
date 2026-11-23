@@ -884,6 +884,34 @@ I will output a standard concise 查体 with caveat. Since JSON only.{"查体":"
       expect(back.systemBlocks.map((b) => b.id).toList(),
           blocks.map((b) => b.id).toList());
       expect(back.systemBlocks.first.isEnabled, isFalse);
+      expect(
+        LlmPromptConfig.defaultSystemBlocks.any((b) => b.id == 'standardCatalogs'),
+        isFalse,
+      );
+    });
+
+    test('LlmPromptConfig.fromJson drops legacy standardCatalogs block', () {
+      final legacyJson = {
+        'system_blocks': [
+          for (final b in LlmPromptConfig.defaultSystemBlocks) b.toJson(),
+          {
+            'id': 'standardCatalogs',
+            'label': '标准术语库对齐参考',
+            'description': '旧版残留',
+            'templateText': '{catalog_specs}',
+            'isEnabled': true,
+          },
+        ],
+      };
+      final parsed = LlmPromptConfig.fromJson(legacyJson);
+      expect(
+        parsed.systemBlocks.any((b) => b.id == 'standardCatalogs'),
+        isFalse,
+      );
+      expect(
+        parsed.systemBlocks.length,
+        LlmPromptConfig.defaultSystemBlocks.length,
+      );
     });
 
     test('custom block order and disabled blocks drive the system prompt', () {
