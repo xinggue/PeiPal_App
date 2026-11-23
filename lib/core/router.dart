@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/storefront_compliance_provider.dart';
+
 import '../presentation/pages/main/main_navigation_shell.dart';
 import '../presentation/pages/patients/patient_list_page.dart';
 import '../presentation/pages/patients/patient_form_page.dart';
@@ -40,9 +42,33 @@ import '../presentation/pages/settings/api_key_guides_page.dart';
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 final routerProvider = Provider<GoRouter>((ref) {
+  final restrictionNotifier = ValueNotifier<bool>(
+    ref.read(isChinaAiRestrictedProvider),
+  );
+  ref.listen<bool>(isChinaAiRestrictedProvider, (_, next) {
+    restrictionNotifier.value = next;
+  });
+  ref.onDispose(restrictionNotifier.dispose);
+
+  const restrictedRoutes = <String>{
+    '/settings/llm-providers',
+    '/settings/extractor',
+    '/settings/api-key-guides',
+    '/settings/deepseek-key-guide',
+    '/settings/zhipu-key-guide',
+  };
+
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: '/patients',
+    refreshListenable: restrictionNotifier,
+    redirect: (context, state) {
+      if (restrictionNotifier.value &&
+          restrictedRoutes.contains(state.matchedLocation)) {
+        return '/settings';
+      }
+      return null;
+    },
     routes: [
       StatefulShellRoute(
         builder: (context, state, navigationShell) => navigationShell,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../../../domain/models/asr_provider.dart';
+import '../media/apple_speech_asr.dart';
 import 'deepseek_tools_service.dart';
 
 class AsrProviderService {
@@ -21,7 +22,7 @@ class AsrProviderService {
 
   /// 从服务商端点获取可用的语音识别模型列表
   Future<List<String>> fetchModels(AsrProviderConfig provider) async {
-    if (!provider.requiresModel) return const [];
+    if (provider.isLocal || !provider.requiresModel) return const [];
     if (provider.protocol == AsrProtocol.mimoV25) {
       return const ['mimo-v2.5-asr'];
     }
@@ -126,6 +127,14 @@ class AsrProviderService {
   /// 查询服务商账户连通性测速 (Ping)
   Future<String> fetchStatusOrPing(AsrProviderConfig provider) async {
     final stopwatch = Stopwatch()..start();
+    if (provider.isLocal) {
+      final ok = await AppleSpeechAsr.isAvailable(language: provider.language);
+      stopwatch.stop();
+      if (!ok) {
+        throw Exception('系统语音识别不可用（请检查系统语音识别权限或听写设置）');
+      }
+      return '可用 (${stopwatch.elapsedMilliseconds}ms)';
+    }
     final baseUrl = _normalizeBaseUrl(provider.baseUrl);
     final apiKey = provider.apiKey.trim();
 

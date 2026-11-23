@@ -9,6 +9,7 @@ import '../../../data/services/engine_c/template_bundle_engine.dart';
 import '../../../data/services/hub/hub_payload.dart';
 import '../../../data/services/hub/hub_service.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 import '../templates/content_template_editor_page.dart';
@@ -1096,7 +1097,8 @@ class _HubDetailSheetState extends ConsumerState<HubDetailSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (item.subtype == HubItemSubtype.content) ...[
+              if (item.subtype == HubItemSubtype.content &&
+                  !ref.watch(isChinaAiRestrictedProvider)) ...[
                 OutlinedButton.icon(
                   onPressed: _loading || _error != null ? null : _migrate,
                   icon: const Icon(Icons.drive_file_move_outline, size: 18),

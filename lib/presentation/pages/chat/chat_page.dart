@@ -13,6 +13,7 @@ import '../../../domain/models/content_template.dart';
 import '../../../data/repositories/message_repository.dart';
 import '../../../data/services/media/media_storage.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../../domain/models/patient.dart';
 import '../../../data/services/document_processing_service.dart';
 import '../../../domain/models/document_parser_provider.dart';
@@ -333,10 +334,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _runGenerateRecordFlow({bool forceManual = false}) async {
+    final isAiRestricted = ref.read(isChinaAiRestrictedProvider);
     final inputs = await _collectGenerationInputs(isDryRun: false);
     if (inputs == null || !mounted) return;
 
-    bool useManual = forceManual;
+    bool useManual = forceManual || isAiRestricted;
     final llmConfig = ref.read(llmConfigProvider);
 
     // 教程最后一步、或未配置密钥时，在「确认开始生成」弹出方式选择。
@@ -692,8 +694,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   }
                 },
               ),
-            if (msg.type == MessageType.voice &&
-                msg.filePaths.isNotEmpty)
+            if (msg.type == MessageType.voice && msg.filePaths.isNotEmpty)
               ListTile(
                 leading: const Icon(Icons.refresh),
                 title: const Text('重新识别 (ASR)'),
@@ -744,6 +745,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final patient = ref.watch(patientProvider(widget.patientId));
     final messages = ref.watch(messagesProvider(widget.patientId));
 
@@ -1080,7 +1082,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 error: (e, _) => Center(child: Text('加载失败: $e')),
               ),
             ),
-            if (ref.watch(llmDryRunEnabledProvider))
+            if (!isAiRestricted && ref.watch(llmDryRunEnabledProvider))
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -1172,9 +1174,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 }
               },
               onGenerateRecord: _onGenerateRecord,
-              onManualGenerateRecord: () => _onGenerateRecord(forceManual: true),
+              onManualGenerateRecord:
+                  isAiRestricted ? null : () => _onGenerateRecord(forceManual: true),
               onAutofillSessionInfo: () => _openSessionInfoQuickSheet(p, autoExtract: true),
-              isDryRunEnabled: ref.watch(llmDryRunEnabledProvider),
+              isAiRestricted: isAiRestricted,
+              isDryRunEnabled:
+                  isAiRestricted ? false : ref.watch(llmDryRunEnabledProvider),
               onDryRunTest: _onDryRunTest,
             ),
           ],
@@ -1239,7 +1244,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 borderRadius: 18,
                 stepTag: '新手指引 · 3/5',
                 title: '像微信一样录入材料',
-                description: '上方是聊天记录，下方输入框可以打字、按住说话；点「+」展开后还能拍照或发送图片文件。\n语音和图片会自动转成文字。',
+                description:
+                    '上方是聊天记录，下方输入框可以打字、按住说话；点「+」展开后还能拍照或发送图片文件。\n语音和图片会自动转成文字。',
                 nextButtonLabel: '下一步',
                 onNext: () => ref.read(tutorialProvider.notifier).nextStep(),
                 onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
@@ -1251,8 +1257,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 pinTooltip: true,
                 stepTag: '新手指引 · 4/5',
                 title: '最后一步：整理生成',
-                description: '点击这个按钮会打开文书生成指引，一步步选择：文书类型 → 内容模板 → 素材范围 → 字段与要求，最后确认开始生成。',
-                nextButtonLabel: '开始生成',
+                description: isAiRestricted
+                    ? '点击这个按钮会按模板整理会话素材，拼装完整提示词并一键复制，粘贴到外部工具处理后再贴回校对录入。'
+                    : '点击这个按钮会打开文书生成指引，一步步选择：文书类型 → 内容模板 → 素材范围 → 字段与要求，最后确认开始生成。',
+                nextButtonLabel: isAiRestricted ? '整理文书' : '开始生成',
                 onNext: () => _onGenerateRecord(),
                 onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),
               );

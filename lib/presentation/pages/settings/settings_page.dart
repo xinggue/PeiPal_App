@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +11,7 @@ import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
 
@@ -22,10 +25,13 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final fontScale = ref.watch(appFontScaleProvider);
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
+    final isIos = !kIsWeb && Platform.isIOS;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final tutorial = ref.watch(tutorialProvider);
-    final guideLlm = tutorial.isActive &&
+    final guideLlm = !isAiRestricted &&
+        tutorial.isActive &&
         tutorial.activeTutorial == TutorialType.aiConfig &&
         tutorial.currentStep == 2;
 
@@ -96,26 +102,28 @@ class SettingsPage extends ConsumerWidget {
               },
             ),
           ]),
-          _groupLabel(context, '人工智能'),
+          _groupLabel(context, isAiRestricted ? '识别与提示词' : '人工智能'),
           _groupCard(context, [
-            ListTile(
-              key: _llmSettingsTileKey,
-              leading: const Icon(Icons.psychology_outlined),
-              title: const Text('大语言模型', style: _title),
-              subtitle: Consumer(
-                builder: (ctx, ref, _) {
-                  final active = ref.watch(llmProvidersProvider).activeProvider;
-                  if (active == null || !active.isConfigured) {
-                    return const Text('未配置 Key');
-                  }
-                  final model = active.selectedModel.trim();
-                  return Text(model.isEmpty ? '${active.name} · 未设定模型' : model);
-                },
+            if (!isAiRestricted) ...[
+              ListTile(
+                key: _llmSettingsTileKey,
+                leading: const Icon(Icons.psychology_outlined),
+                title: const Text('大语言模型', style: _title),
+                subtitle: Consumer(
+                  builder: (ctx, ref, _) {
+                    final active = ref.watch(llmProvidersProvider).activeProvider;
+                    if (active == null || !active.isConfigured) {
+                      return const Text('未配置 Key');
+                    }
+                    final model = active.selectedModel.trim();
+                    return Text(model.isEmpty ? '${active.name} · 未设定模型' : model);
+                  },
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: openLlm,
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: openLlm,
-            ),
-            const Divider(height: 1),
+              const Divider(height: 1),
+            ],
             ListTile(
               leading: const Icon(Icons.notes_outlined),
               title: const Text('提示词', style: _title),
@@ -159,6 +167,9 @@ class SettingsPage extends ConsumerWidget {
                       ref.watch(asrProvidersProvider).activeProvider;
                   if (active == null || !active.isConfigured) {
                     return const Text('未配置');
+                  }
+                  if (active.isLocal) {
+                    return Text(active.name);
                   }
                   return Text('${active.name} (${active.selectedModel})');
                 },
@@ -234,7 +245,7 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.tune_outlined),
               title: const Text('模板与配置导入导出', style: _title),
-              subtitle: const Text('模板、词条、AI 密钥与系统参数'),
+              subtitle: Text(isAiRestricted ? '模板、词条与系统参数' : '模板、词条、AI 密钥与系统参数'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/backup'),
             ),
@@ -244,7 +255,7 @@ class SettingsPage extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('关于与帮助', style: _title),
-              subtitle: const Text('版本检测、新手教程与开源社区'),
+              subtitle: Text(isIos ? '新手教程、开源社区与隐私说明' : '版本检测、新手教程与开源社区'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/about'),
             ),

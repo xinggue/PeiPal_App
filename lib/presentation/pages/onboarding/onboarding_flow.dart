@@ -13,6 +13,7 @@ import '../../../domain/models/asr_provider.dart';
 import '../../../domain/models/llm_provider.dart';
 import '../../../domain/models/ocr_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/common/app_toast.dart';
 import '../settings/disclaimer_page.dart';
@@ -180,6 +181,31 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
+
+    final pages = <Widget>[
+      _WelcomePage(
+        acceptedDisclaimer: _acceptedDisclaimer,
+        telemetryEnabled: _telemetryEnabled,
+        onDisclaimerChanged: (v) => setState(() => _acceptedDisclaimer = v),
+        onTelemetryChanged: (v) => setState(() => _telemetryEnabled = v),
+        onNext: _handleWelcomeStart,
+      ),
+      _PermissionPage(
+        granted: _granted,
+        requesting: _requesting,
+        isAiRestricted: isAiRestricted,
+        onRequest: _requestPermissions,
+        onOpenSystemSettings: _openSystemPermissionSettings,
+        onNext: () => _goTo(2),
+      ),
+      if (!isAiRestricted) _AiPromptPage(onNext: () => _goTo(3)),
+      _TutorialPromptPage(
+        onLearn: () => _finish(learnTutorial: true),
+        onSkip: () => _finish(learnTutorial: false),
+      ),
+    ];
+    final currentDot = _page.clamp(0, pages.length - 1);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -191,29 +217,7 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
                 controller: _controller,
                 physics: const NeverScrollableScrollPhysics(),
                 onPageChanged: (i) => setState(() => _page = i),
-                children: [
-                  _WelcomePage(
-                    acceptedDisclaimer: _acceptedDisclaimer,
-                    telemetryEnabled: _telemetryEnabled,
-                    onDisclaimerChanged: (v) =>
-                        setState(() => _acceptedDisclaimer = v),
-                    onTelemetryChanged: (v) =>
-                        setState(() => _telemetryEnabled = v),
-                    onNext: _handleWelcomeStart,
-                  ),
-                  _PermissionPage(
-                    granted: _granted,
-                    requesting: _requesting,
-                    onRequest: _requestPermissions,
-                    onOpenSystemSettings: _openSystemPermissionSettings,
-                    onNext: () => _goTo(2),
-                  ),
-                  _AiPromptPage(onNext: () => _goTo(3)),
-                  _TutorialPromptPage(
-                    onLearn: () => _finish(learnTutorial: true),
-                    onSkip: () => _finish(learnTutorial: false),
-                  ),
-                ],
+                children: pages,
               ),
             ),
             // 底部进度指示
@@ -221,8 +225,8 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow>
               padding: const EdgeInsets.only(bottom: 18, top: 6),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (i) {
-                  final active = i == _page;
+                children: List.generate(pages.length, (i) {
+                  final active = i == currentDot;
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 220),
                     margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -466,6 +470,7 @@ class _WelcomePageState extends State<_WelcomePage> {
 class _PermissionPage extends StatelessWidget {
   final Map<String, bool> granted;
   final bool requesting;
+  final bool isAiRestricted;
   final VoidCallback onRequest;
   final VoidCallback onOpenSystemSettings;
   final VoidCallback onNext;
@@ -473,6 +478,7 @@ class _PermissionPage extends StatelessWidget {
   const _PermissionPage({
     required this.granted,
     required this.requesting,
+    this.isAiRestricted = false,
     required this.onRequest,
     required this.onOpenSystemSettings,
     required this.onNext,
@@ -512,7 +518,9 @@ class _PermissionPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '用于录音转文字、拍照识别与连接键盘设备。',
+                isAiRestricted
+                    ? '用于语音转文字、拍照离线识图与连接键盘设备。'
+                    : '用于录音转文字、拍照识别与连接键盘设备。',
                 style: TextStyle(
                   fontSize: 13.5,
                   color: colorScheme.onSurfaceVariant,

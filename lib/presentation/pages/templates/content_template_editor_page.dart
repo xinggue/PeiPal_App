@@ -11,6 +11,7 @@ import '../../../domain/models/catalog_mention.dart';
 import '../../../domain/models/content_template.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/common/catalog_mention_picker_overlay.dart';
 import '../../widgets/common/inline_diff_box.dart';
 import '../../widgets/common/mention_text_editing_controller.dart';
@@ -175,7 +176,8 @@ class _ContentTemplateEditorPageState
         _initSlotControllers(st, ct);
       });
 
-      if ((widget.initialMigrateFromId != null ||
+      if (!ref.read(isChinaAiRestrictedProvider) &&
+          (widget.initialMigrateFromId != null ||
               widget.initialMigrateContent != null) &&
           !_isEditing) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -514,6 +516,7 @@ class _ContentTemplateEditorPageState
   }
 
   Future<void> _openRefineSheet() async {
+    if (ref.read(isChinaAiRestrictedProvider)) return;
     if (_structure == null || _isAiBusy) return;
 
     if (!ref.read(llmConfigProvider).isConfigured) {
@@ -595,6 +598,7 @@ class _ContentTemplateEditorPageState
     Template? externalStructure,
     ContentTemplate? externalContent,
   }) async {
+    if (ref.read(isChinaAiRestrictedProvider)) return;
     externalStructure ??= widget.initialMigrateStructure;
     externalContent ??= widget.initialMigrateContent;
     if (_structure == null || _isAiBusy) return;
@@ -1014,8 +1018,8 @@ class _ContentTemplateEditorPageState
           ),
           const SizedBox(height: 12),
 
-          // AI Action Bar (Hidden in preview read-only mode)
-          if (!widget.isReadOnly) ...[
+          // AI Action Bar (Hidden in preview read-only mode or China restricted mode)
+          if (!widget.isReadOnly && !ref.watch(isChinaAiRestrictedProvider)) ...[
             if (_isAiBusy)
               Container(
                 padding: const EdgeInsets.symmetric(

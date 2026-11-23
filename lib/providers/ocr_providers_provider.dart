@@ -8,6 +8,7 @@ import '../data/services/api/api_config.dart';
 import '../data/services/api/ocr_provider_service.dart';
 import '../domain/models/ocr_provider.dart';
 import 'providers.dart';
+import 'storefront_compliance_provider.dart';
 
 class OcrProvidersState {
   final String activeProviderId;
@@ -47,19 +48,24 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
   final Ref _ref;
   final FlutterSecureStorage _storage;
   final OcrProviderService _service;
+  final bool restrictChinaCompliance;
 
   static const _storageKeyProviders = 'ocr_providers_matrix_v1';
   static const _storageKeyActiveId = 'ocr_active_provider_id_v1';
 
   late final Future<void> ready;
 
-  OcrProvidersNotifier(this._ref, this._storage, this._service)
-      : super(const OcrProvidersState()) {
+  OcrProvidersNotifier(
+    this._ref,
+    this._storage,
+    this._service, {
+    this.restrictChinaCompliance = false,
+  }) : super(const OcrProvidersState()) {
     ready = _load();
   }
 
   List<OcrProviderConfig> _filterPlatformPresets(List<OcrProviderConfig> list) {
-    return list.where((p) {
+    final platformFiltered = list.where((p) {
       if (p.protocol == OcrProtocol.appleVision) {
         return !kIsWeb && (Platform.isIOS || Platform.isMacOS);
       }
@@ -68,6 +74,16 @@ class OcrProvidersNotifier extends StateNotifier<OcrProvidersState> {
       }
       return true;
     }).toList();
+
+    if (!restrictChinaCompliance) return platformFiltered;
+
+    // 中国区合规：移除境外与走通用 LLM chat/completions 端点的 OCR（如 OpenAI Compatible），
+    // 保留本机 Apple Vision 与非 LLM 的国内解析/识别接口（含 DeepSeek/面壁/智谱/百度/MinerU 备用）。
+    return platformFiltered
+        .where(
+          (p) => p.protocol != OcrProtocol.openaiVision && p.id != 'openai',
+        )
+        .toList();
   }
 
   String _defaultLocalProviderId(List<OcrProviderConfig> loaded) {
@@ -268,5 +284,6 @@ final ocrProvidersProvider =
     ref,
     ref.read(secureStorageProvider),
     ref.read(ocrProviderServiceProvider),
+    restrictChinaCompliance: ref.watch(isChinaAiRestrictedProvider),
   );
 });

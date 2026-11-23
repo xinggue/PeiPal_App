@@ -27,6 +27,10 @@ class LlmConfig {
 }
 
 enum AsrProvider {
+  appleSpeech(
+    defaultUrl: '',
+    defaultModel: 'apple-speech',
+  ),
   openaiWhisper(
     defaultUrl: 'https://api.openai.com/v1',
     defaultModel: 'whisper-1',
@@ -65,7 +69,8 @@ class AsrConfig {
     this.language = 'zh',
   });
 
-  bool get isConfigured => apiKey.isNotEmpty;
+  bool get isConfigured =>
+      provider == AsrProvider.appleSpeech || apiKey.isNotEmpty;
 
   AsrConfig copyWith({
     AsrProvider? provider,

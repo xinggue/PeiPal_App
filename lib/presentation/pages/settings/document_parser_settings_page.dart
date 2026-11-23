@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../domain/models/document_parser_provider.dart';
 import '../../../providers/document_parser_provider.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/common/api_key_tutorial_notice_banner.dart';
 import '../../widgets/common/app_toast.dart';
 
@@ -111,6 +112,7 @@ class _DocumentParserSettingsPageState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('文件解析')),
       body: ref
@@ -124,7 +126,8 @@ class _DocumentParserSettingsPageState
                 padding: const EdgeInsets.all(16),
                 children: [
                   _buildActiveStatusBanner(theme, active),
-                  if (!(active?.isConfigured ?? false) &&
+                  if (!isAiRestricted &&
+                      !(active?.isConfigured ?? false) &&
                       !_tutorialBannerDismissed) ...[
                     const SizedBox(height: 10),
                     ApiKeyTutorialNoticeBanner(

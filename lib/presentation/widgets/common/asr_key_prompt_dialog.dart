@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../providers/storefront_compliance_provider.dart';
 
 /// 当用户尚未配置 ASR API Key 却尝试使用语音转文字时，弹出与 LLM 配置一致的引导弹窗。
 Future<void> showAsrKeyPromptDialog(
@@ -33,51 +36,58 @@ Future<void> showAsrKeyPromptDialog(
             ),
           ],
         ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                voiceSaved
-                    ? '语音消息已为你保存。还没有配置语音识别密钥，请选择接下来的方式：'
-                    : '还没有配置语音识别密钥，请选择接下来的方式：',
-                style: TextStyle(
-                  fontSize: 13.5,
-                  color: Colors.grey.shade700,
-                  height: 1.4,
-                ),
+        content: Consumer(
+          builder: (_, ref, _) {
+            final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
+            return SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    voiceSaved
+                        ? '语音消息已为你保存。还没有配置语音识别密钥，请选择接下来的方式：'
+                        : '还没有配置语音识别密钥，请选择接下来的方式：',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      color: Colors.grey.shade700,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  KeyPromptOptionCard(
+                    icon: Icons.key_rounded,
+                    title: '已有 Key，去配置',
+                    badge: '去配置',
+                    subtitle: '点开「语音识别」设置页，填入密钥或切换识别方式即可使用。',
+                    bgColor: scheme.primaryContainer.withValues(alpha: 0.35),
+                    borderColor: scheme.primary.withValues(alpha: 0.4),
+                    accentColor: scheme.primary,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      context.push('/settings/asr');
+                    },
+                  ),
+                  if (!isAiRestricted) ...[
+                    const SizedBox(height: 10),
+                    KeyPromptOptionCard(
+                      icon: Icons.menu_book_rounded,
+                      title: '没有 Key，查看教程',
+                      badge: '去获取',
+                      subtitle: '选择 DeepSeek 或智谱，查看获取教程并一键配置。',
+                      bgColor: Colors.indigo.shade50,
+                      borderColor: Colors.indigo.shade300,
+                      accentColor: Colors.indigo.shade700,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        context.push('/settings/api-key-guides');
+                      },
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 14),
-              KeyPromptOptionCard(
-                icon: Icons.key_rounded,
-                title: '已有 Key，去配置',
-                badge: '去配置',
-                subtitle: '点开「语音识别」设置页，填入密钥即可使用。',
-                bgColor: scheme.primaryContainer.withValues(alpha: 0.35),
-                borderColor: scheme.primary.withValues(alpha: 0.4),
-                accentColor: scheme.primary,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  context.push('/settings/asr');
-                },
-              ),
-              const SizedBox(height: 10),
-              KeyPromptOptionCard(
-                icon: Icons.menu_book_rounded,
-                title: '没有 Key，查看教程',
-                badge: '去获取',
-                subtitle: '选择 DeepSeek 或智谱，查看获取教程并一键配置。',
-                bgColor: Colors.indigo.shade50,
-                borderColor: Colors.indigo.shade300,
-                accentColor: Colors.indigo.shade700,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  context.push('/settings/api-key-guides');
-                },
-              ),
-            ],
-          ),
+            );
+          },
         ),
         actions: [
           TextButton(

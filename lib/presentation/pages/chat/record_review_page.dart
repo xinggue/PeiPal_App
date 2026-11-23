@@ -16,6 +16,7 @@ import '../../../domain/models/patient.dart';
 import '../../../domain/models/pipeline_graph.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/diagnosis/his_diagnosis_picker.dart';
 import '../../widgets/chat/char_replacement_confirm_dialog.dart';
 import '../../widgets/chat/generation_fields_and_requirements.dart';
@@ -364,6 +365,7 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
   }
 
   Future<void> _openRewriteSheet() async {
+    if (ref.read(isChinaAiRestrictedProvider)) return;
     if (_message == null || _patient == null || _isSaving) return;
     if (_effectiveSlots.isEmpty) {
       _snack('当前文书没有可重写的字段');
@@ -382,6 +384,7 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
   }
 
   Future<void> _runRewrite(Set<String> selectedKeys, String instruction) async {
+    if (ref.read(isChinaAiRestrictedProvider)) return;
     if (_patient == null || instruction.isEmpty) return;
 
     if (!ref.read(llmConfigProvider).isConfigured) {
@@ -531,6 +534,7 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
     }
 
     final favs = ref.watch(favoriteDiagnosesProvider).valueOrNull ?? [];
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final notInOptionsCount = _cachedNotInOptionsCount;
     final allUnsupportedChars = _cachedAllUnsupported;
 
@@ -794,16 +798,18 @@ class _RecordReviewPageState extends ConsumerState<RecordReviewPage> {
             children: [
               Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.auto_fix_high, size: 18),
-                      label: const Text('重写'),
-                      onPressed: (_isSaving || _isCorruptedJson)
-                          ? null
-                          : _openRewriteSheet,
+                  if (!isAiRestricted) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.auto_fix_high, size: 18),
+                        label: const Text('重写'),
+                        onPressed: (_isSaving || _isCorruptedJson)
+                            ? null
+                            : _openRewriteSheet,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: FilledButton.icon(
                       icon: const Icon(Icons.save_outlined, size: 18),

@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/services/ble/character_sanitizer.dart';
+import 'data/services/compliance/storefront_compliance.dart';
 import 'data/services/logging/app_log_service.dart';
 import 'data/services/media/ocr_image_optimizer.dart';
 import 'presentation/pages/onboarding/onboarding_flow.dart';
@@ -20,9 +21,10 @@ import 'providers/ocr_providers_provider.dart';
 import 'providers/document_parser_provider.dart';
 import 'providers/document_processing_provider.dart';
 import 'providers/providers.dart';
+import 'providers/storefront_compliance_provider.dart';
 import 'providers/tutorial_provider.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final log = AppLogService.instance;
@@ -69,16 +71,58 @@ void main() {
   // 异步清空 OCR 临时压缩图历史缓存
   OcrImageOptimizer.purgePreparedCache();
 
-  runApp(const ProviderScope(child: DocMasterPeiApp()));
+  final initialCompliance = await StorefrontComplianceService.resolve();
+  log.info(
+    'Compliance',
+    'storefront=${initialCompliance.storefrontCountryCode ?? "-"} '
+        'deviceRegion=${initialCompliance.deviceRegionCode ?? "-"} '
+        'restricted=${initialCompliance.isAiDirectDisabled} '
+        'source=${initialCompliance.source}',
+  );
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        initialStorefrontComplianceProvider.overrideWithValue(initialCompliance),
+      ],
+      child: const DocMasterPeiApp(),
+    ),
+  );
 }
 
 typedef MedHistoryApp = DocMasterPeiApp;
 
-class DocMasterPeiApp extends ConsumerWidget {
+class DocMasterPeiApp extends ConsumerStatefulWidget {
   const DocMasterPeiApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DocMasterPeiApp> createState() => _DocMasterPeiAppState();
+}
+
+class _DocMasterPeiAppState extends ConsumerState<DocMasterPeiApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !kIsWeb && Platform.isIOS) {
+      unawaited(ref.read(storefrontComplianceProvider.notifier).refresh());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(storefrontComplianceProvider);
     final router = ref.watch(routerProvider);
     final fontScale = ref.watch(appFontScaleProvider);
     // 启动时加载服务商列表并同步到 ApiService；运行时配置不再单独持久化。

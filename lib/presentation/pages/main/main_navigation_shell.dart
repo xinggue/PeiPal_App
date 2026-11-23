@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
 
@@ -96,6 +97,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   }
 
   bool get _isGuidingToSettings {
+    if (ref.read(isChinaAiRestrictedProvider)) return false;
     final tutorial = ref.read(tutorialProvider);
     return tutorial.isActive &&
         tutorial.activeTutorial == TutorialType.aiConfig &&
@@ -122,8 +124,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final tutorial = ref.watch(tutorialProvider);
-    final guideSettings = tutorial.isActive &&
+    final guideSettings = !isAiRestricted &&
+        tutorial.isActive &&
         tutorial.activeTutorial == TutorialType.aiConfig &&
         tutorial.currentStep == 1;
 

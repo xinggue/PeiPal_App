@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -6,6 +8,7 @@ import '../data/services/api/api_config.dart';
 import '../data/services/api/asr_provider_service.dart';
 import '../domain/models/asr_provider.dart';
 import 'providers.dart';
+import 'storefront_compliance_provider.dart';
 
 class AsrProvidersState {
   final String activeProviderId;
@@ -45,15 +48,43 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
   final Ref _ref;
   final FlutterSecureStorage _storage;
   final AsrProviderService _service;
+  final bool restrictChinaCompliance;
 
   static const _storageKeyProviders = 'asr_providers_matrix_v1';
   static const _storageKeyActiveId = 'asr_active_provider_id_v1';
 
   late final Future<void> ready;
 
-  AsrProvidersNotifier(this._ref, this._storage, this._service)
-      : super(const AsrProvidersState()) {
+  AsrProvidersNotifier(
+    this._ref,
+    this._storage,
+    this._service, {
+    this.restrictChinaCompliance = false,
+  }) : super(const AsrProvidersState()) {
     ready = _load();
+  }
+
+  List<AsrProviderConfig> _filterPresets(List<AsrProviderConfig> list) {
+    final platformFiltered = list.where((p) {
+      if (p.protocol == AsrProtocol.appleSpeech) {
+        return !kIsWeb && Platform.isIOS;
+      }
+      return true;
+    }).toList();
+
+    if (!restrictChinaCompliance) return platformFiltered;
+
+    // 中国区合规：移除境外与走通用 LLM chat/completions 端点的 ASR（如 OpenAI Whisper、小米 MiMo），
+    // 保留 iOS 系统语音识别与非 LLM 专用语音接口（DeepSeek / 智谱）。
+    return platformFiltered
+        .where(
+          (p) =>
+              p.protocol != AsrProtocol.openaiWhisper &&
+              p.protocol != AsrProtocol.mimoV25 &&
+              p.id != 'openai' &&
+              p.id != 'mimo',
+        )
+        .toList();
   }
 
   Future<void> _load() async {
@@ -82,21 +113,24 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
               savedList.add(preset);
             }
           }
-          loaded = savedList;
+          loaded = _filterPresets(savedList);
         } catch (_) {}
       }
     } catch (_) {
       // 存储读取异常时回退内置预设，保证不会卡在加载态
     } finally {
       if (loaded.isEmpty) {
-        loaded = List.from(AsrProviderPresets.builtIn);
+        loaded = _filterPresets(List.from(AsrProviderPresets.builtIn));
       }
 
       String targetActiveId = activeId ?? '';
       if (targetActiveId.isEmpty ||
           !loaded.any((p) => p.id == targetActiveId)) {
-        if (loaded.any((p) => p.isConfigured)) {
-          targetActiveId = loaded.firstWhere((p) => p.isConfigured).id;
+        if (loaded.any((p) => p.requiresApiKey && p.isConfigured)) {
+          targetActiveId =
+              loaded.firstWhere((p) => p.requiresApiKey && p.isConfigured).id;
+        } else if (loaded.any((p) => p.id == 'appleSpeech')) {
+          targetActiveId = 'appleSpeech';
         } else {
           targetActiveId = loaded.any((p) => p.id == 'zhipu')
               ? 'zhipu'
@@ -119,6 +153,8 @@ class AsrProvidersNotifier extends StateNotifier<AsrProvidersState> {
 
   AsrProvider _mapProtocol(AsrProtocol protocol) {
     switch (protocol) {
+      case AsrProtocol.appleSpeech:
+        return AsrProvider.appleSpeech;
       case AsrProtocol.deepseek:
         return AsrProvider.deepseek;
       case AsrProtocol.zhipuAsr:
@@ -237,5 +273,6 @@ final asrProvidersProvider =
     ref,
     ref.read(secureStorageProvider),
     ref.read(asrProviderServiceProvider),
+    restrictChinaCompliance: ref.watch(isChinaAiRestrictedProvider),
   );
 });

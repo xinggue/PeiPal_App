@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/models/ocr_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/common/api_key_tutorial_notice_banner.dart';
 
 class OcrSettingsPage extends ConsumerStatefulWidget {
@@ -417,6 +418,7 @@ class _OcrSettingsPageState extends ConsumerState<OcrSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(ocrProvidersProvider);
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final concurrency = ref.watch(ocrConcurrencyProvider);
     final theme = Theme.of(context);
     final active = state.activeProvider;
@@ -425,11 +427,12 @@ class _OcrSettingsPageState extends ConsumerState<OcrSettingsPage> {
       appBar: AppBar(
         title: const Text('图像识别'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            tooltip: '添加自定义服务商',
-            onPressed: _showAddCustomProviderDialog,
-          ),
+          if (!isAiRestricted)
+            IconButton(
+              icon: const Icon(Icons.add_rounded),
+              tooltip: '添加自定义服务商',
+              onPressed: _showAddCustomProviderDialog,
+            ),
         ],
       ),
       body: state.isLoading
@@ -439,7 +442,8 @@ class _OcrSettingsPageState extends ConsumerState<OcrSettingsPage> {
               children: [
                 // 1. 顶部当前选用识别引擎状态卡片
                 _buildActiveStatusBanner(theme, active),
-                if (!(active?.isConfigured ?? false) &&
+                if (!isAiRestricted &&
+                    !(active?.isConfigured ?? false) &&
                     !_tutorialBannerDismissed) ...[
                   const SizedBox(height: 10),
                   ApiKeyTutorialNoticeBanner(

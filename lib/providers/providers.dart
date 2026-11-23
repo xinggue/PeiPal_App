@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'storefront_compliance_provider.dart';
 import '../data/database/database_helper.dart';
 import '../data/repositories/patient_repository.dart';
 import '../data/repositories/message_repository.dart';
@@ -229,7 +230,12 @@ final bleServiceProvider = ChangeNotifierProvider<BleService>((ref) {
 });
 
 final apiServiceProvider = Provider<ApiService>((ref) {
-  return ApiService();
+  final service = ApiService()
+    ..setAiDirectDisabled(ref.read(isChinaAiRestrictedProvider));
+  ref.listen<bool>(isChinaAiRestrictedProvider, (_, next) {
+    service.setAiDirectDisabled(next);
+  });
+  return service;
 });
 
 // ---- LLM Config ----

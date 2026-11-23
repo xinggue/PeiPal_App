@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../domain/models/content_template.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 
 class ContentTemplateListPage extends ConsumerWidget {
@@ -126,6 +127,7 @@ class _StructureSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ctsAsync = ref.watch(contentTemplatesProvider(template.id));
 
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final slotNames = template.slots.map((s) => s.label).join('、');
@@ -305,25 +307,26 @@ class _StructureSection extends ConsumerWidget {
                                   _confirmDelete(context, ref, ct);
                                 }
                               },
-                              itemBuilder: (ctx) => const [
-                                PopupMenuItem(value: 'edit', child: Text('编辑')),
-                                PopupMenuItem(
+                              itemBuilder: (ctx) => [
+                                const PopupMenuItem(value: 'edit', child: Text('编辑')),
+                                const PopupMenuItem(
                                   value: 'duplicate',
                                   child: Text('另存副本…'),
                                 ),
-                                PopupMenuItem(
-                                  value: 'migrate',
-                                  child: Text('迁移到其他文书…'),
-                                ),
-                                PopupMenuItem(
+                                if (!isAiRestricted)
+                                  const PopupMenuItem(
+                                    value: 'migrate',
+                                    child: Text('迁移到其他文书…'),
+                                  ),
+                                const PopupMenuItem(
                                   value: 'publish',
                                   child: Text('发布到广场'),
                                 ),
-                                PopupMenuItem(
+                                const PopupMenuItem(
                                   value: 'export',
                                   child: Text('导出模板'),
                                 ),
-                                PopupMenuItem(
+                                const PopupMenuItem(
                                   value: 'delete',
                                   child:
                                       Text('删除', style: TextStyle(color: Colors.red)),

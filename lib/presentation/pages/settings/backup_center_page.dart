@@ -16,6 +16,7 @@ import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/backup/session_backup_cards.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
 
@@ -78,10 +79,12 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
   }
 
   Future<String?> _generateExportText() async {
+    final includeApi =
+        !ref.read(isChinaAiRestrictedProvider) && _expApiConfigs;
     final hasAny = _expTemplates ||
         _expContentTemplates ||
         _expFavoriteDiagnoses ||
-        _expApiConfigs ||
+        includeApi ||
         _expPromptConfigs ||
         _expBleAndQr;
 
@@ -109,7 +112,7 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
     final req = EngineCExportRequest(
       families: families,
       includeAllDiagnoses: _expFavoriteDiagnoses,
-      includeApiConfigs: _expApiConfigs,
+      includeApiConfigs: includeApi,
       includePromptConfigs: _expPromptConfigs,
       includeDeviceAndOutputConfigs: _expBleAndQr,
     );
@@ -337,6 +340,7 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
   }
 
   Widget _buildExportTab() {
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final templates = ref.watch(templatesProvider).valueOrNull ?? [];
     final catalogs = ref.watch(catalogsProvider).valueOrNull ?? const [];
     var catalogEntryCount = 0;
@@ -425,20 +429,21 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
                   onChanged: (v) =>
                       setState(() => _expFavoriteDiagnoses = v ?? true),
                 ),
-                CheckboxListTile(
-                  controlAffinity: ListTileControlAffinity.trailing,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('AI 服务商与 API 密钥'),
-                  subtitle: Text(
-                      '大模型 (${llmState.providers.length} 家) · 语音识别 (${asrState.providers.length} 家) · 文档识图 (${ocrState.providers.length} 家)'),
-                  value: _expApiConfigs,
-                  onChanged: (v) => setState(() => _expApiConfigs = v ?? true),
-                ),
+                if (!isAiRestricted)
+                  CheckboxListTile(
+                    controlAffinity: ListTileControlAffinity.trailing,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('AI 服务商与 API 密钥'),
+                    subtitle: Text(
+                        '大模型 (${llmState.providers.length} 家) · 语音识别 (${asrState.providers.length} 家) · 文档识图 (${ocrState.providers.length} 家)'),
+                    value: _expApiConfigs,
+                    onChanged: (v) => setState(() => _expApiConfigs = v ?? true),
+                  ),
                 CheckboxListTile(
                   controlAffinity: ListTileControlAffinity.trailing,
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Prompt 提示词设置'),
-                  subtitle: const Text('提示词模板与 AI 反推提取参数'),
+                  subtitle: Text(isAiRestricted ? '文书拼装提示词模板' : '提示词模板与 AI 反推提取参数'),
                   value: _expPromptConfigs,
                   onChanged: (v) =>
                       setState(() => _expPromptConfigs = v ?? true),

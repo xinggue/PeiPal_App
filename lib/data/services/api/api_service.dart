@@ -4,7 +4,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'api_config.dart';
 import 'deepseek_tools_service.dart';
+import 'ocr_provider_service.dart';
 import '../logging/app_log_service.dart';
+import '../media/apple_speech_asr.dart';
 import '../media/apple_vision_ocr.dart';
 import '../media/ocr_image_optimizer.dart';
 import '../media/paddle_local_ocr.dart';
@@ -13,22 +15,33 @@ class ApiService {
   LlmConfig _llmConfig = const LlmConfig();
   AsrConfig _asrConfig = const AsrConfig();
   OcrConfig _ocrConfig = const OcrConfig();
+  bool _aiDirectDisabled = false;
 
   LlmConfig get llmConfig => _llmConfig;
   AsrConfig get asrConfig => _asrConfig;
   OcrConfig get ocrConfig => _ocrConfig;
+  bool get isAiDirectDisabled => _aiDirectDisabled;
+
+  void setAiDirectDisabled(bool disabled) {
+    _aiDirectDisabled = disabled;
+  }
 
   // 记录各模型端点对结构化输出的支持能力缓存，避免每次都试错：
   // 'none' | 'json_object' | 'json_schema'
   final Map<String, String> _formatCapabilityCache = {};
 
-  final Dio _llmDioInstance = Dio();
+  final Dio _llmDioInstance;
   final Dio _asrDioInstance = Dio();
   final Dio _ocrDioInstance = Dio();
-  final Dio _rawDio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 30),
-    receiveTimeout: const Duration(seconds: 60),
-  ));
+  final Dio _rawDio;
+
+  ApiService({Dio? rawDio, Dio? llmDio})
+      : _llmDioInstance = llmDio ?? Dio(),
+        _rawDio = rawDio ??
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 30),
+              receiveTimeout: const Duration(seconds: 60),
+            ));
 
   void _clearCapabilityCache() {
     _formatCapabilityCache.clear();
@@ -126,6 +139,9 @@ class ApiService {
     CancelToken? cancelToken,
     void Function(String chunk, String accumulated)? onChunk,
   }) async {
+    if (_aiDirectDisabled) {
+      throw UnsupportedError('当前地区版本已停用直连大语言模型接口');
+    }
     final cacheKey = '${_llmConfig.baseUrl}::${_llmConfig.model}';
     final knownCap = _formatCapabilityCache[cacheKey];
 
@@ -181,59 +197,81 @@ class ApiService {
           // 思考过程与最终正文分开缓冲：展示时合流，解析时只取正文。
           final reasoningBuffer = StringBuffer();
           final contentBuffer = StringBuffer();
+          final decodedPending = StringBuffer();
+          final byteSink =
+              const Utf8Decoder(allowMalformed: true).startChunkedConversion(
+            StringConversionSink.fromStringSink(decodedPending),
+          );
           String carry = '';
+
+          void processSseLine(String line) {
+            final trimmed = line.trim();
+            if (trimmed.isEmpty || trimmed == 'data: [DONE]') return;
+            if (!trimmed.startsWith('data:')) return;
+            final jsonStr = trimmed.substring(5).trim();
+            try {
+              final decoded = jsonDecode(jsonStr);
+              if (decoded is Map) {
+                final choices = decoded['choices'] as List?;
+                if (choices != null && choices.isNotEmpty) {
+                  final delta = choices[0]['delta'] as Map?;
+                  // 适配 DeepSeek / Qwen 等思考模型的 reasoning_content 字段与标准 content
+                  final reasoningPiece = delta?['reasoning_content'] as String?;
+                  final contentPiece = delta?['content'] as String?;
+
+                  final hasReasoning =
+                      reasoningPiece != null && reasoningPiece.isNotEmpty;
+                  final hasContent =
+                      contentPiece != null && contentPiece.isNotEmpty;
+
+                  if (hasReasoning) reasoningBuffer.write(reasoningPiece);
+                  if (hasContent) contentBuffer.write(contentPiece);
+
+                  if (hasReasoning || hasContent) {
+                    // 展示：思考 + 正文合流，保持实时滚动
+                    final displayText =
+                        '${reasoningBuffer.toString()}${contentBuffer.toString()}';
+                    onChunk(
+                      hasContent ? contentPiece : reasoningPiece ?? '',
+                      displayText,
+                    );
+                  }
+                }
+              }
+            } catch (_) {
+              // 忽略个别畸形片段
+            }
+          }
 
           await for (final rawBytes in stream) {
             if (cancelToken?.isCancelled == true) {
+              byteSink.close();
               throw DioException(
                 requestOptions: RequestOptions(path: '/chat/completions'),
                 type: DioExceptionType.cancel,
               );
             }
 
-            final textChunk = carry + utf8.decode(rawBytes, allowMalformed: true);
+            // 使用有状态分块解码器，避免多字节 UTF-8 中文在 TCP 分片边界被截断成乱码
+            byteSink.add(rawBytes);
+            final decodedText = decodedPending.toString();
+            decodedPending.clear();
+            if (decodedText.isEmpty) continue;
+
+            final textChunk = carry + decodedText;
             final lines = textChunk.split('\n');
             carry = lines.removeLast(); // 未闭合的行暂存
 
             for (final line in lines) {
-              final trimmed = line.trim();
-              if (trimmed.isEmpty || trimmed == 'data: [DONE]') continue;
-              if (trimmed.startsWith('data:')) {
-                final jsonStr = trimmed.substring(5).trim();
-                try {
-                  final decoded = jsonDecode(jsonStr);
-                  if (decoded is Map) {
-                    final choices = decoded['choices'] as List?;
-                    if (choices != null && choices.isNotEmpty) {
-                      final delta = choices[0]['delta'] as Map?;
-                      // 适配 DeepSeek / Qwen 等思考模型的 reasoning_content 字段与标准 content
-                      final reasoningPiece =
-                          delta?['reasoning_content'] as String?;
-                      final contentPiece = delta?['content'] as String?;
+              processSseLine(line);
+            }
+          }
 
-                      final hasReasoning =
-                          reasoningPiece != null && reasoningPiece.isNotEmpty;
-                      final hasContent =
-                          contentPiece != null && contentPiece.isNotEmpty;
-
-                      if (hasReasoning) reasoningBuffer.write(reasoningPiece);
-                      if (hasContent) contentBuffer.write(contentPiece);
-
-                      if (hasReasoning || hasContent) {
-                        // 展示：思考 + 正文合流，保持实时滚动
-                        final displayText =
-                            '${reasoningBuffer.toString()}${contentBuffer.toString()}';
-                        onChunk(
-                          hasContent ? contentPiece : reasoningPiece ?? '',
-                          displayText,
-                        );
-                      }
-                    }
-                  }
-                } catch (_) {
-                  // 忽略个别畸形片段
-                }
-              }
+          byteSink.close();
+          final tail = carry + decodedPending.toString();
+          if (tail.isNotEmpty) {
+            for (final line in tail.split('\n')) {
+              processSseLine(line);
             }
           }
 
@@ -293,6 +331,17 @@ class ApiService {
   }
 
   Future<String> transcribeAudio(String filePath) async {
+    if (_aiDirectDisabled &&
+        (_asrConfig.provider == AsrProvider.openaiWhisper ||
+            _asrConfig.provider == AsrProvider.mimoV25)) {
+      throw UnsupportedError('当前地区版本已停用该语音识别接口');
+    }
+    if (_asrConfig.provider == AsrProvider.appleSpeech) {
+      return AppleSpeechAsr.transcribeFile(
+        filePath,
+        language: _asrConfig.language,
+      );
+    }
     if (_asrConfig.provider == AsrProvider.deepseek) {
       return DeepSeekToolsService(dio: _rawDio).transcribe(
         baseUrl: _asrConfig.baseUrl,
@@ -497,6 +546,9 @@ class ApiService {
   }
 
   Future<String> extractTextFromImages(List<String> imagePaths) async {
+    if (_aiDirectDisabled && _ocrConfig.provider == OcrProvider.openai) {
+      throw UnsupportedError('当前地区版本已停用通用视觉大模型接口');
+    }
     // 后台异步优化：将过大的原图等比压缩至 2048px 高清范围，防超时与 413 超限
     final optimizedPaths = await OcrImageOptimizer.prepareForOcr(imagePaths);
 
@@ -775,7 +827,7 @@ class ApiService {
 
   Future<String> _extractMineru(List<String> imagePaths) async {
     final dio = _ocrDio();
-    const base = 'https://mineru.net/api/v1/agent';
+    final base = OcrProviderService.mineruAgentBaseUrl(_ocrConfig.baseUrl);
 
     return _processMultiPagesWithPacing(
       imagePaths: imagePaths,
@@ -871,6 +923,7 @@ class ApiService {
   }
 
   Future<bool> testLlmConnection() async {
+    if (_aiDirectDisabled) return false;
     try {
       final dio = _llmDio();
       final resp = await dio.get('/models');
@@ -881,6 +934,14 @@ class ApiService {
   }
 
   Future<bool> testAsrConnection() async {
+    if (_aiDirectDisabled &&
+        (_asrConfig.provider == AsrProvider.openaiWhisper ||
+            _asrConfig.provider == AsrProvider.mimoV25)) {
+      return false;
+    }
+    if (_asrConfig.provider == AsrProvider.appleSpeech) {
+      return AppleSpeechAsr.isAvailable(language: _asrConfig.language);
+    }
     try {
       final dio = _asrDio();
       var base = _asrConfig.baseUrl.trim();
@@ -931,6 +992,9 @@ class ApiService {
   }
 
   Future<bool> testOcrConnection() async {
+    if (_aiDirectDisabled && _ocrConfig.provider == OcrProvider.openai) {
+      return false;
+    }
     try {
       if (_ocrConfig.provider == OcrProvider.appleVision) {
         return AppleVisionOcr.isAvailable();
@@ -939,23 +1003,20 @@ class ApiService {
         return PaddleLocalOcr.isAvailable();
       }
       if (_ocrConfig.provider == OcrProvider.paddleOcr) {
-        // PaddleOCR job URL is POST-only; verify auth via a dummy request
-        final resp = await _rawDio.post(
-          _ocrConfig.baseUrl,
-          options: Options(headers: {
-            'Authorization': 'bearer ${_ocrConfig.apiKey}',
-          }),
+        final probe = await OcrProviderService.probePaddleOcr(
+          dio: _rawDio,
+          baseUrl: _ocrConfig.baseUrl,
+          apiKey: _ocrConfig.apiKey,
+          model: _ocrConfig.model,
         );
-        // 405 (Method Not Allowed) or 400 (Bad Request) = endpoint exists + auth OK
-        return resp.statusCode != 401 && resp.statusCode != 403;
+        return probe.ok;
       }
       if (_ocrConfig.provider == OcrProvider.mineru) {
-        // MinerU agent API is no-auth; verify endpoint reachable via empty POST
-        final resp = await _rawDio.post(
-          'https://mineru.net/api/v1/agent/parse/file',
-          options: Options(headers: {'Content-Type': 'application/json'}),
+        final probe = await OcrProviderService.probeMineru(
+          dio: _rawDio,
+          baseUrl: _ocrConfig.baseUrl,
         );
-        return resp.statusCode != 429;
+        return probe.ok;
       }
       var base = _ocrConfig.baseUrl.trim();
       while (base.endsWith('/')) {

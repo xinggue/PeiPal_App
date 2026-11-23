@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +13,7 @@ import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../widgets/common/export_action_sheet.dart';
@@ -30,10 +33,14 @@ class _AboutPageState extends ConsumerState<AboutPage> {
   AppLogStats? _logStats;
   bool _isExportingLogs = false;
 
+  bool get _isIos => !kIsWeb && Platform.isIOS;
+
   @override
   void initState() {
     super.initState();
-    _checkUpdateSilently();
+    if (!_isIos) {
+      _checkUpdateSilently();
+    }
     _loadLogStats();
   }
 
@@ -54,15 +61,20 @@ class _AboutPageState extends ConsumerState<AboutPage> {
     if (_isExportingLogs) return;
     setState(() => _isExportingLogs = true);
     try {
+      final isRestricted = ref.read(isChinaAiRestrictedProvider);
       final llm = ref.read(llmProvidersProvider).activeProvider;
       final asr = ref.read(asrProvidersProvider).activeProvider;
       final ocr = ref.read(ocrProvidersProvider).activeProvider;
       final summary = <String, String>{
-        'LLM': llm == null
+        'LLM': isRestricted
+            ? '当前地区已停用'
+            : llm == null
             ? '未配置'
             : '${llm.name} (${llm.selectedModel}) key=${llm.apiKey.isNotEmpty ? '已配置' : '空'}',
         'ASR': asr == null
             ? '未配置'
+            : asr.isLocal
+            ? '${asr.name} (系统内置)'
             : '${asr.name} key=${asr.apiKey.isNotEmpty ? '已配置' : '空'}',
         'OCR': ocr == null
             ? '未配置'
@@ -156,6 +168,7 @@ class _AboutPageState extends ConsumerState<AboutPage> {
     final colorScheme = theme.colorScheme;
     final pkgAsync = ref.watch(appPackageInfoProvider);
     final installedVersion = pkgAsync.valueOrNull?.version ?? _updateInfo?.currentVersion;
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -214,102 +227,104 @@ class _AboutPageState extends ConsumerState<AboutPage> {
 
           const SizedBox(height: 8),
 
-          // 1. 版本更新检测
-          _buildGroupLabel('版本更新'),
-          _buildCard([
-            ListTile(
-              titleAlignment: ListTileTitleAlignment.center,
-              leading: Icon(
-                _updateInfo?.hasUpdate == true
-                    ? Icons.system_update_rounded
-                    : Icons.check_circle_outline_rounded,
-                color: colorScheme.primary,
-              ),
-              title: Text(
-                _isCheckingUpdate
-                    ? '正在检查新版本…'
-                    : (_updateInfo?.hasUpdate == true
-                        ? '发现新版本 ${_updateInfo!.latestVersion}'
-                        : '当前已是最新版本'),
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-              subtitle: Text(
-                _isCheckingUpdate
-                    ? '连接更新服务器中'
-                    : (_checkError ??
-                        (_updateInfo?.hasUpdate == true
-                            ? '建议及时更新以获取最新特性与优化'
-                            : '当前版本：v${installedVersion ?? _updateInfo?.currentVersion ?? '—'}')),
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: _isCheckingUpdate
-                  ? const SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: Center(
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+          // 1. 版本更新检测（iOS App Store 分发禁止外部更新检查与安装包下载）
+          if (!_isIos) ...[
+            _buildGroupLabel('版本更新'),
+            _buildCard([
+              ListTile(
+                titleAlignment: ListTileTitleAlignment.center,
+                leading: Icon(
+                  _updateInfo?.hasUpdate == true
+                      ? Icons.system_update_rounded
+                      : Icons.check_circle_outline_rounded,
+                  color: colorScheme.primary,
+                ),
+                title: Text(
+                  _isCheckingUpdate
+                      ? '正在检查新版本…'
+                      : (_updateInfo?.hasUpdate == true
+                          ? '发现新版本 ${_updateInfo!.latestVersion}'
+                          : '当前已是最新版本'),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                subtitle: Text(
+                  _isCheckingUpdate
+                      ? '连接更新服务器中'
+                      : (_checkError ??
+                          (_updateInfo?.hasUpdate == true
+                              ? '建议及时更新以获取最新特性与优化'
+                              : '当前版本：v${installedVersion ?? _updateInfo?.currentVersion ?? '—'}')),
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: _isCheckingUpdate
+                    ? const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      )
+                    : SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          iconSize: 20,
+                          icon: const Icon(Icons.refresh_rounded),
+                          tooltip: '重新检测',
+                          onPressed: _checkUpdateSilently,
                         ),
                       ),
-                    )
-                  : SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: IconButton(
-                        padding: EdgeInsets.zero,
-                        iconSize: 20,
-                        icon: const Icon(Icons.refresh_rounded),
-                        tooltip: '重新检测',
-                        onPressed: _checkUpdateSilently,
-                      ),
-                    ),
-            ),
-            if (_updateInfo?.hasUpdate == true) ...[
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_updateInfo?.releaseNotes != null && _updateInfo!.releaseNotes!.isNotEmpty) ...[
-                      Text(
-                        _updateInfo!.releaseNotes!,
-                        style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant, height: 1.4),
-                        maxLines: 6,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    Row(
-                      children: [
-                        if (_updateInfo?.downloadUrl != null) ...[
+              ),
+              if (_updateInfo?.hasUpdate == true) ...[
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_updateInfo?.releaseNotes != null && _updateInfo!.releaseNotes!.isNotEmpty) ...[
+                        Text(
+                          _updateInfo!.releaseNotes!,
+                          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant, height: 1.4),
+                          maxLines: 6,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      Row(
+                        children: [
+                          if (_updateInfo?.downloadUrl != null) ...[
+                            Expanded(
+                              child: FilledButton.icon(
+                                icon: const Icon(Icons.download_rounded, size: 16),
+                                label: const Text('下载安装包'),
+                                onPressed: () => _openUrl(_updateInfo!.downloadUrl!),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           Expanded(
-                            child: FilledButton.icon(
-                              icon: const Icon(Icons.download_rounded, size: 16),
-                              label: const Text('下载安装包'),
-                              onPressed: () => _openUrl(_updateInfo!.downloadUrl!),
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.open_in_browser_rounded, size: 16),
+                              label: const Text('查看发行版'),
+                              onPressed: () => _openUrl(_updateInfo!.releasePageUrl),
                             ),
                           ),
-                          const SizedBox(width: 8),
                         ],
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.open_in_browser_rounded, size: 16),
-                            label: const Text('查看发行版'),
-                            onPressed: () => _openUrl(_updateInfo!.releasePageUrl),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ]),
+              ],
+            ]),
 
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
 
           // 2. 新手教程与演练（仅收录已完成真实功能，杜绝占位）
           _buildGroupLabel('新手教程'),
@@ -331,15 +346,17 @@ class _AboutPageState extends ConsumerState<AboutPage> {
                 }
               },
             ),
-            const Divider(height: 1),
-            ListTile(
-              titleAlignment: ListTileTitleAlignment.center,
-              leading: Icon(Icons.key_rounded, color: colorScheme.primary),
-              title: const Text('获取 API Key', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: const Text('DeepSeek / 智谱图文教程与一键配置', style: TextStyle(fontSize: 12)),
-              trailing: _trailingIcon(Icons.chevron_right),
-              onTap: () => context.push('/settings/api-key-guides'),
-            ),
+            if (!isAiRestricted) ...[
+              const Divider(height: 1),
+              ListTile(
+                titleAlignment: ListTileTitleAlignment.center,
+                leading: Icon(Icons.key_rounded, color: colorScheme.primary),
+                title: const Text('获取 API Key', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                subtitle: const Text('DeepSeek / 智谱图文教程与一键配置', style: TextStyle(fontSize: 12)),
+                trailing: _trailingIcon(Icons.chevron_right),
+                onTap: () => context.push('/settings/api-key-guides'),
+              ),
+            ],
           ]),
 
           const SizedBox(height: 16),

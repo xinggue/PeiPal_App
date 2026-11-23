@@ -26,6 +26,7 @@ class ChatInputBar extends StatefulWidget {
   final VoidCallback onGenerateRecord;
   final VoidCallback? onManualGenerateRecord;
   final VoidCallback? onAutofillSessionInfo;
+  final bool isAiRestricted;
   final bool isDryRunEnabled;
   final VoidCallback? onDryRunTest;
   final GlobalKey? generateButtonKey;
@@ -43,6 +44,7 @@ class ChatInputBar extends StatefulWidget {
     required this.onGenerateRecord,
     this.onManualGenerateRecord,
     this.onAutofillSessionInfo,
+    this.isAiRestricted = false,
     this.isDryRunEnabled = false,
     this.onDryRunTest,
     this.generateButtonKey,
@@ -318,17 +320,17 @@ class ChatInputBarState extends State<ChatInputBar> {
   Future<void> _pickDocumentFile() async {
     final typeGroup = XTypeGroup(
       label: '文档',
-      extensions: <String>['pdf', 'docx', 'doc', 'ppt', 'pptx', 'xls', 'xlsx', 'wps', 'html', 'htm', 'txt', 'text', 'md', 'markdown', 'csv', 'json'],
+      extensions: const <String>['pdf', 'docx', 'doc', 'ppt', 'pptx', 'xls', 'xlsx', 'wps', 'html', 'htm', 'txt', 'text', 'md', 'markdown', 'csv', 'json'],
       uniformTypeIdentifiers: defaultTargetPlatform == TargetPlatform.iOS
           ? const <String>[
               'com.adobe.pdf',
               'org.openxmlformats.wordprocessingml.document',
-               'com.microsoft.word.doc',
-               'org.openxmlformats.presentationml.presentation',
-               'com.microsoft.powerpoint.ppt',
-               'org.openxmlformats.spreadsheetml.sheet',
-               'com.microsoft.excel.xls',
-               'public.data',
+              'com.microsoft.word.doc',
+              'org.openxmlformats.presentationml.presentation',
+              'com.microsoft.powerpoint.ppt',
+              'org.openxmlformats.spreadsheetml.sheet',
+              'com.microsoft.excel.xls',
+              'public.data',
               'public.text',
               'public.json',
             ]
@@ -590,11 +592,11 @@ class ChatInputBarState extends State<ChatInputBar> {
                       : _buildTextField(),
                 ),
 
-                // 3. 生成文书专属星星按钮
+                // 3. 生成/整理文书专属星星按钮
                 IconButton(
                   key: widget.generateButtonKey,
                   icon: const Icon(Icons.auto_awesome, color: Colors.amber, size: 23),
-                  tooltip: '生成文书',
+                  tooltip: widget.isAiRestricted ? '整理文书' : '生成文书',
                   onPressed: widget.onGenerateRecord,
                 ),
 
@@ -739,7 +741,7 @@ class ChatInputBarState extends State<ChatInputBar> {
       ),
       _buildPanelItem(
         icon: Icons.auto_awesome_rounded,
-        label: '生成文书',
+        label: widget.isAiRestricted ? '整理文书' : '生成文书',
         color: Colors.amber.shade800,
         onTap: () {
           setState(() => _showAttachmentPanel = false);

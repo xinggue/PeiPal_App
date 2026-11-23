@@ -1,5 +1,8 @@
 /// ASR 协议类型
 enum AsrProtocol {
+  /// iOS 系统内置 Speech (SFSpeechRecognizer) 语音转文字
+  appleSpeech,
+
   /// OpenAI 兼容语音转文本 (/audio/transcriptions + GET /models)
   openaiWhisper,
 
@@ -47,9 +50,13 @@ class AsrProviderConfig {
     this.websiteUrl = '',
   });
 
-  bool get isConfigured => apiKey.trim().isNotEmpty;
+  bool get isLocal => protocol == AsrProtocol.appleSpeech;
 
-  bool get requiresModel => protocol != AsrProtocol.deepseek;
+  bool get requiresApiKey => !isLocal;
+
+  bool get isConfigured => !requiresApiKey || apiKey.trim().isNotEmpty;
+
+  bool get requiresModel => !isLocal && protocol != AsrProtocol.deepseek;
 
   /// 全部可用模型列表（去重保留顺序）
   List<String> get allModels {
@@ -144,6 +151,17 @@ class AsrProviderConfig {
 /// 内置的 ASR 供应商预设矩阵
 class AsrProviderPresets {
   static List<AsrProviderConfig> get builtIn => const [
+        AsrProviderConfig(
+          id: 'appleSpeech',
+          name: 'Apple 系统语音识别',
+          description: '调用 iOS 系统内置 Speech 框架进行语音转文字，无需配置 API Key，可直接使用。',
+          protocol: AsrProtocol.appleSpeech,
+          defaultBaseUrl: '',
+          baseUrl: '',
+          apiKey: '',
+          selectedModel: 'apple-speech',
+          language: 'zh-CN',
+        ),
         AsrProviderConfig(
           id: 'deepseek',
           name: 'DeepSeek 语音识别',

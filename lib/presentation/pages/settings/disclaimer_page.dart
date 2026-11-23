@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/services/telemetry/telemetry_service.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 
 const String kDisclaimerVersion = '2026-11';
 
@@ -56,12 +58,13 @@ Future<void> showTelemetryFieldsDialog(
 }
 
 /// 可复用的免责声明与隐私说明正文（同时用于设置页与首次启动引导弹窗）。
-class DisclaimerPrivacyContent extends StatelessWidget {
+class DisclaimerPrivacyContent extends ConsumerWidget {
   const DisclaimerPrivacyContent({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final titleStyle = TextStyle(
       fontSize: 14.5,
       fontWeight: FontWeight.w600,
@@ -86,7 +89,9 @@ class DisclaimerPrivacyContent extends StatelessWidget {
         Text('2. 本地识别、第三方服务与核验责任', style: titleStyle),
         const SizedBox(height: 6),
         Text(
-          '除部分设备端离线文字识别（如内置或系统级本地 OCR）外，语音识别、云端图像识别、文档解析与文本生成均由你自行配置接口并直连第三方服务商完成。所有识别与生成结果的准确性、完整性与合规性均由你自行核验并承担最终责任；用于医疗、法律等专业场景时，须由具备相应资质的人员复核后方可使用。',
+          isAiRestricted
+              ? '当前地区版本默认提供设备端文字识别（Apple Vision）与系统语音识别，同时支持你自行配置第三方图像识别、语音转文字与文档解析接口，以及本地提示词整理功能；不内置或直连第三方云端生成式大语言模型（LLM）接口。如你将整理后的内容复制至外部工具处理并回填，其准确性、完整性与合规性均由你自行核验并承担最终责任；用于医疗、法律等专业场景时，须由具备相应资质的人员复核后方可使用。'
+              : '除部分设备端离线文字识别（如内置或系统级本地 OCR）外，语音识别、云端图像识别、文档解析与文本生成均由你自行配置接口并直连第三方服务商完成。所有识别与生成结果的准确性、完整性与合规性均由你自行核验并承担最终责任；用于医疗、法律等专业场景时，须由具备相应资质的人员复核后方可使用。',
           style: bodyStyle,
         ),
         const SizedBox(height: 16),

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/models/asr_provider.dart';
 import '../../../providers/asr_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/common/api_key_tutorial_notice_banner.dart';
 
 class AsrSettingsPage extends ConsumerStatefulWidget {
@@ -110,6 +111,24 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
   Future<void> _onSaveProvider(AsrProviderConfig p,
       {bool setAsActive = false}) async {
     final notifier = ref.read(asrProvidersProvider.notifier);
+    if (p.isLocal) {
+      final lang = _getLangCtrl(p).text.trim();
+      final updated = p.copyWith(
+        language: lang.isNotEmpty ? lang : 'zh-CN',
+      );
+      await notifier.updateProvider(updated);
+      if (setAsActive) {
+        await notifier.setActiveProvider(p.id);
+      }
+      if (mounted) {
+        showAppToast(
+          context,
+          setAsActive ? '已选用 ${p.name}' : '${p.name} 配置已保存',
+        );
+      }
+      return;
+    }
+
     final url = _getUrlCtrl(p).text.trim();
     final key = _getKeyCtrl(p).text.trim();
     final model = _getModelCtrl(p).text.trim();
@@ -438,6 +457,7 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(asrProvidersProvider);
+    final isAiRestricted = ref.watch(isChinaAiRestrictedProvider);
     final theme = Theme.of(context);
     final active = state.activeProvider;
 
@@ -445,11 +465,12 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
       appBar: AppBar(
         title: const Text('语音识别'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            tooltip: '添加自定义服务商',
-            onPressed: _showAddCustomProviderDialog,
-          ),
+          if (!isAiRestricted)
+            IconButton(
+              icon: const Icon(Icons.add_rounded),
+              tooltip: '添加自定义服务商',
+              onPressed: _showAddCustomProviderDialog,
+            ),
         ],
       ),
       body: state.isLoading
@@ -459,7 +480,8 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
               children: [
                 // 1. 顶部当前选用识别引擎状态卡片
                 _buildActiveStatusBanner(theme, active),
-                if (!(active?.isConfigured ?? false) &&
+                if (!isAiRestricted &&
+                    !(active?.isConfigured ?? false) &&
                     !_tutorialBannerDismissed) ...[
                   const SizedBox(height: 10),
                   ApiKeyTutorialNoticeBanner(
@@ -541,7 +563,11 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  isConfigured ? '已就绪' : '未配置 Key',
+                  active?.isLocal == true
+                      ? '系统内置'
+                      : isConfigured
+                          ? '已就绪'
+                          : '未配置 Key',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 11,
@@ -572,9 +598,13 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  active?.requiresModel == false ? '自动识别语言' : active?.selectedModel.isNotEmpty == true
-                      ? active!.selectedModel
-                      : '未选择模型',
+                  active?.isLocal == true
+                      ? '系统语音识别 (${active!.language})'
+                      : active?.requiresModel == false
+                          ? '自动识别语言'
+                          : active?.selectedModel.isNotEmpty == true
+                              ? active!.selectedModel
+                              : '未选择模型',
                   style: const TextStyle(
                       fontSize: 12, fontWeight: FontWeight.w600),
                 ),
@@ -694,6 +724,20 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
                           fontWeight: FontWeight.bold),
                     ),
                   )
+                else if (p.isLocal)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      '系统内置',
+                      style: TextStyle(fontSize: 10, color: Colors.teal),
+                    ),
+                  )
                 else if (isConfigured)
                   Container(
                     margin: const EdgeInsets.only(left: 6),
@@ -711,7 +755,11 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
               ],
             ),
             subtitle: Text(
-              p.requiresModel ? '当前模型: ${p.selectedModel.isNotEmpty ? p.selectedModel : "未指定"}' : p.description,
+              p.isLocal
+                  ? '系统内置 · 识别语言: ${p.language}'
+                  : p.requiresModel
+                      ? '当前模型: ${p.selectedModel.isNotEmpty ? p.selectedModel : "未指定"}'
+                      : p.description,
               style: const TextStyle(fontSize: 12),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -735,106 +783,130 @@ class _AsrSettingsPageState extends ConsumerState<AsrSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 1. 接口地址 Base URL
-                  TextField(
-                    controller: _getUrlCtrl(p),
-                    decoration: InputDecoration(
-                      labelText: '接口地址 (Base URL)',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.restore, size: 18),
-                        tooltip: '恢复默认地址',
-                        onPressed: () {
-                          _getUrlCtrl(p).text = p.defaultBaseUrl;
-                        },
+                  if (p.isLocal) ...[
+                    Text(
+                      p.description,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.45,
+                        color: Colors.grey.shade700,
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 2. API Key 输入框
-                  TextField(
-                    controller: _getKeyCtrl(p),
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: 'API Key',
-                      hintText: '输入该服务商专属密钥',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.paste, size: 18),
-                        tooltip: '粘贴剪贴板',
-                        onPressed: () async {
-                          final clip = await Clipboard.getData('text/plain');
-                          if (clip?.text != null) {
-                            _getKeyCtrl(p).text = clip!.text!.trim();
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // 3. 【直达按钮】保存 Key 并获取模型列表
-                  if (p.requiresModel && p.protocol != AsrProtocol.mimoV25) ...[
-                    FilledButton.tonalIcon(
-                      icon: isLoadingModel
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.cloud_download_outlined, size: 18),
-                      label: Text(
-                          isLoadingModel ? '正在拉取模型列表...' : '保存 Key 并获取模型列表'),
-                      onPressed: isLoadingModel
-                          ? null
-                          : () => _onSaveKeyAndFetchModels(p),
                     ),
                     const SizedBox(height: 12),
-                  ],
-
-                  // 4. 选用模型名称行（输入框 + 从列表选择按钮）
-                  if (p.requiresModel) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _getModelCtrl(p),
-                          decoration: const InputDecoration(
-                            labelText: '选用模型名称',
-                            hintText: '点击右侧选择或手动输入',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
+                    TextField(
+                      controller: _getLangCtrl(p),
+                      decoration: const InputDecoration(
+                        labelText: '识别语言 (Language)',
+                        hintText: 'zh-CN / en-US',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ] else ...[
+                    // 1. 接口地址 Base URL
+                    TextField(
+                      controller: _getUrlCtrl(p),
+                      decoration: InputDecoration(
+                        labelText: '接口地址 (Base URL)',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.restore, size: 18),
+                          tooltip: '恢复默认地址',
+                          onPressed: () {
+                            _getUrlCtrl(p).text = p.defaultBaseUrl;
+                          },
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.list_alt, size: 16),
-                        label:
-                            const Text('选择模型', style: TextStyle(fontSize: 12)),
-                        onPressed: () => _showModelPickerSheet(p.id),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 5. 识别语言
-                  TextField(
-                    controller: _getLangCtrl(p),
-                    decoration: const InputDecoration(
-                      labelText: '识别语言 (Language)',
-                      hintText: 'zh',
-                      border: OutlineInputBorder(),
-                      isDense: true,
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  ] else ...[
-                    const Text('自动识别语言 · 最长 120 秒 · 最大 8 MiB'),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
+
+                    // 2. API Key 输入框
+                    TextField(
+                      controller: _getKeyCtrl(p),
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: 'API Key',
+                        hintText: '输入该服务商专属密钥',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.paste, size: 18),
+                          tooltip: '粘贴剪贴板',
+                          onPressed: () async {
+                            final clip = await Clipboard.getData('text/plain');
+                            if (clip?.text != null) {
+                              _getKeyCtrl(p).text = clip!.text!.trim();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // 3. 【直达按钮】保存 Key 并获取模型列表
+                    if (p.requiresModel && p.protocol != AsrProtocol.mimoV25) ...[
+                      FilledButton.tonalIcon(
+                        icon: isLoadingModel
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_download_outlined,
+                                size: 18),
+                        label: Text(
+                            isLoadingModel ? '正在拉取模型列表...' : '保存 Key 并获取模型列表'),
+                        onPressed: isLoadingModel
+                            ? null
+                            : () => _onSaveKeyAndFetchModels(p),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // 4. 选用模型名称行（输入框 + 从列表选择按钮）
+                    if (p.requiresModel) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _getModelCtrl(p),
+                              decoration: const InputDecoration(
+                                labelText: '选用模型名称',
+                                hintText: '点击右侧选择或手动输入',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.list_alt, size: 16),
+                            label: const Text('选择模型',
+                                style: TextStyle(fontSize: 12)),
+                            onPressed: () => _showModelPickerSheet(p.id),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // 5. 识别语言
+                      TextField(
+                        controller: _getLangCtrl(p),
+                        decoration: const InputDecoration(
+                          labelText: '识别语言 (Language)',
+                          hintText: 'zh',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ] else ...[
+                      const Text('自动识别语言 · 最长 120 秒 · 最大 8 MiB'),
+                      const SizedBox(height: 14),
+                    ],
                   ],
 
                   // 6. 底部操作按钮：仅保存 / 确认选用该模型

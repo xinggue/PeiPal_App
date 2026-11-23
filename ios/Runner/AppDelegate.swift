@@ -18,5 +18,11 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigFileExportPlugin") {
       registerConfigFileExport(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "StorefrontPlugin") {
+      registerStorefrontPlugin(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppleSpeechAsrPlugin") {
+      registerAppleSpeechAsr(with: registrar)
+    }
   }
 }
