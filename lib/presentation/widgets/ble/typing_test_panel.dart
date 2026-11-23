@@ -272,7 +272,7 @@ class _TypingTestPanelState extends ConsumerState<TypingTestPanel> {
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.6)),
+        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.55)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -285,22 +285,17 @@ class _TypingTestPanelState extends ConsumerState<TypingTestPanel> {
                 const SizedBox(width: 8),
                 const Text(
                   '测试输入',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                 ),
                 const Spacer(),
                 if (_ctrl.text.isNotEmpty)
                   Text(
                     '${_ctrl.text.length} 字符',
-                    style: TextStyle(fontSize: 11.5, color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 11.5, color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
                   ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              '点击预设载入测试内容，发送过程可通过全局悬浮窗实时监控与紧急停止。',
-              style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
 
             Wrap(
               spacing: 8,

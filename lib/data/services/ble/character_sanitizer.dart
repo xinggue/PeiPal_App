@@ -7,12 +7,13 @@ import '../../../providers/providers.dart';
 /// 固件已能直接打出的字符。旧版规则库里若还留着这些映射，加载时丢掉，避免误替换。
 const Set<String> kFirmwarePrintableChars = {
   '°', '±', '·', '×', '÷', '§', '¤',
-  '—', '…', '‰', '℃', '№',
+  '—', '‘', '’', '“', '”', '…', '‰', '℃', '№',
   'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', 'Ⅹ', 'Ⅺ', 'Ⅻ',
   '√', '∴', '∵', '≈', '≠', '≤', '≥', '∞',
   '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
   '←', '↑', '→', '↓',
-  '◆', '◇', '■', '□', '▲', '△', '▼', '▽', '●', '○', '★', '☆',
+  '◆', '◇', '■', '□', '▲', '△', '▼', '▽', '◎', '●', '○', '★', '☆',
+  '♀', '♂',
   'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'Μ',
   'Ν', 'Ξ', 'Ο', 'Π', 'Ρ', 'Σ', 'Τ', 'Υ', 'Φ', 'Χ', 'Ψ', 'Ω',
   'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ',
@@ -20,9 +21,9 @@ const Set<String> kFirmwarePrintableChars = {
   'µ', 'Ω',
 };
 
-/// 默认内置转换规则。℃ ± ≤ ≥ 希腊字母等固件已能打出，不再内置替换。
+/// 默认内置转换规则。℃ ± ≤ ≥ ‘ ’ “ ” ◎ ♀ ♂ 希腊字母等固件已能打出，不再内置替换。
 /// 仅保留正文半角花括号（防控制标签冲突）和 GBK 打不出的冷门标记。
-/// 上标在这台键盘上打不出来，一律写成 ^n。
+/// 上标在这台键盘上打不出来，一律写成 ^n（固件本身也会将 ²/³ 降级为 ^2/^3）。
 const Map<String, String> kSuperscriptRules = {
   '⁰': '^0',
   '¹': '^1',
@@ -42,10 +43,6 @@ const Map<String, String> kSuperscriptRules = {
 const Map<String, String> kDefaultReplacementRules = {
   '{': '｛',
   '}': '｝',
-  '‘': '\'',
-  '’': '\'',
-  '“': '"',
-  '”': '"',
   '℉': '度F',
   '•': '·',
   '®': '(R)',
@@ -66,6 +63,10 @@ class CharacterSanitizer {
     0x00A7, // §
     0x00A4, // ¤
     0x2014, // —
+    0x2018, // ‘
+    0x2019, // ’
+    0x201C, // “
+    0x201D, // ”
     0x2026, // …
     0x2030, // ‰
     0x2103, // ℃
@@ -80,7 +81,10 @@ class CharacterSanitizer {
     // 箭头与几何形状
     0x2190, 0x2191, 0x2192, 0x2193,
     0x25C6, 0x25C7, 0x25A0, 0x25A1, 0x25B2, 0x25B3, 0x25BC, 0x25BD,
+    0x25CE, // ◎
     0x25CF, 0x25CB, 0x2605, 0x2606,
+    0x2640, // ♀
+    0x2642, // ♂
     // 希腊字母 Α..Ω / α..ω（跳过空位 U+03A2），以及同形 µ / Ω
     0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397, 0x0398, 0x0399, 0x039A,
     0x039B, 0x039C, 0x039D, 0x039E, 0x039F, 0x03A0, 0x03A1, 0x03A3, 0x03A4, 0x03A5,
@@ -209,12 +213,15 @@ class CharReplacementNotifier extends StateNotifier<Map<String, String>> {
         final loaded = Map<String, String>.from(
           decoded.map((k, v) => MapEntry(k.toString(), v.toString())),
         );
+        final originalKeys = loaded.keys.toSet();
         loaded.removeWhere((k, _) => kFirmwarePrintableChars.contains(k));
         for (final e in kDefaultReplacementRules.entries) {
           loaded.putIfAbsent(e.key, () => e.value);
         }
         state = loaded;
-        if (loaded.length != decoded.length) {
+        final changed = loaded.length != originalKeys.length ||
+            loaded.keys.any((k) => !originalKeys.contains(k));
+        if (changed) {
           await _repo.set('char_replacement_rules', json.encode(loaded));
         }
       }

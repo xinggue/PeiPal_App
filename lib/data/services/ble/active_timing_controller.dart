@@ -74,6 +74,9 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
   final BleService _bleService;
   final Ref _ref;
   StreamSubscription<String>? _bleEventsSub;
+  Future<bool>? _inFlightRefresh;
+  int _mutationEpoch = 0;
+  bool _disposed = false;
 
   ActiveTimingController(this._settingsRepo, this._bleService, this._ref)
       : super(ActiveTimingState(
@@ -81,12 +84,15 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
           matchedPreset: kBuiltInTimingPresets.first,
           estimatedCharsPerSec: ActiveTimingState.calcCharsPerSec(defaultTimingValues()),
         )) {
+    _listenBleEvents();
     _init();
   }
 
   Future<void> _init() async {
     await _loadFromLocal();
-    _listenBleEvents();
+    if (!_disposed && _bleService.isConnected) {
+      await refreshFromDevice(silent: true, createPresetIfUnmatched: true);
+    }
   }
 
   Future<void> _loadFromLocal() async {
@@ -98,36 +104,112 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
         vals = clampTimingValues(decoded);
       }
     }
+    await _ref.read(timingPresetsProvider.notifier).ensureLoaded();
+    if (_disposed) return;
     _updateInternalState(vals);
   }
 
   void _listenBleEvents() {
     _bleEventsSub?.cancel();
-    _bleEventsSub = _bleService.events.listen((event) async {
-      // 仅在急停发生时主动回读硬件参数；连接和正常打字不要自动回读，避免引发死循环发送与抢占
-      if (event == 'emergency_stopped') {
-        await Future.delayed(const Duration(milliseconds: 200));
-        await refreshFromDevice(silent: true);
+    _bleEventsSub = _bleService.events.listen((event) {
+      if (event == 'connected') {
+        _scheduleDeviceRefresh(
+          delay: const Duration(milliseconds: 150),
+          createPresetIfUnmatched: true,
+        );
+      } else if (event == 'typing_finished' || event == 'emergency_stopped') {
+        _scheduleDeviceRefresh(
+          delay: const Duration(milliseconds: 200),
+          createPresetIfUnmatched: false,
+        );
       }
     });
   }
 
-  /// 与固件通信读取当前参数并校准唯一源
-  Future<bool> refreshFromDevice({bool silent = false}) async {
-    if (!_bleService.isConnected) return false;
+  void _scheduleDeviceRefresh({
+    required Duration delay,
+    required bool createPresetIfUnmatched,
+  }) {
+    Future.delayed(delay, () async {
+      if (_disposed || !_bleService.isConnected) return;
+      await refreshFromDevice(
+        silent: true,
+        createPresetIfUnmatched: createPresetIfUnmatched,
+      );
+    });
+  }
+
+  /// 与固件通信读取当前参数并校准唯一源；
+  /// [createPresetIfUnmatched] 为 true 时，若设备当前参数未命中本机任何预设，会自动新建一个本地预设并选中。
+  Future<bool> refreshFromDevice({
+    bool silent = false,
+    bool createPresetIfUnmatched = true,
+  }) {
+    final existing = _inFlightRefresh;
+    if (existing != null) return existing;
+
+    final future = _refreshFromDeviceImpl(
+      silent: silent,
+      createPresetIfUnmatched: createPresetIfUnmatched,
+    );
+    _inFlightRefresh = future;
+    future.whenComplete(() {
+      if (identical(_inFlightRefresh, future)) {
+        _inFlightRefresh = null;
+      }
+    });
+    return future;
+  }
+
+  Future<bool> _refreshFromDeviceImpl({
+    required bool silent,
+    required bool createPresetIfUnmatched,
+  }) async {
+    if (_disposed || !_bleService.isConnected) return false;
+    final startEpoch = _mutationEpoch;
     if (!silent) state = state.copyWith(isSyncing: true);
     try {
       final fetched = await _bleService.fetchTiming();
-      if (fetched != null && fetched.isNotEmpty) {
-        final clamped = clampTimingValues(fetched);
-        _updateInternalState(clamped);
-        await _settingsRepo.set('timing_app_defaults', encodeTimingJson(clamped));
-        return true;
+      if (_disposed || !_bleService.isConnected || _mutationEpoch != startEpoch) {
+        return false;
       }
-      return false;
+      if (fetched == null || fetched.isEmpty) return false;
+
+      final clamped = clampTimingValues(fetched);
+      await _ref.read(timingPresetsProvider.notifier).ensureLoaded();
+      if (_disposed || _mutationEpoch != startEpoch) return false;
+
+      final allPresets = _ref.read(timingPresetsProvider);
+      TimingPreset? matched =
+          allPresets.where((p) => timingValuesEqual(p.values, clamped)).firstOrNull;
+
+      if (matched == null && createPresetIfUnmatched) {
+        final presetName = _nextDevicePresetName(allPresets);
+        final created = TimingPreset(name: presetName, values: clamped);
+        await _ref.read(timingPresetsProvider.notifier).savePreset(created);
+        if (_disposed || _mutationEpoch != startEpoch) return false;
+        matched = created;
+      }
+
+      _setInternalState(clamped, matchedPreset: matched);
+      await _settingsRepo.set('timing_app_defaults', encodeTimingJson(clamped));
+      return true;
     } finally {
-      if (!silent) state = state.copyWith(isSyncing: false);
+      if (!silent && !_disposed) {
+        state = state.copyWith(isSyncing: false);
+      }
     }
+  }
+
+  static String _nextDevicePresetName(List<TimingPreset> existing) {
+    const base = '设备参数';
+    final names = existing.map((p) => p.name).toSet();
+    if (!names.contains(base)) return base;
+    var index = 2;
+    while (names.contains('$base $index')) {
+      index++;
+    }
+    return '$base $index';
   }
 
   /// 一键应用并持久化预设（写入 App 存储 + 写入硬件 Flash + 校验）
@@ -140,6 +222,7 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
     Map<String, double> rawValues, {
     TimingPreset? targetPreset,
   }) async {
+    _mutationEpoch++;
     final clamped = clampTimingValues(rawValues);
     _updateInternalState(clamped, explicitPreset: targetPreset);
     await _settingsRepo.set('timing_app_defaults', encodeTimingJson(clamped));
@@ -153,7 +236,7 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
         }
         await _bleService.sendCommand('{CFGSAVE}');
       } finally {
-        state = state.copyWith(isSyncing: false);
+        if (!_disposed) state = state.copyWith(isSyncing: false);
       }
     }
     return true;
@@ -169,10 +252,17 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
       final allPresets = _ref.read(timingPresetsProvider);
       matched = allPresets.where((p) => timingValuesEqual(p.values, values)).firstOrNull;
     }
+    _setInternalState(values, matchedPreset: matched);
+  }
+
+  void _setInternalState(
+    Map<String, double> values, {
+    required TimingPreset? matchedPreset,
+  }) {
     final charsPerSec = ActiveTimingState.calcCharsPerSec(values);
     state = ActiveTimingState(
       values: values,
-      matchedPreset: matched,
+      matchedPreset: matchedPreset,
       estimatedCharsPerSec: charsPerSec,
       isSyncing: state.isSyncing,
     );
@@ -180,6 +270,7 @@ class ActiveTimingController extends StateNotifier<ActiveTimingState> {
 
   @override
   void dispose() {
+    _disposed = true;
     _bleEventsSub?.cancel();
     super.dispose();
   }

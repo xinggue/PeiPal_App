@@ -15,6 +15,7 @@ import '../../../domain/models/typing_profile.dart';
 import '../../../providers/providers.dart';
 import '../common/app_toast.dart';
 import 'ble_connect_manual_sheet.dart';
+import 'speed_preset_selector.dart';
 import 'typing_preset_library_sheet.dart';
 
 /// 全局打字状态控制器
@@ -1227,16 +1228,13 @@ class _DraggableTypingOverlayState
     );
   }
 
-  /// 中部：输入速度折叠条（默认仅显示当前速度 + 方案名 + 展开图标；展开后展示自适应方块）
+  /// 中部：输入速度折叠条（默认仅显示当前速度 + 展开图标；展开后展示自适应方块）
   Widget _buildSpeedSquaresBar(
     ActiveTimingState activeTiming,
     List<TimingPreset> presets,
     ColorScheme colorScheme,
     bool isWide,
   ) {
-    final sorted = List<TimingPreset>.from(presets)
-      ..sort((a, b) => a.estimatedCharsPerSec.compareTo(b.estimatedCharsPerSec));
-
     return Container(
       color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
       child: Column(
@@ -1285,208 +1283,14 @@ class _DraggableTypingOverlayState
               ),
             ),
           ),
-          if (_isSpeedSquaresExpanded) ...[
+          if (_isSpeedSquaresExpanded)
             Padding(
               padding: EdgeInsets.fromLTRB(isWide ? 12 : 6, 0, isWide ? 12 : 6, isWide ? 10 : 6),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final count = sorted.length;
-                  if (count == 0) return const SizedBox.shrink();
-
-                  if (!isWide) {
-                    // 小窗：横向滚动的紧凑速度方块（带滚动条 + 选中方案名）
-                    final selectedName = activeTiming.matchedPreset?.name ?? '实时参数';
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: 30,
-                          child: Scrollbar(
-                            controller: _speedScrollCtrl,
-                            thumbVisibility: true,
-                            thickness: 3,
-                            radius: const Radius.circular(2),
-                            child: ListView.separated(
-                              controller: _speedScrollCtrl,
-                              scrollDirection: Axis.horizontal,
-                              padding: const EdgeInsets.only(bottom: 4),
-                              itemCount: count,
-                              separatorBuilder: (_, _) => const SizedBox(width: 4),
-                              itemBuilder: (context, index) {
-                                final p = sorted[index];
-                                final isSelected = activeTiming.matchedPreset?.id == p.id;
-                                final speedVal = p.estimatedCharsPerSec.toStringAsFixed(0);
-
-                                return SizedBox(
-                                  width: 46,
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(6),
-                                    onTap: () async {
-                                      final toastCtx = context;
-                                      await ref
-                                          .read(activeTimingControllerProvider.notifier)
-                                          .applyPreset(p);
-                                      if (mounted) {
-                                        showAppToast(toastCtx, '已切换速度：${p.name}');
-                                      }
-                                    },
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? colorScheme.primary
-                                            : colorScheme.surface,
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(
-                                          color: isSelected
-                                              ? colorScheme.primary
-                                              : colorScheme.outlineVariant,
-                                          width: isSelected ? 1.5 : 1.0,
-                                        ),
-                                      ),
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            speedVal,
-                                            style: TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.bold,
-                                              height: 1.0,
-                                              color: isSelected
-                                                  ? colorScheme.onPrimary
-                                                  : colorScheme.onSurface,
-                                            ),
-                                          ),
-                                          Text(
-                                            '字/秒',
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              height: 1.0,
-                                              color: isSelected
-                                                  ? colorScheme.onPrimary.withValues(alpha: 0.85)
-                                                  : colorScheme.onSurfaceVariant,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '已选：$selectedName',
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.primary,
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-
-                  final spacing = 8.0;
-                  final selectedName = activeTiming.matchedPreset?.name ?? '实时参数';
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                    children: List.generate(count, (index) {
-                      final p = sorted[index];
-                      final isSelected = activeTiming.matchedPreset?.id == p.id;
-                      final speedVal = p.estimatedCharsPerSec.toStringAsFixed(0);
-
-                      return Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            left: index == 0 ? 0 : spacing / 2,
-                            right: index == count - 1 ? 0 : spacing / 2,
-                          ),
-                          child: AspectRatio(
-                            aspectRatio: 1.0,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () async {
-                                final toastCtx = context;
-                                await ref
-                                    .read(activeTimingControllerProvider.notifier)
-                                    .applyPreset(p);
-                                if (mounted) {
-                                  showAppToast(toastCtx, '已切换速度：${p.name}');
-                                }
-                              },
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? colorScheme.primary
-                                      : colorScheme.surface,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? colorScheme.primary
-                                        : colorScheme.outlineVariant,
-                                    width: isSelected ? 1.5 : 1.0,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      speedVal,
-                                      style: TextStyle(
-                                        fontSize: 15.5,
-                                        fontWeight: FontWeight.bold,
-                                        height: 1.1,
-                                        color: isSelected
-                                            ? colorScheme.onPrimary
-                                            : colorScheme.onSurface,
-                                      ),
-                                    ),
-                                    Text(
-                                      '字/秒',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        height: 1.1,
-                                        color: isSelected
-                                            ? colorScheme.onPrimary.withValues(alpha: 0.85)
-                                            : colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '已选：$selectedName',
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  );
-                },
+              child: SpeedPresetSquareGrid(
+                compact: !isWide,
+                scrollController: _speedScrollCtrl,
               ),
             ),
-          ],
         ],
       ),
     );

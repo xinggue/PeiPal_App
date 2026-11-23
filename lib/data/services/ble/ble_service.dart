@@ -849,6 +849,7 @@ class BleService extends ChangeNotifier {
   }
 
   Future<void> _runWorker() async {
+    bool hasTypingTask = false;
     try {
       while (_queue.isNotEmpty) {
         if (!isConnected) {
@@ -860,6 +861,9 @@ class BleService extends ChangeNotifier {
           break;
         }
         final m = _queue.removeAt(0);
+        if (m.awaitDone) {
+          hasTypingTask = true;
+        }
         _currentSending = m;
         _setStatus(BleConnectionStatus.sending);
         bool ok;
@@ -892,8 +896,11 @@ class BleService extends ChangeNotifier {
           _setStatus(BleConnectionStatus.sending);
         } else {
           _setStatus(BleConnectionStatus.connected);
-          if (!_eventController.isClosed) {
-            _eventController.add('typing_finished');
+          if (hasTypingTask) {
+            hasTypingTask = false;
+            if (!_eventController.isClosed) {
+              _eventController.add('typing_finished');
+            }
           }
         }
       }
@@ -1000,12 +1007,15 @@ class BleService extends ChangeNotifier {
     StreamSubscription<String>? sub;
     Timer? timer;
     void finish(Map<String, double>? m) {
+      timer?.cancel();
       if (!completer.isCompleted) completer.complete(m);
     }
 
-    sub = incoming.where((l) => parseCfgEcho(l) != null).listen((l) {
-      finish(parseCfgEcho(l));
-    });
+    sub = incoming.where((l) => parseCfgEcho(l) != null).listen(
+      (l) => finish(parseCfgEcho(l)),
+      onDone: () => finish(null),
+      onError: (_, _) => finish(null),
+    );
     timer = Timer(const Duration(seconds: 6), () => finish(null));
 
     try {
