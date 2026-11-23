@@ -99,6 +99,28 @@ void main() {
       expect(releaseIgnored.source, 'storefront');
     });
 
+    test('locked storefront marks state as locked_storefront', () {
+      final lockedUsa = evaluateStorefrontCompliance(
+        isIos: true,
+        storefrontCountryCode: 'USA',
+        deviceRegionCode: 'CN',
+        isStorefrontLocked: true,
+      );
+      expect(lockedUsa.isAiDirectDisabled, isFalse);
+      expect(lockedUsa.isLocked, isTrue);
+      expect(lockedUsa.source, 'locked_storefront');
+
+      final lockedChn = evaluateStorefrontCompliance(
+        isIos: true,
+        storefrontCountryCode: 'CHN',
+        deviceRegionCode: 'US',
+        isStorefrontLocked: true,
+      );
+      expect(lockedChn.isAiDirectDisabled, isTrue);
+      expect(lockedChn.isLocked, isTrue);
+      expect(lockedChn.source, 'locked_storefront');
+    });
+
     test('extractRegionFromLocaleName handles script subtags without confusing Hans for region', () {
       expect(extractRegionFromLocaleName('zh_CN'), 'CN');
       expect(extractRegionFromLocaleName('zh_Hans_CN'), 'CN');

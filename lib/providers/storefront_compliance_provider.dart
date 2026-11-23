@@ -12,6 +12,9 @@ class StorefrontComplianceNotifier
   StorefrontComplianceNotifier(super.initial);
 
   Future<void> refresh() async {
+    if (state.isLocked && state.source == 'locked_storefront') {
+      return;
+    }
     final next = await StorefrontComplianceService.resolve();
     if (mounted && next != state) {
       state = next;

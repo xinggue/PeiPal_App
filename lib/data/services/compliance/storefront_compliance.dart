@@ -10,24 +10,28 @@ class StorefrontComplianceState {
   final String? storefrontCountryCode;
   final String? deviceRegionCode;
   final String source;
+  final bool isLocked;
 
   const StorefrontComplianceState({
     required this.isAiDirectDisabled,
     this.storefrontCountryCode,
     this.deviceRegionCode,
     required this.source,
+    this.isLocked = false,
   });
 
   const StorefrontComplianceState.unrestricted({
     this.storefrontCountryCode,
     this.deviceRegionCode,
     this.source = 'non_ios',
+    this.isLocked = false,
   }) : isAiDirectDisabled = false;
 
   const StorefrontComplianceState.chinaRestricted({
     this.storefrontCountryCode,
     this.deviceRegionCode,
     this.source = 'storefront',
+    this.isLocked = false,
   }) : isAiDirectDisabled = true;
 
   @override
@@ -38,7 +42,8 @@ class StorefrontComplianceState {
           isAiDirectDisabled == other.isAiDirectDisabled &&
           storefrontCountryCode == other.storefrontCountryCode &&
           deviceRegionCode == other.deviceRegionCode &&
-          source == other.source;
+          source == other.source &&
+          isLocked == other.isLocked;
 
   @override
   int get hashCode => Object.hash(
@@ -46,6 +51,7 @@ class StorefrontComplianceState {
         storefrontCountryCode,
         deviceRegionCode,
         source,
+        isLocked,
       );
 }
 
@@ -65,6 +71,7 @@ StorefrontComplianceState evaluateStorefrontCompliance({
   required bool isIos,
   String? storefrontCountryCode,
   String? deviceRegionCode,
+  bool isStorefrontLocked = false,
   String? debugOverride,
   bool isDebugMode = false,
 }) {
@@ -94,17 +101,20 @@ StorefrontComplianceState evaluateStorefrontCompliance({
   final region = _normalizeUpper(deviceRegionCode);
 
   if (sf != null) {
+    final resolvedSource = isStorefrontLocked ? 'locked_storefront' : 'storefront';
     if (sf == 'CHN') {
       return StorefrontComplianceState.chinaRestricted(
         storefrontCountryCode: sf,
         deviceRegionCode: region,
-        source: 'storefront',
+        source: resolvedSource,
+        isLocked: isStorefrontLocked,
       );
     }
     return StorefrontComplianceState.unrestricted(
       storefrontCountryCode: sf,
       deviceRegionCode: region,
-      source: 'storefront',
+      source: resolvedSource,
+      isLocked: isStorefrontLocked,
     );
   }
 
@@ -160,13 +170,15 @@ class StorefrontComplianceService {
 
     String? storefrontCountryCode;
     String? deviceRegionCode;
+    bool isStorefrontLocked = false;
 
     try {
       final info = await _channel
           .invokeMapMethod<String, dynamic>('getRegionInfo')
-          .timeout(const Duration(milliseconds: 1500));
+          .timeout(const Duration(milliseconds: 2500));
       storefrontCountryCode = info?['storefrontCountryCode']?.toString();
       deviceRegionCode = info?['deviceRegionCode']?.toString();
+      isStorefrontLocked = info?['isLocked'] == true;
     } on MissingPluginException {
       deviceRegionCode = extractRegionFromLocaleName(Platform.localeName);
     } on PlatformException {
@@ -179,6 +191,7 @@ class StorefrontComplianceService {
       isIos: true,
       storefrontCountryCode: storefrontCountryCode,
       deviceRegionCode: deviceRegionCode,
+      isStorefrontLocked: isStorefrontLocked,
     );
   }
 }
