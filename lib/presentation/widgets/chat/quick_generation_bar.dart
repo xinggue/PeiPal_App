@@ -26,7 +26,7 @@ class QuickGenerationBar extends ConsumerWidget {
     this.onOpenSettings,
     this.selectedPresetId,
     this.showWhenEmpty = false,
-    this.padding = const EdgeInsets.fromLTRB(12, 6, 8, 6),
+    this.padding = const EdgeInsets.fromLTRB(12, 5, 6, 5),
     this.showTopBorder = false,
   });
 
@@ -81,97 +81,104 @@ class QuickGenerationBar extends ConsumerWidget {
               )
             : null,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              Text(
-                '最近生成',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w500,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              const Spacer(),
-              if (onOpenSettings != null)
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  onPressed: onOpenSettings,
-                  icon: const Icon(Icons.settings_outlined, size: 15),
-                  label: const Text('设置', style: TextStyle(fontSize: 12)),
-                ),
-              if (onClose != null)
-                IconButton(
-                  icon: Icon(
-                    Icons.close,
-                    size: 16,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(width: 28, height: 24),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '关闭',
-                  onPressed: onClose,
-                ),
-            ],
+          Text(
+            '最近生成',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: scheme.onSurfaceVariant,
+            ),
           ),
-          if (resolved.isNotEmpty) ...[
-            const SizedBox(height: 5),
-            SizedBox(
-              height: 32,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: resolved.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 6),
-                itemBuilder: (ctx, i) {
-                  final entry = resolved[i];
-                  final preset = entry.preset;
-                  final isSelected = selectedPresetId == preset.id;
+          const SizedBox(width: 8),
+          Expanded(
+            child: resolved.isEmpty
+                ? const SizedBox.shrink()
+                : SizedBox(
+                    height: 30,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: resolved.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
+                      itemBuilder: (ctx, i) {
+                        final entry = resolved[i];
+                        final preset = entry.preset;
+                        final isSelected = selectedPresetId == preset.id;
 
-                  return ActionChip(
-                    avatar: preset.isPinned
-                        ? Icon(
-                            Icons.push_pin,
-                            size: 13,
+                        return ActionChip(
+                          avatar: preset.isPinned
+                              ? Icon(
+                                  Icons.push_pin,
+                                  size: 12.5,
+                                  color: isSelected
+                                      ? scheme.primary
+                                      : scheme.primary.withValues(alpha: 0.8),
+                                )
+                              : null,
+                          label: Text(
+                            entry.label,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
+                              color:
+                                  isSelected ? scheme.primary : scheme.onSurface,
+                            ),
+                          ),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          backgroundColor: isSelected
+                              ? scheme.primary.withValues(alpha: 0.10)
+                              : scheme.surfaceContainerLow,
+                          side: BorderSide(
                             color: isSelected
                                 ? scheme.primary
-                                : scheme.primary.withValues(alpha: 0.8),
-                          )
-                        : null,
-                    label: Text(
-                      entry.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.w500,
-                        color: isSelected ? scheme.primary : scheme.onSurface,
-                      ),
+                                : scheme.outlineVariant.withValues(alpha: 0.55),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          onPressed: () => onSelectPreset(preset),
+                        );
+                      },
                     ),
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    backgroundColor: isSelected
-                        ? scheme.primary.withValues(alpha: 0.10)
-                        : scheme.surfaceContainerLow,
-                    side: BorderSide(
-                      color: isSelected
-                          ? scheme.primary
-                          : scheme.outlineVariant.withValues(alpha: 0.55),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    onPressed: () => onSelectPreset(preset),
-                  );
-                },
+                  ),
+          ),
+          if (onOpenSettings != null) ...[
+            const SizedBox(width: 4),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
+              onPressed: onOpenSettings,
+              icon: const Icon(Icons.settings_outlined, size: 15),
+              label: const Text('设置', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+          if (onClose != null) ...[
+            const SizedBox(width: 2),
+            IconButton(
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: Icon(
+                Icons.close,
+                size: 16,
+                color: scheme.onSurfaceVariant,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+              visualDensity: VisualDensity.compact,
+              tooltip: '关闭',
+              onPressed: onClose,
             ),
           ],
         ],

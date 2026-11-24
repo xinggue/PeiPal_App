@@ -306,6 +306,16 @@ void main() {
       expect(find.text('最近生成'), findsOneWidget);
       expect(find.text('门诊病历 · 糖尿病'), findsOneWidget);
       expect(find.text('点选直达最后一步'), findsNothing);
+
+      // 验证「最近生成」、胶囊与关闭按钮在同一单行内且整体紧凑
+      final labelCenterY = tester.getCenter(find.text('最近生成')).dy;
+      final pillCenterY = tester.getCenter(find.text('门诊病历 · 糖尿病')).dy;
+      final closeCenterY = tester.getCenter(find.byIcon(Icons.close)).dy;
+      expect((labelCenterY - pillCenterY).abs(), lessThan(4));
+      expect((closeCenterY - pillCenterY).abs(), lessThan(4));
+      expect(tester.getSize(find.byType(QuickGenerationBar)).height,
+          lessThanOrEqualTo(46));
+
       await tester.tap(find.byIcon(Icons.close));
       expect(closed, isTrue);
 
