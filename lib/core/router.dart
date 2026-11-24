@@ -34,6 +34,7 @@ import '../presentation/pages/settings/backup_center_page.dart';
 import '../presentation/pages/settings/session_backup_page.dart';
 import '../presentation/pages/hub/template_hub_page.dart';
 import '../presentation/pages/settings/char_replacement_settings_page.dart';
+import '../presentation/pages/settings/quick_generation_settings_page.dart';
 import '../presentation/pages/settings/about_page.dart';
 import '../presentation/pages/settings/disclaimer_page.dart';
 import '../presentation/pages/settings/api_key_guide_page.dart';
@@ -294,6 +295,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/char-replacement',
         name: 'char_replacement_settings',
         builder: (context, state) => const CharReplacementSettingsPage(),
+      ),
+      GoRoute(
+        path: '/settings/quick-generation',
+        name: 'quick_generation_settings',
+        builder: (context, state) => const QuickGenerationSettingsPage(),
       ),
       GoRoute(
         path: '/settings/about',

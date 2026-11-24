@@ -16,6 +16,7 @@ import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/document_parser_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/quick_generation_presets_provider.dart';
 import '../../../providers/storefront_compliance_provider.dart';
 import '../../widgets/backup/session_backup_cards.dart';
 import '../../widgets/engine_c/engine_c_sheets.dart';
@@ -262,6 +263,8 @@ class _BackupCenterPageState extends ConsumerState<BackupCenterPage>
       ref.invalidate(appFontScaleProvider);
       ref.invalidate(floatingOverlayEnabledProvider);
       ref.invalidate(activeTimingControllerProvider);
+      ref.invalidate(chatQuickPresetsEnabledProvider);
+      ref.invalidate(quickGenerationPresetsProvider);
 
       setState(() => _isImporting = false);
 

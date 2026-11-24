@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peipal/data/services/ble/ble_service.dart';
+import 'package:peipal/domain/models/template.dart';
 import 'package:peipal/presentation/pages/settings/settings_page.dart';
 import 'package:peipal/providers/providers.dart';
+import 'package:peipal/providers/quick_generation_presets_provider.dart';
 
 import 'tutorial_test.dart' show MockSettingsRepo;
 
@@ -26,9 +28,21 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       FlutterSecureStorage.setMockInitialValues({});
+      final repo = MockSettingsRepo();
+      final pinned = QuickGenerationPreset.create(
+        template: Template(id: 't1', name: '门诊病历', slots: const []),
+        contentTemplate: null,
+        allMaterials: true,
+        selectAllSlots: true,
+        selectedSlotKeys: const [],
+        isPinned: true,
+      );
+      repo.data[kRecentGenerationPresetsKey] =
+          QuickGenerationPreset.encodeList([pinned]);
+
       final container = ProviderContainer(
         overrides: [
-          settingsRepositoryProvider.overrideWithValue(MockSettingsRepo()),
+          settingsRepositoryProvider.overrideWithValue(repo),
           secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
           bleServiceProvider.overrideWith((_) => _ConnectedBle()),
         ],
@@ -43,7 +57,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 1. 保留摘要胶囊并展示蓝牙连接状态与设备名
+      // 1. 通用中含「文书快捷生成管理」摘要，且无闪电图标，保留蓝牙/模型行内胶囊
+      expect(find.text('文书快捷生成管理'), findsOneWidget);
+      expect(find.text('快捷生成预设'), findsNothing);
+      expect(find.byIcon(Icons.bolt_outlined), findsNothing);
+      expect(find.text('已开启'), findsOneWidget);
+      expect(find.text('1 个置顶'), findsOneWidget);
       expect(find.text('已连接'), findsOneWidget);
       expect(find.text('ESP32S3 键盘_01'), findsOneWidget);
 

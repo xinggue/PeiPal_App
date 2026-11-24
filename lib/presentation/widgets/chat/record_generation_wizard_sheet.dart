@@ -1,4 +1,3 @@
-import 'package:peipal/presentation/widgets/common/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,8 +6,11 @@ import '../../../domain/models/content_template.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/template.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/quick_generation_presets_provider.dart';
 import '../../../providers/tutorial_provider.dart';
-import 'generation_fields_and_requirements.dart';
+import '../../pages/settings/quick_generation_settings_page.dart';
+import '../common/app_toast.dart';
+import 'quick_generation_bar.dart';
 
 /// 一体化病历生成向导返回结果
 class GenerationWizardResult {
@@ -27,17 +29,20 @@ class GenerationWizardResult {
   });
 }
 
-/// 一体化病历生成向导底栏弹窗：
-/// 整合 1.选结构模板 -> 2.选内容模板 -> 3.选素材范围 -> 4.选字段与要求 为单一弹窗
-/// 包含步骤指示器、上一步/下一步切换、状态保留及无内容模板时的优雅提示
+/// 三步病历生成向导弹窗：
+/// 1. 类型与字段（顶部含「最近生成」直达第 3 步 + 单选就地展开字段勾选）
+/// 2. 内容模板
+/// 3. 生成要求（素材范围 + 补充要求 + 生成总览）
 class RecordGenerationWizardSheet extends ConsumerStatefulWidget {
   final String patientId;
   final bool isDryRun;
+  final QuickGenerationPreset? initialQuickPreset;
 
   const RecordGenerationWizardSheet({
     super.key,
     required this.patientId,
     this.isDryRun = false,
+    this.initialQuickPreset,
   });
 
   @override
@@ -47,21 +52,20 @@ class RecordGenerationWizardSheet extends ConsumerStatefulWidget {
 
 class _RecordGenerationWizardSheetState
     extends ConsumerState<RecordGenerationWizardSheet> {
-  int _currentStep = 0; // 0: 结构模板, 1: 内容模板, 2: 素材范围, 3: 字段与要求
+  int _currentStep = 0; // 0: 类型与字段, 1: 内容模板, 2: 生成要求
   bool _isLoading = true;
 
-  // 数据列表缓存
   List<Template> _templates = [];
   final Map<String, List<ContentTemplate>> _contentTemplatesCache = {};
   int _pendingMediaCount = 0;
   bool _hasPastRecords = false;
 
-  // 步骤选择状态
   Template? _selectedTemplate;
   ContentTemplate? _selectedContentTemplate;
   bool _useNoContentTemplate = false;
   bool _allMaterials = true;
   Set<String> _selectedSlotKeys = {};
+  String? _activeQuickPresetId;
   final TextEditingController _instructionsController = TextEditingController();
 
   @override
@@ -83,11 +87,12 @@ class _RecordGenerationWizardSheetState
     final tmpls = await templateRepo.getAll();
     final msgs = await msgRepo.getAllChronological(widget.patientId);
 
-    // 计算是否有未识别完的素材
     final activeTasks = ref.read(taskCenterProvider).activeTasks.where((t) {
       return t.patientId == widget.patientId &&
-          (t.type == TaskType.asr || t.type == TaskType.ocr || t.type == TaskType.document);
-    }).toList();
+          (t.type == TaskType.asr ||
+              t.type == TaskType.ocr ||
+              t.type == TaskType.document);
+    }).length;
 
     final placeholderCount = msgs.where((m) {
       final isPlaceholder = (m.type == MessageType.asrResult &&
@@ -97,11 +102,40 @@ class _RecordGenerationWizardSheetState
       return isPlaceholder && isRecent;
     }).length;
 
-    final pendingCount = (activeTasks.length > placeholderCount)
-        ? activeTasks.length
-        : placeholderCount;
-
+    final pendingCount =
+        activeTasks > placeholderCount ? activeTasks : placeholderCount;
     final hasPast = msgs.any((m) => m.type == MessageType.generatedRecord);
+
+    _templates = tmpls;
+    _pendingMediaCount = pendingCount;
+    _hasPastRecords = hasPast;
+
+    final quick = widget.initialQuickPreset;
+    if (quick != null && tmpls.isNotEmpty) {
+      final matchedTmpl =
+          tmpls.where((t) => t.id == quick.templateId).firstOrNull;
+      if (matchedTmpl != null) {
+        await _ensureContentTemplatesLoaded(matchedTmpl.id);
+        final resolved = quick.resolve(
+          templates: tmpls,
+          contentTemplatesByStructure: _contentTemplatesCache,
+          hasPastRecords: hasPast,
+        );
+        if (resolved != null && mounted) {
+          setState(() {
+            _selectedTemplate = resolved.template;
+            _selectedContentTemplate = resolved.contentTemplate;
+            _useNoContentTemplate = resolved.contentTemplate == null;
+            _allMaterials = resolved.allMaterials;
+            _selectedSlotKeys = resolved.selectedSlotKeys;
+            _activeQuickPresetId = quick.id;
+            _currentStep = 2;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    }
 
     if (tmpls.isNotEmpty) {
       await _onSelectTemplate(tmpls.first);
@@ -109,13 +143,22 @@ class _RecordGenerationWizardSheetState
 
     if (mounted) {
       setState(() {
-        _templates = tmpls;
-        _pendingMediaCount = pendingCount;
-        _hasPastRecords = hasPast;
         _allMaterials = true;
         _isLoading = false;
       });
     }
+  }
+
+  Future<List<ContentTemplate>> _ensureContentTemplatesLoaded(
+      String templateId) async {
+    if (_contentTemplatesCache.containsKey(templateId)) {
+      return _contentTemplatesCache[templateId] ?? const [];
+    }
+    final contentTmpls = await ref
+        .read(contentTemplateRepositoryProvider)
+        .getByStructure(templateId);
+    _contentTemplatesCache[templateId] = contentTmpls;
+    return contentTmpls;
   }
 
   Future<void> _onSelectTemplate(Template template) async {
@@ -123,52 +166,71 @@ class _RecordGenerationWizardSheetState
       setState(() {
         _selectedTemplate = template;
         _selectedSlotKeys = template.sortedSlots.map((s) => s.key).toSet();
+        _activeQuickPresetId = null;
       });
     } else {
       _selectedTemplate = template;
       _selectedSlotKeys = template.sortedSlots.map((s) => s.key).toSet();
     }
 
-    // 加载对应内容模板
-    if (!_contentTemplatesCache.containsKey(template.id)) {
-      final contentTmpls = await ref
-          .read(contentTemplateRepositoryProvider)
-          .getByStructure(template.id);
-      if (mounted) {
-        setState(() {
-          _contentTemplatesCache[template.id] = contentTmpls;
-          // 默认选中最顶部的第一个内容模板；若无内容模板则选不使用模板
-          if (contentTmpls.isNotEmpty) {
-            _selectedContentTemplate = contentTmpls.first;
-            _useNoContentTemplate = false;
-          } else {
-            _selectedContentTemplate = null;
-            _useNoContentTemplate = true;
-          }
-        });
+    final cached = await _ensureContentTemplatesLoaded(template.id);
+    if (!mounted || _selectedTemplate?.id != template.id) return;
+    setState(() {
+      if (cached.isNotEmpty) {
+        _selectedContentTemplate = cached.first;
+        _useNoContentTemplate = false;
+      } else {
+        _selectedContentTemplate = null;
+        _useNoContentTemplate = true;
       }
-    } else {
-      final cached = _contentTemplatesCache[template.id] ?? [];
-      if (mounted) {
-        setState(() {
-          if (cached.isNotEmpty) {
-            _selectedContentTemplate = cached.first;
-            _useNoContentTemplate = false;
-          } else {
-            _selectedContentTemplate = null;
-            _useNoContentTemplate = true;
-          }
-        });
-      }
+    });
+  }
+
+  Future<void> _applyQuickPresetAndJump(QuickGenerationPreset preset) async {
+    final targetTmpl =
+        _templates.where((t) => t.id == preset.templateId).firstOrNull;
+    if (targetTmpl == null) {
+      showAppToast(context, '对应文书类型已不存在');
+      return;
     }
+
+    await _ensureContentTemplatesLoaded(targetTmpl.id);
+    final resolved = preset.resolve(
+      templates: _templates,
+      contentTemplatesByStructure: _contentTemplatesCache,
+      hasPastRecords: _hasPastRecords,
+    );
+    if (resolved == null || !mounted) return;
+
+    setState(() {
+      _selectedTemplate = resolved.template;
+      _selectedContentTemplate = resolved.contentTemplate;
+      _useNoContentTemplate = resolved.contentTemplate == null;
+      _allMaterials = resolved.allMaterials;
+      _selectedSlotKeys = resolved.selectedSlotKeys;
+      _activeQuickPresetId = preset.id;
+      _currentStep = 2;
+    });
+  }
+
+  Future<void> _openQuickSettings() async {
+    await Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(builder: (_) => const QuickGenerationSettingsPage()),
+    );
   }
 
   void _nextStep() {
-    if (_currentStep == 0 && _selectedTemplate == null) {
-      showAppToast(context, '请先选择一个文书类型');
-      return;
+    if (_currentStep == 0) {
+      if (_selectedTemplate == null) {
+        showAppToast(context, '请先选择一个文书类型');
+        return;
+      }
+      if (_selectedSlotKeys.isEmpty) {
+        showAppToast(context, '请至少勾选一个生成字段');
+        return;
+      }
     }
-    if (_currentStep < 3) {
+    if (_currentStep < 2) {
       setState(() => _currentStep++);
     } else {
       _finishWizard();
@@ -214,16 +276,12 @@ class _RecordGenerationWizardSheetState
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 620,
-          maxHeight: MediaQuery.of(context).size.height * 0.82,
+          maxHeight: MediaQuery.of(context).size.height * 0.84,
         ),
         child: Column(
           children: [
-            // 地铁线路图式步骤指示 Header（去向导字样，居中大号步骤数字）
             _buildStepIndicator(theme),
-
             const Divider(height: 1),
-
-            // 主体内容区（根据当前 step 展示）
             Expanded(
               child: Column(
                 children: [
@@ -236,10 +294,7 @@ class _RecordGenerationWizardSheetState
                 ],
               ),
             ),
-
             const Divider(height: 1),
-
-            // 底部控制按钮栏（上一步 / 下一步）
             _buildBottomBar(theme),
           ],
         ),
@@ -247,18 +302,15 @@ class _RecordGenerationWizardSheetState
     );
   }
 
-  /// 地铁站点式步骤指示器 (O-O-O-O 线路图)
+  /// 三站式地铁线路图（支持点击站点在已选文书时跳转）
   Widget _buildStepIndicator(ThemeData theme) {
-    const steps = ['文书类型', '内容模板', '素材范围', '字段与要求'];
+    const steps = ['类型与字段', '内容模板', '生成要求'];
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-      ),
+      color: theme.colorScheme.surface,
       child: Column(
         children: [
-          // 顶部：右侧有关闭按钮，居中超大字号 "第 n / 4 步"
           Stack(
             alignment: Alignment.center,
             children: [
@@ -268,9 +320,9 @@ class _RecordGenerationWizardSheetState
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '第 ${_currentStep + 1} / 4 步',
+                      '第 ${_currentStep + 1} / 3 步',
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 21,
                         fontWeight: FontWeight.w700,
                         color: theme.colorScheme.primary,
                         letterSpacing: 0.5,
@@ -300,129 +352,164 @@ class _RecordGenerationWizardSheetState
             ],
           ),
           const SizedBox(height: 12),
+          Stack(
+            children: [
+              Positioned(
+                top: 12,
+                left: 0,
+                right: 0,
+                child: Row(
+                  children: [
+                    const Spacer(flex: 1),
+                    for (var lineIndex = 0; lineIndex < 2; lineIndex++)
+                      Expanded(
+                        flex: 2,
+                        child: Container(
+                          height: 3.5,
+                          decoration: BoxDecoration(
+                            color: lineIndex < _currentStep
+                                ? Colors.teal
+                                : Colors.grey.withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    const Spacer(flex: 1),
+                  ],
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: List.generate(3, (stepIndex) {
+                  final isDone = stepIndex < _currentStep;
+                  final isCurrent = stepIndex == _currentStep;
 
-          // 地铁线路图：O ====== O ====== O ====== O
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: List.generate(7, (index) {
-                // 奇数索引为站点之间的连接轨道
-                if (index.isOdd) {
-                  final lineIndex = index ~/ 2;
-                  final isPassed = lineIndex < _currentStep;
-                  return Expanded(
-                    child: Container(
-                      height: 3.5,
-                      margin: const EdgeInsets.only(top: 12),
+                  Widget stationNode;
+                  if (isDone) {
+                    stationNode = Container(
+                      width: 26,
+                      height: 26,
+                      decoration: const BoxDecoration(
+                        color: Colors.teal,
+                        shape: BoxShape.circle,
+                      ),
+                      child:
+                          const Icon(Icons.check, size: 15, color: Colors.white),
+                    );
+                  } else if (isCurrent) {
+                    stationNode = Container(
+                      width: 28,
+                      height: 28,
                       decoration: BoxDecoration(
-                        color: isPassed
-                            ? Colors.teal
-                            : Colors.grey.withValues(alpha: 0.25),
-                        borderRadius: BorderRadius.circular(2),
+                        color: theme.colorScheme.primary,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color:
+                                theme.colorScheme.primary.withValues(alpha: 0.3),
+                            blurRadius: 6,
+                            spreadRadius: 1.5,
+                          ),
+                        ],
                       ),
-                    ),
-                  );
-                }
+                      child: Center(
+                        child: Text(
+                          '${stepIndex + 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    );
+                  } else {
+                    stationNode = Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.grey.withValues(alpha: 0.4),
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${stepIndex + 1}',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
 
-                // 偶数索引为地铁站点圈圈
-                final stepIndex = index ~/ 2;
-                final isDone = stepIndex < _currentStep;
-                final isCurrent = stepIndex == _currentStep;
-
-                Widget stationNode;
-                if (isDone) {
-                  stationNode = Container(
-                    width: 26,
-                    height: 26,
-                    decoration: const BoxDecoration(
-                      color: Colors.teal,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check, size: 15, color: Colors.white),
-                  );
-                } else if (isCurrent) {
-                  stationNode = Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.35),
-                          blurRadius: 6,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        '${stepIndex + 1}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  );
-                } else {
-                  stationNode = Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.grey.withValues(alpha: 0.4),
-                        width: 2,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        '${stepIndex + 1}',
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
+                  return Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        if (_selectedTemplate == null) return;
+                        if (stepIndex > 0 && _selectedSlotKeys.isEmpty) {
+                          showAppToast(context, '请至少勾选一个生成字段');
+                          return;
+                        }
+                        setState(() => _currentStep = stepIndex);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              height: 28,
+                              child: Center(
+                                child: Container(
+                                  color: theme.colorScheme.surface,
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 3),
+                                  child: stationNode,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                steps[stepIndex],
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: isCurrent
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isCurrent
+                                      ? theme.colorScheme.primary
+                                      : (isDone
+                                          ? Colors.teal
+                                          : Colors.grey.shade500),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   );
-                }
-
-                return SizedBox(
-                  width: 58,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      stationNode,
-                      const SizedBox(height: 5),
-                      Text(
-                        steps[stepIndex],
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                          color: isCurrent
-                              ? theme.colorScheme.primary
-                              : (isDone ? Colors.teal : Colors.grey.shade500),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ),
+                }),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  /// 新手引导期间，在向导内同步提示当前这一步的用途。
   Widget _buildTutorialHint(ThemeData theme) {
     final state = ref.watch(tutorialProvider);
     if (!state.isActive ||
@@ -431,10 +518,9 @@ class _RecordGenerationWizardSheetState
       return const SizedBox.shrink();
     }
     const hints = [
-      '① 文书类型：选择这次要生成的记录/文书类型。',
-      '② 内容模板：可选已配置的范文与写作指导，没有也可以直接下一步。',
-      '③ 素材范围：使用全部材料，或仅使用上次生成后的新增内容。',
-      '④ 字段与要求：勾选要生成的字段，还能补充额外要求。',
+      '① 类型与字段：选择文书类型并勾选要生成的字段。',
+      '② 内容模板：可选已配置的写作范例，没有也可以直接下一步。',
+      '③ 生成要求：选择素材范围、填写额外要求并核对总览。',
     ];
     return Container(
       width: double.infinity,
@@ -456,30 +542,29 @@ class _RecordGenerationWizardSheetState
     );
   }
 
-  /// 动态步骤内容切换
   Widget _buildStepContent(ThemeData theme) {
     switch (_currentStep) {
       case 0:
-        return _buildStep1Template(theme);
+        return _buildStep1TemplateAndFields(theme);
       case 1:
         return _buildStep2ContentTemplate(theme);
       case 2:
-        return _buildStep3Materials(theme);
-      case 3:
-        return _buildStep4Slots(theme);
+        return _buildStep3RequirementsAndOverview(theme);
       default:
         return const SizedBox.shrink();
     }
   }
 
-  /// 步骤 1: 选病历（结构模板）
-  Widget _buildStep1Template(ThemeData theme) {
+  /// 第 1 步：最近生成快捷条 + 单选文书类型并就地展开字段勾选
+  Widget _buildStep1TemplateAndFields(ThemeData theme) {
+    final scheme = theme.colorScheme;
     if (_templates.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.assignment_late_outlined, size: 48, color: Colors.grey),
+            const Icon(Icons.assignment_late_outlined,
+                size: 48, color: Colors.grey),
             const SizedBox(height: 12),
             const Text('暂无文书类型，请先在菜单中创建'),
             const SizedBox(height: 12),
@@ -492,54 +577,182 @@ class _RecordGenerationWizardSheetState
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: _templates.length,
-      itemBuilder: (ctx, i) {
-        final t = _templates[i];
-        final isSelected = _selectedTemplate?.id == t.id;
-
-        return Card(
-          elevation: 0,
-          margin: const EdgeInsets.only(bottom: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: isSelected
-                  ? theme.colorScheme.primary
-                  : Colors.grey.withValues(alpha: 0.2),
-              width: isSelected ? 1.8 : 1,
-            ),
-          ),
-          color: isSelected
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-              : theme.colorScheme.surface,
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            leading: Icon(
-              Icons.description_outlined,
-              color: isSelected ? theme.colorScheme.primary : Colors.grey,
-            ),
-            title: Text(
-              t.name,
-              style: TextStyle(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              ),
-            ),
-            subtitle: Text('${t.slots.length} 个字段 · v${t.version}'),
-            trailing: isSelected
-                ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary)
-                : const Icon(Icons.radio_button_unchecked, color: Colors.grey),
-            onTap: () {
-              _onSelectTemplate(t);
-            },
-          ),
-        );
-      },
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      children: [
+        QuickGenerationBar(
+          onSelectPreset: _applyQuickPresetAndJump,
+          onOpenSettings: _openQuickSettings,
+          selectedPresetId: _activeQuickPresetId,
+          showWhenEmpty: true,
+          padding: const EdgeInsets.only(bottom: 10),
+        ),
+        const Divider(height: 1),
+        const SizedBox(height: 10),
+        for (final t in _templates) _buildTemplateRadioCard(t, scheme),
+      ],
     );
   }
 
-  /// 步骤 2: 选模板（内容模板，支持显示未配置内容模板）
+  Widget _buildTemplateRadioCard(Template t, ColorScheme scheme) {
+    final isSelected = _selectedTemplate?.id == t.id;
+    final slots = t.sortedSlots;
+    final allKeys = slots.map((s) => s.key).toSet();
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 10),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected
+              ? scheme.primary
+              : scheme.outlineVariant.withValues(alpha: 0.45),
+          width: isSelected ? 1.6 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: () {
+              if (!isSelected) {
+                _onSelectTemplate(t);
+              }
+            },
+            child: Container(
+              color: isSelected
+                  ? scheme.primaryContainer.withValues(alpha: 0.28)
+                  : scheme.surface,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.description_outlined,
+                    size: 20,
+                    color: isSelected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t.name,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight:
+                                isSelected ? FontWeight.w600 : FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isSelected
+                              ? '${slots.length} 个字段（已选 ${_selectedSlotKeys.length}/${slots.length}）'
+                              : '${slots.length} 个字段',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    isSelected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked,
+                    color: isSelected ? scheme.primary : scheme.outline,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isSelected) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        '生成字段',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () =>
+                            setState(() => _selectedSlotKeys = allKeys),
+                        child: const Text('全选', style: TextStyle(fontSize: 12)),
+                      ),
+                      const SizedBox(width: 4),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () =>
+                            setState(() => _selectedSlotKeys = <String>{}),
+                        child:
+                            const Text('全不选', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final s in slots)
+                        FilterChip(
+                          label: Text(
+                            s.label.isNotEmpty ? s.label : s.key,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                          selected: _selectedSlotKeys.contains(s.key),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (checked) {
+                            setState(() {
+                              final next = Set<String>.from(_selectedSlotKeys);
+                              if (checked) {
+                                next.add(s.key);
+                              } else {
+                                next.remove(s.key);
+                              }
+                              _selectedSlotKeys = next;
+                              _activeQuickPresetId = null;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 第 2 步：选内容模板
   Widget _buildStep2ContentTemplate(ThemeData theme) {
     if (_selectedTemplate == null) return const SizedBox.shrink();
 
@@ -547,9 +760,8 @@ class _RecordGenerationWizardSheetState
     final contentTmpls = _contentTemplatesCache[tmplId] ?? [];
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       children: [
-        // 选项一：不使用内容模板
         Card(
           elevation: 0,
           margin: const EdgeInsets.only(bottom: 10),
@@ -558,8 +770,8 @@ class _RecordGenerationWizardSheetState
             side: BorderSide(
               color: _useNoContentTemplate
                   ? theme.colorScheme.primary
-                  : Colors.grey.withValues(alpha: 0.2),
-              width: _useNoContentTemplate ? 1.8 : 1,
+                  : Colors.grey.withValues(alpha: 0.25),
+              width: _useNoContentTemplate ? 1.6 : 1,
             ),
           ),
           color: _useNoContentTemplate
@@ -567,82 +779,51 @@ class _RecordGenerationWizardSheetState
               : theme.colorScheme.surface,
           child: ListTile(
             dense: true,
-            visualDensity: VisualDensity.compact,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
             leading: Icon(
               Icons.not_interested_outlined,
-              size: 16,
+              size: 18,
               color: _useNoContentTemplate
                   ? theme.colorScheme.primary
                   : Colors.grey.shade500,
             ),
             title: Text(
-              '不使用模板',
+              '不使用内容模板',
               style: TextStyle(
-                fontSize: 11.5,
-                color: _useNoContentTemplate
-                    ? theme.colorScheme.primary
-                    : Colors.grey.shade600,
+                fontSize: 13.5,
+                fontWeight:
+                    _useNoContentTemplate ? FontWeight.w600 : FontWeight.w500,
               ),
             ),
             trailing: _useNoContentTemplate
                 ? Icon(Icons.check_circle_rounded,
-                    size: 16, color: theme.colorScheme.primary)
-                : Icon(Icons.radio_button_unchecked,
-                    size: 16, color: Colors.grey.shade500),
+                    color: theme.colorScheme.primary)
+                : const Icon(Icons.radio_button_unchecked, color: Colors.grey),
             onTap: () {
               setState(() {
                 _useNoContentTemplate = true;
                 _selectedContentTemplate = null;
+                _activeQuickPresetId = null;
               });
             },
           ),
         ),
-
-        // 如果该结构模板未配置内容模板，给出友好卡片提示
-        if (contentTmpls.isEmpty) ...[
+        if (contentTmpls.isEmpty)
           Container(
-            padding: const EdgeInsets.all(16),
-            margin: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.blueGrey.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.18)),
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, color: Colors.blueGrey, size: 24),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '当前结构尚未配置内容模板',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '「${_selectedTemplate!.name}」暂无专属 Few-shot 范文，将以标准模式直接进入生成。',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ] else ...[
-          Padding(
-            padding: const EdgeInsets.only(left: 4, top: 4, bottom: 8),
             child: Text(
-              '可选范文内容模板 (${contentTmpls.length})',
-              style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+              '「${_selectedTemplate!.name}」暂无内容模板，可直接下一步。',
+              style: const TextStyle(fontSize: 12.5, color: Colors.blueGrey),
             ),
-          ),
+          )
+        else
           ...contentTmpls.map((ct) {
-            final isSelected = !_useNoContentTemplate && _selectedContentTemplate?.id == ct.id;
-
+            final isSelected =
+                !_useNoContentTemplate && _selectedContentTemplate?.id == ct.id;
             return Card(
               elevation: 0,
               margin: const EdgeInsets.only(bottom: 8),
@@ -651,8 +832,8 @@ class _RecordGenerationWizardSheetState
                 side: BorderSide(
                   color: isSelected
                       ? theme.colorScheme.primary
-                      : Colors.grey.withValues(alpha: 0.2),
-                  width: isSelected ? 1.8 : 1,
+                      : Colors.grey.withValues(alpha: 0.25),
+                  width: isSelected ? 1.6 : 1,
                 ),
               ),
               color: isSelected
@@ -660,41 +841,47 @@ class _RecordGenerationWizardSheetState
                   : theme.colorScheme.surface,
               child: ListTile(
                 leading: Icon(
-                  Icons.folder_copy_outlined,
+                  Icons.description_outlined,
                   color: isSelected ? theme.colorScheme.primary : Colors.teal,
                 ),
                 title: Text(
                   ct.name,
-                  style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.w500),
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                  ),
                 ),
-                subtitle: Text('${ct.filledSlotCount} 个字段已配置范文/指导要求'),
                 trailing: isSelected
-                    ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary)
-                    : const Icon(Icons.radio_button_unchecked, color: Colors.grey),
+                    ? Icon(Icons.check_circle_rounded,
+                        color: theme.colorScheme.primary)
+                    : const Icon(Icons.radio_button_unchecked,
+                        color: Colors.grey),
                 onTap: () {
                   setState(() {
                     _useNoContentTemplate = false;
                     _selectedContentTemplate = ct;
+                    _activeQuickPresetId = null;
                   });
                 },
               ),
             );
           }),
-        ],
       ],
     );
   }
 
-  /// 步骤 3: 选素材范围（含未识别素材友好提示）
-  Widget _buildStep3Materials(ThemeData theme) {
+  /// 第 3 步：素材范围 + 补充要求 + 生成总览
+  Widget _buildStep3RequirementsAndOverview(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final tmpl = _selectedTemplate;
+    if (tmpl == null) return const SizedBox.shrink();
+
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       children: [
-        // 如果有正在后台识别的素材，顶部展示提醒条
         if (_pendingMediaCount > 0)
           Container(
-            padding: const EdgeInsets.all(12),
-            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(11),
+            margin: const EdgeInsets.only(bottom: 10),
             decoration: BoxDecoration(
               color: Colors.amber.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
@@ -702,11 +889,12 @@ class _RecordGenerationWizardSheetState
             ),
             child: Row(
               children: [
-                const Icon(Icons.hourglass_top_rounded, color: Colors.orange, size: 20),
-                const SizedBox(width: 10),
+                const Icon(Icons.hourglass_top_rounded,
+                    color: Colors.orange, size: 18),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '提示：当前仍有 $_pendingMediaCount 项语音或文书照片正在后台识别中。若直接生成，未识别完的素材将无法纳入。',
+                    '当前仍有 $_pendingMediaCount 项语音或照片正在识别中，未完成前不会纳入本次生成。',
                     style: const TextStyle(fontSize: 12, height: 1.35),
                   ),
                 ),
@@ -714,97 +902,112 @@ class _RecordGenerationWizardSheetState
             ),
           ),
 
-        Card(
-          elevation: 0,
-          margin: const EdgeInsets.only(bottom: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: _allMaterials
-                  ? theme.colorScheme.primary
-                  : Colors.grey.withValues(alpha: 0.2),
-              width: _allMaterials ? 1.8 : 1,
+        // 上方：所有材料 vs 新材料 二选一
+        Row(
+          children: [
+            Expanded(
+              child: _ScopeChoiceCard(
+                title: '全部材料',
+                subtitle: '建档至今所有内容',
+                selected: _allMaterials,
+                enabled: true,
+                onTap: () => setState(() => _allMaterials = true),
+              ),
             ),
-          ),
-          color: _allMaterials
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-              : theme.colorScheme.surface,
-          child: ListTile(
-            leading: Icon(
-              Icons.all_inclusive,
-              color: _allMaterials ? theme.colorScheme.primary : Colors.blue,
+            const SizedBox(width: 8),
+            Expanded(
+              child: _ScopeChoiceCard(
+                title: '仅新增内容',
+                subtitle: _hasPastRecords ? '末次生成之后记录' : '暂无既往生成',
+                selected: !_allMaterials,
+                enabled: _hasPastRecords,
+                onTap: _hasPastRecords
+                    ? () => setState(() => _allMaterials = false)
+                    : null,
+              ),
             ),
-            title: const Text('全部会话与材料', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: const Text('包含建档至今所有文字、语音与材料'),
-            trailing: _allMaterials
-                ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary)
-                : const Icon(Icons.radio_button_unchecked, color: Colors.grey),
-            onTap: () {
-              setState(() => _allMaterials = true);
-            },
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        // 中间：额外要求输入框
+        TextField(
+          controller: _instructionsController,
+          maxLines: 3,
+          minLines: 2,
+          style: const TextStyle(fontSize: 13),
+          decoration: InputDecoration(
+            hintText: '补充指示 / 额外要求（选填）',
+            hintStyle: TextStyle(fontSize: 12.5, color: Colors.grey.shade500),
+            prefixIcon: const Icon(Icons.edit_note, size: 20),
+            filled: true,
+            fillColor: scheme.surfaceContainerLow,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+            ),
           ),
         ),
 
-        if (_hasPastRecords)
-          Card(
-            elevation: 0,
-            margin: const EdgeInsets.only(bottom: 10),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: !_allMaterials
-                    ? theme.colorScheme.primary
-                    : Colors.grey.withValues(alpha: 0.2),
-                width: !_allMaterials ? 1.8 : 1,
-              ),
-            ),
-            color: !_allMaterials
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-                : theme.colorScheme.surface,
-            child: ListTile(
-              leading: Icon(
-                Icons.update,
-                color: !_allMaterials ? theme.colorScheme.primary : Colors.teal,
-              ),
-              title: const Text('自上次生成后的新增内容', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('仅提取末次文书之后的材料'),
-              trailing: !_allMaterials
-                  ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary)
-                  : const Icon(Icons.radio_button_unchecked, color: Colors.grey),
-              onTap: () {
-                setState(() => _allMaterials = false);
-              },
-            ),
-          ),
+        const SizedBox(height: 12),
 
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-          child: Text(
-            '注：既往已生成的历史文书卡片将作为基础背景全部完整传入。',
-            style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+        // 最下面：生成总览
+        Card(
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '生成总览',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _OverviewRow(
+                  label: '生成文书',
+                  value:
+                      '${tmpl.name}（${_selectedSlotKeys.length}/${tmpl.sortedSlots.length} 个字段）',
+                ),
+                const SizedBox(height: 5),
+                _OverviewRow(
+                  label: '内容模板',
+                  value: _selectedContentTemplate?.name ?? '不使用内容模板',
+                ),
+                const SizedBox(height: 5),
+                _OverviewRow(
+                  label: '素材范围',
+                  value: _allMaterials ? '全部会话与材料' : '自上次生成后的新增内容',
+                ),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  /// 步骤 4: 选字段与填写补充要求
-  Widget _buildStep4Slots(ThemeData theme) {
-    if (_selectedTemplate == null) return const SizedBox.shrink();
-
-    return GenerationFieldsAndRequirements(
-      slots: _selectedTemplate!.sortedSlots,
-      selectedKeys: _selectedSlotKeys,
-      instructionsController: _instructionsController,
-      onSelectionChanged: (keys) =>
-          setState(() => _selectedSlotKeys = keys),
-    );
-  }
-
-  /// 底部控制按钮栏
   Widget _buildBottomBar(ThemeData theme) {
     final isFirstStep = _currentStep == 0;
-    final isLastStep = _currentStep == 3;
+    final isLastStep = _currentStep == 2;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
@@ -818,18 +1021,132 @@ class _RecordGenerationWizardSheetState
           const SizedBox(width: 12),
           Expanded(
             child: FilledButton.icon(
-              icon: Icon(isLastStep ? Icons.auto_awesome : Icons.arrow_forward, size: 18),
+              icon: Icon(
+                isLastStep ? Icons.auto_awesome : Icons.arrow_forward,
+                size: 18,
+              ),
               label: Text(
                 isLastStep
-                    ? '确认所选并开始生成 (${_selectedSlotKeys.length})'
+                    ? '开始生成 (${_selectedSlotKeys.length})'
                     : '下一步',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              onPressed: isLastStep && _selectedSlotKeys.isEmpty ? null : _nextStep,
+              onPressed: (_currentStep == 2 && _selectedSlotKeys.isEmpty)
+                  ? null
+                  : _nextStep,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ScopeChoiceCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  const _ScopeChoiceCard({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.enabled,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final borderColor = !enabled
+        ? scheme.outlineVariant.withValues(alpha: 0.35)
+        : (selected
+            ? scheme.primary
+            : scheme.outlineVariant.withValues(alpha: 0.55));
+    final bgColor = !enabled
+        ? scheme.surfaceContainerHighest.withValues(alpha: 0.25)
+        : (selected
+            ? scheme.primaryContainer.withValues(alpha: 0.28)
+            : scheme.surface);
+
+    return Material(
+      color: bgColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(11),
+        side: BorderSide(color: borderColor, width: selected && enabled ? 1.5 : 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: enabled
+                            ? (selected ? scheme.primary : scheme.onSurface)
+                            : scheme.onSurfaceVariant.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                  if (selected && enabled)
+                    Icon(Icons.check_circle_rounded,
+                        size: 16, color: scheme.primary),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: enabled
+                      ? scheme.onSurfaceVariant
+                      : scheme.onSurfaceVariant.withValues(alpha: 0.45),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _OverviewRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
     );
   }
 }

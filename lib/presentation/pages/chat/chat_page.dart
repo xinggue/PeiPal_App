@@ -13,6 +13,7 @@ import '../../../domain/models/content_template.dart';
 import '../../../data/repositories/message_repository.dart';
 import '../../../data/services/media/media_storage.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/quick_generation_presets_provider.dart';
 import '../../../providers/storefront_compliance_provider.dart';
 import '../../../domain/models/patient.dart';
 import '../../../data/services/document_processing_service.dart';
@@ -24,6 +25,7 @@ import '../../widgets/chat/input_bar.dart';
 import '../../widgets/chat/recording_overlay.dart';
 import '../../widgets/chat/generation_pending_bubble.dart';
 import '../../widgets/chat/manual_prompt_preview_dialog.dart';
+import '../../widgets/chat/quick_generation_bar.dart';
 import '../../widgets/chat/record_generation_wizard_sheet.dart';
 import '../../widgets/chat/record_output_actions.dart';
 import '../../widgets/chat/session_info_quick_sheet.dart';
@@ -61,6 +63,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _showOverlay = false;
   bool _hasScrolledToHighlight = false;
   bool _isStartingGeneration = false;
+  bool _quickBarDismissed = false;
   Timer? _recordTimer;
   int _recordDurationMs = 0;
   String? _previewWavPath;
@@ -251,9 +254,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  /// 统一收集病历生成规划（通过一体化 1-2-3-4 步骤向导收集模板、内容模板、素材范围、字段与要求）
+  /// 统一收集病历生成规划（通过三步生成向导收集类型与字段、内容模板、素材范围与要求）
   Future<({Template template, ContentTemplate? contentTemplate, GenerationPlan plan})?>
-      _collectGenerationInputs({required bool isDryRun}) async {
+      _collectGenerationInputs({
+    required bool isDryRun,
+    QuickGenerationPreset? initialQuickPreset,
+  }) async {
     final templates = await ref.read(templateRepositoryProvider).getAll();
     if (!mounted) return null;
 
@@ -262,17 +268,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return null;
     }
 
-    // 弹出单一一体化病历生成向导（画面中央弹窗，整合 1.选结构模板 -> 2.选内容模板 -> 3.选素材范围 -> 4.选字段与要求）
+    // 弹出三步病历生成向导（1.类型与字段 -> 2.内容模板 -> 3.生成要求与总览）
     final wizardResult = await showDialog<GenerationWizardResult>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => RecordGenerationWizardSheet(
         patientId: widget.patientId,
         isDryRun: isDryRun,
+        initialQuickPreset: initialQuickPreset,
       ),
     );
 
     if (wizardResult == null || !mounted) return null;
+
+    if (!isDryRun) {
+      await ref.read(quickGenerationPresetsProvider.notifier).recordUsage(
+            template: wizardResult.template,
+            contentTemplate: wizardResult.contentTemplate,
+            allMaterials: wizardResult.allMaterials,
+            selectedSlotKeys: wizardResult.selectedSlotKeys,
+          );
+      if (!mounted) return null;
+    }
 
     final messages = await _msgRepo.getAllChronological(widget.patientId);
     if (!mounted) return null;
@@ -323,19 +340,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  Future<void> _onGenerateRecord({bool forceManual = false}) async {
+  Future<void> _onGenerateRecord({
+    bool forceManual = false,
+    QuickGenerationPreset? initialQuickPreset,
+  }) async {
     if (_isStartingGeneration) return;
     _isStartingGeneration = true;
     try {
-      await _runGenerateRecordFlow(forceManual: forceManual);
+      await _runGenerateRecordFlow(
+        forceManual: forceManual,
+        initialQuickPreset: initialQuickPreset,
+      );
     } finally {
       _isStartingGeneration = false;
     }
   }
 
-  Future<void> _runGenerateRecordFlow({bool forceManual = false}) async {
+  Future<void> _runGenerateRecordFlow({
+    bool forceManual = false,
+    QuickGenerationPreset? initialQuickPreset,
+  }) async {
     final isAiRestricted = ref.read(isChinaAiRestrictedProvider);
-    final inputs = await _collectGenerationInputs(isDryRun: false);
+    final inputs = await _collectGenerationInputs(
+      isDryRun: false,
+      initialQuickPreset: initialQuickPreset,
+    );
     if (inputs == null || !mounted) return;
 
     bool useManual = forceManual || isAiRestricted;
@@ -1126,6 +1155,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ],
                 ),
               ),
+            if (ref.watch(chatQuickPresetsEnabledProvider) && !_quickBarDismissed)
+              QuickGenerationBar(
+                showTopBorder: true,
+                onClose: () => setState(() => _quickBarDismissed = true),
+                onSelectPreset: (preset) =>
+                    _onGenerateRecord(initialQuickPreset: preset),
+              ),
             ChatInputBar(
               key: _inputKey,
               generateButtonKey: _generateBtnKey,
@@ -1259,7 +1295,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 title: '最后一步：整理生成',
                 description: isAiRestricted
                     ? '点击这个按钮会按模板整理会话素材，拼装完整提示词并一键复制，粘贴到外部工具处理后再贴回校对录入。'
-                    : '点击这个按钮会打开文书生成指引，一步步选择：文书类型 → 内容模板 → 素材范围 → 字段与要求，最后确认开始生成。',
+                    : '点击这个按钮会打开文书生成指引，依次选择：类型与字段 → 内容模板 → 生成要求。',
                 nextButtonLabel: isAiRestricted ? '整理文书' : '开始生成',
                 onNext: () => _onGenerateRecord(),
                 onSkip: () => ref.read(tutorialProvider.notifier).skipTutorial(),

@@ -7,6 +7,7 @@ import '../../../providers/document_parser_provider.dart';
 import '../../../providers/llm_providers_provider.dart';
 import '../../../providers/ocr_providers_provider.dart';
 import '../../../providers/providers.dart';
+import '../../../providers/quick_generation_presets_provider.dart';
 import '../../../providers/storefront_compliance_provider.dart';
 import '../../../providers/tutorial_provider.dart';
 import '../../widgets/tutorial/tutorial_spotlight_overlay.dart';
@@ -95,6 +96,30 @@ class SettingsPage extends ConsumerWidget {
               onChangeEnd: (v) {
                 ref.read(appFontScaleProvider.notifier).setScale(v, persist: true);
               },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.playlist_add_check_rounded),
+              title: const Text('文书快捷生成管理', style: _title),
+              subtitle: Consumer(
+                builder: (ctx, ref, _) {
+                  final enabled = ref.watch(chatQuickPresetsEnabledProvider);
+                  final presets = ref.watch(quickGenerationPresetsProvider);
+                  final pinnedCount = presets.where((p) => p.isPinned).length;
+                  return _InlineCodeRow(
+                    badges: [
+                      _InlineCodeSpec(
+                        enabled ? '已开启' : '已关闭',
+                        highlighted: enabled,
+                        muted: !enabled,
+                      ),
+                      if (pinnedCount > 0) _InlineCodeSpec('$pinnedCount 个置顶'),
+                    ],
+                  );
+                },
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/quick-generation'),
             ),
           ]),
           _groupLabel(context, isAiRestricted ? '识别与提示词' : '人工智能'),

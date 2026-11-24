@@ -182,12 +182,19 @@ class BackupService {
       final extractorRaw =
           await settingsRepo.get('content_template_extractor_config');
       final dryRunRaw = await settingsRepo.get('llm_dry_run_enabled');
+      final quickEnabledRaw =
+          await settingsRepo.get('chat_quick_presets_enabled');
+      final quickPresetsRaw =
+          await settingsRepo.get('recent_generation_presets');
 
       bundle['prompt_configs'] = {
         if (promptRaw != null) 'llm_prompt_config': jsonDecode(promptRaw),
         if (extractorRaw != null)
           'content_template_extractor_config': jsonDecode(extractorRaw),
         if (dryRunRaw != null) 'llm_dry_run_enabled': dryRunRaw == 'true',
+        if (quickEnabledRaw != null)
+          'chat_quick_presets_enabled': quickEnabledRaw != 'false',
+        'recent_generation_presets': ?quickPresetsRaw,
       };
     }
 
@@ -404,6 +411,18 @@ class BackupService {
         if (prompts.containsKey('llm_dry_run_enabled')) {
           await settingsRepo.set('llm_dry_run_enabled',
               prompts['llm_dry_run_enabled'] == true ? 'true' : 'false');
+        }
+        if (prompts.containsKey('chat_quick_presets_enabled')) {
+          await settingsRepo.set(
+            'chat_quick_presets_enabled',
+            prompts['chat_quick_presets_enabled'] == false ? 'false' : 'true',
+          );
+        }
+        if (prompts.containsKey('recent_generation_presets')) {
+          await settingsRepo.set(
+            'recent_generation_presets',
+            prompts['recent_generation_presets'].toString(),
+          );
         }
         result.importedPromptConfigs = true;
       } catch (e) {
