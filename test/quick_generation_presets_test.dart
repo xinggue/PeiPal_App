@@ -64,6 +64,69 @@ void main() {
     name: '糖尿病',
   );
 
+  test('同文书同模板但不同字段应区分展示字段数量', () {
+    final full = QuickGenerationPreset.create(
+      template: t1,
+      contentTemplate: ct1,
+      allMaterials: true,
+      selectAllSlots: true,
+      selectedSlotKeys: const ['cc', 'hpi', 'dx'],
+    );
+    final partial = QuickGenerationPreset.create(
+      template: t1,
+      contentTemplate: ct1,
+      allMaterials: true,
+      selectAllSlots: false,
+      selectedSlotKeys: const ['cc', 'dx'],
+    );
+
+    expect(
+      full.displayTitle(liveTemplate: t1, liveContentTemplate: ct1),
+      '门诊病历 · 糖尿病 · 全3字段',
+    );
+    expect(
+      partial.displayTitle(liveTemplate: t1, liveContentTemplate: ct1),
+      '门诊病历 · 糖尿病 · 2/3字段',
+    );
+  });
+
+  test('pinFromRecent 会在置顶区多出一份且保留最近区，删除置顶不影响最近区', () async {
+    final repo = MockSettingsRepo();
+    final container = ProviderContainer(
+      overrides: [settingsRepositoryProvider.overrideWithValue(repo)],
+    );
+    addTearDown(container.dispose);
+
+    final notifier = container.read(quickGenerationPresetsProvider.notifier);
+    await notifier.ensureLoaded();
+
+    await notifier.recordUsage(
+      template: t1,
+      contentTemplate: ct1,
+      allMaterials: true,
+      selectedSlotKeys: const {'cc', 'hpi', 'dx'},
+    );
+
+    final recentItem = container.read(quickGenerationPresetsProvider).single;
+    expect(recentItem.isPinned, isFalse);
+
+    // 收藏/Pin 后：置顶区多 1 份，最近区仍保留原记录
+    expect(await notifier.pinFromRecent(recentItem.id), isTrue);
+    final afterPin = container.read(quickGenerationPresetsProvider);
+    expect(afterPin.where((p) => p.isPinned).length, 1);
+    expect(afterPin.where((p) => !p.isPinned).length, 1);
+
+    // 重复点同一个配置的 Pin 不重复生成两份
+    expect(await notifier.pinFromRecent(recentItem.id), isFalse);
+
+    // 删除置顶区的副本：只删上面那份，下面最近记录依然保留
+    final pinnedItem = afterPin.firstWhere((p) => p.isPinned);
+    await notifier.deletePreset(pinnedItem.id);
+    final afterDeletePinned = container.read(quickGenerationPresetsProvider);
+    expect(afterDeletePinned.where((p) => p.isPinned), isEmpty);
+    expect(afterDeletePinned.where((p) => !p.isPinned).length, 1);
+  });
+
   test('QuickGenerationPresetsNotifier 持久化、LRU 去重淘汰与 Pin 置顶保护', () async {
     final repo = MockSettingsRepo();
     final container = ProviderContainer(
@@ -74,7 +137,6 @@ void main() {
     final notifier = container.read(quickGenerationPresetsProvider.notifier);
     await notifier.ensureLoaded();
 
-    // 1. 添加 1 条并 Pin 置顶
     await notifier.addPinnedPreset(
       template: t1,
       contentTemplate: ct1,
@@ -82,7 +144,6 @@ void main() {
       customTitle: '糖随访',
     );
 
-    // 2. 连续记录 6 条不同的非 Pin 配置，校验非 Pin 最多保留 5 条且 Pin 永不被挤掉
     for (var i = 0; i < 6; i++) {
       final tmpl = Template(
         id: 'extra_$i',
@@ -101,11 +162,9 @@ void main() {
     expect(list.first.isPinned, isTrue);
     expect(list.first.customTitle, '糖随访');
     expect(list.where((p) => !p.isPinned).length, 5);
-    // 最早那条 extra_0 应被 LRU 淘汰
     expect(list.any((p) => p.templateId == 'extra_0'), isFalse);
     expect(list.any((p) => p.templateId == 'extra_5'), isTrue);
 
-    // 3. 新容器从同一 SettingsRepository 重新加载，验证持久化生效
     final reloaded = ProviderContainer(
       overrides: [settingsRepositoryProvider.overrideWithValue(repo)],
     );
@@ -140,9 +199,9 @@ void main() {
       hasPastRecords: false,
     );
     expect(resolved, isNotNull);
-    expect(resolved!.contentTemplate, isNull); // 已删内容模板自动回退为无模板
-    expect(resolved.allMaterials, isTrue); // 无既往记录回退为全部材料
-    expect(resolved.selectedSlotKeys, {'cc', 'hpi', 'dx', 'rx'}); // 全选跟随新字段
+    expect(resolved!.contentTemplate, isNull);
+    expect(resolved.allMaterials, isTrue);
+    expect(resolved.selectedSlotKeys, {'cc', 'hpi', 'dx', 'rx'});
   });
 
   testWidgets(
@@ -210,18 +269,33 @@ void main() {
       await tester.tap(find.text('OPEN_WIZARD'));
       await tester.pumpAndSettle();
 
-      // 1. 顶部 3 步指示，向导第 1 步顶部有最近生成 + 设置按钮且无关闭按钮
       expect(find.text('第 1 / 3 步'), findsOneWidget);
       expect(find.text('最近生成'), findsOneWidget);
       expect(find.text('设置'), findsOneWidget);
-      expect(find.text('入院记录 · 无模板'), findsOneWidget);
+      expect(find.text('入院记录'), findsNWidgets(2)); // 1 个在快捷胶囊，1 个在下方模板列表
+      expect(find.text('无模板 · 全2字段'), findsOneWidget);
       expect(find.text('点选直达最后一步'), findsNothing);
+      expect(find.byIcon(Icons.push_pin), findsNothing);
 
-      // 2. 第 1 步默认选中门诊病历并展开其字段，支持全选/全不选
+      // 向导内两行布局：标题+设置在上，胶囊在下一行
+      final wizardHeaderY = tester.getCenter(find.text('最近生成')).dy;
+      final wizardSettingsY = tester.getCenter(find.text('设置')).dy;
+      final wizardCapsuleY = tester.getCenter(find.text('无模板 · 全2字段')).dy;
+      expect((wizardHeaderY - wizardSettingsY).abs(), lessThan(6));
+      expect(wizardCapsuleY, greaterThan(wizardHeaderY + 12));
+
+      // 初始不默认选中任何文书类型，所有卡片折叠
+      expect(find.text('主诉'), findsNothing);
+      expect(find.text('现病史'), findsNothing);
+      expect(find.text('诊断'), findsNothing);
+      expect(find.text('入院情况'), findsNothing);
+
+      // 点击「门诊病历」展开字段勾选
+      await tester.tap(find.text('门诊病历'));
+      await tester.pumpAndSettle();
       expect(find.text('主诉'), findsOneWidget);
       expect(find.text('现病史'), findsOneWidget);
       expect(find.text('诊断'), findsOneWidget);
-      expect(find.text('入院情况'), findsNothing);
 
       await tester.tap(find.text('全不选'));
       await tester.pumpAndSettle();
@@ -230,8 +304,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('3 个字段（已选 3/3）'), findsOneWidget);
 
-      // 3. 点击快捷生成胶囊「入院记录 · 无模板」直接跳到第 3 步并填好总览
-      await tester.tap(find.text('入院记录 · 无模板'));
+      // 再次点击「门诊病历」取消选中并收起
+      await tester.tap(find.text('门诊病历'));
+      await tester.pumpAndSettle();
+      expect(find.text('主诉'), findsNothing);
+
+      // 点快捷胶囊直达第 3 步
+      await tester.tap(find.text('无模板 · 全2字段'));
       await tester.pumpAndSettle();
 
       expect(find.text('第 3 / 3 步'), findsOneWidget);
@@ -240,7 +319,6 @@ void main() {
       expect(find.text('入院记录（2/2 个字段）'), findsOneWidget);
       expect(find.text('不使用内容模板'), findsOneWidget);
 
-      // 4. 点击「上一步」可以回到第 2 步、再回到第 1 步重新选择
       await tester.tap(find.text('上一步'));
       await tester.pumpAndSettle();
       expect(find.text('第 2 / 3 步'), findsOneWidget);
@@ -249,7 +327,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('第 1 / 3 步'), findsOneWidget);
 
-      // 5. 切回第 3 步并点「开始生成」返回完整配置
       await tester.tap(find.text('生成要求'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('开始生成 (2)'));
@@ -262,15 +339,15 @@ void main() {
   );
 
   testWidgets(
-    'QuickGenerationBar 显示关闭按钮且无废话；QuickGenerationSettingsPage 可管理开关与 Pin',
+    'QuickGenerationBar 单行显示字段数量；设置页置顶区仅有排序与删除，最近区仅有收藏按钮且 Pin 保留最近记录',
     (tester) async {
       final repo = MockSettingsRepo();
       final preset = QuickGenerationPreset.create(
         template: t1,
         contentTemplate: ct1,
         allMaterials: true,
-        selectAllSlots: true,
-        selectedSlotKeys: const ['cc', 'hpi', 'dx'],
+        selectAllSlots: false,
+        selectedSlotKeys: const ['cc', 'dx'],
       );
       repo.data[kRecentGenerationPresetsKey] =
           QuickGenerationPreset.encodeList([preset]);
@@ -304,22 +381,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('最近生成'), findsOneWidget);
-      expect(find.text('门诊病历 · 糖尿病'), findsOneWidget);
+      expect(find.text('门诊病历'), findsOneWidget);
+      expect(find.text('糖尿病 · 2/3字段'), findsOneWidget);
+      expect(find.byIcon(Icons.push_pin), findsNothing);
       expect(find.text('点选直达最后一步'), findsNothing);
 
-      // 验证「最近生成」、胶囊与关闭按钮在同一单行内且整体紧凑
+      // 胶囊内部上下两行展示：文书名在上、模板与字段数在下
+      final capsuleTitleY = tester.getCenter(find.text('门诊病历')).dy;
+      final capsuleSubY = tester.getCenter(find.text('糖尿病 · 2/3字段')).dy;
+      expect(capsuleTitleY, lessThan(capsuleSubY));
+
       final labelCenterY = tester.getCenter(find.text('最近生成')).dy;
-      final pillCenterY = tester.getCenter(find.text('门诊病历 · 糖尿病')).dy;
+      final capsuleCenterY = (capsuleTitleY + capsuleSubY) / 2;
       final closeCenterY = tester.getCenter(find.byIcon(Icons.close)).dy;
-      expect((labelCenterY - pillCenterY).abs(), lessThan(4));
-      expect((closeCenterY - pillCenterY).abs(), lessThan(4));
-      expect(tester.getSize(find.byType(QuickGenerationBar)).height,
-          lessThanOrEqualTo(46));
+      expect((labelCenterY - capsuleCenterY).abs(), lessThan(4));
+      expect((closeCenterY - capsuleCenterY).abs(), lessThan(4));
+      final barHeight = tester.getSize(find.byType(QuickGenerationBar)).height;
+      expect(barHeight, greaterThanOrEqualTo(46));
+      expect(barHeight, lessThanOrEqualTo(66));
 
       await tester.tap(find.byIcon(Icons.close));
       expect(closed, isTrue);
 
-      // 验证专属设置页文案（文书快捷生成管理 / 置顶管理 / 暂无置顶，无“套餐”与闪电图标）、开关和 Pin 切换
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -330,21 +413,35 @@ void main() {
 
       expect(find.text('文书快捷生成管理'), findsOneWidget);
       expect(find.byIcon(Icons.bolt_outlined), findsNothing);
-      expect(find.text('输入框上方显示最近生成'), findsOneWidget);
       expect(find.text('置顶管理'), findsOneWidget);
       expect(find.text('暂无置顶'), findsOneWidget);
-      expect(find.textContaining('套餐'), findsNothing);
-      expect(find.text('门诊病历 · 糖尿病'), findsOneWidget);
+      expect(find.text('门诊病历 · 糖尿病 · 2/3字段'), findsOneWidget);
 
+      // 最近区只有 1 个收藏/Pin 按钮，点 Pin 后置顶区多出一份且最近区仍在
       await tester.tap(find.byIcon(Icons.push_pin_outlined));
       await tester.pumpAndSettle();
       expect(find.text('暂无置顶'), findsNothing);
-      expect(find.text('暂无最近生成记录'), findsOneWidget);
+      expect(find.text('门诊病历 · 糖尿病 · 2/3字段'), findsNWidgets(2));
+      expect(find.text('暂无最近生成记录'), findsNothing);
+
+      // 置顶区有排序(↑/↓)和删除按钮，无独立重命名按钮；删除后只删置顶区那份
+      expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+      expect(find.byIcon(Icons.edit_outlined), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+      expect(find.text('暂无置顶'), findsOneWidget);
+      expect(find.text('门诊病历 · 糖尿病 · 2/3字段'), findsOneWidget);
 
       await tester.tap(find.text('输入框上方显示最近生成'));
       await tester.pumpAndSettle();
       expect(container.read(chatQuickPresetsEnabledProvider), isFalse);
       expect(repo.data[kChatQuickPresetsEnabledKey], 'false');
+
+      // 消耗 AppToast 的 2.2s 自动消失计时器，避免结束时 pending timer 断言失败
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
     },
   );
 

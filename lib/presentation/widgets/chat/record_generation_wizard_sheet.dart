@@ -137,16 +137,22 @@ class _RecordGenerationWizardSheetState
       }
     }
 
-    if (tmpls.isNotEmpty) {
-      await _onSelectTemplate(tmpls.first);
-    }
-
     if (mounted) {
       setState(() {
         _allMaterials = true;
         _isLoading = false;
       });
     }
+  }
+
+  void _deselectTemplate() {
+    setState(() {
+      _selectedTemplate = null;
+      _selectedSlotKeys = {};
+      _selectedContentTemplate = null;
+      _useNoContentTemplate = false;
+      _activeQuickPresetId = null;
+    });
   }
 
   Future<List<ContentTemplate>> _ensureContentTemplatesLoaded(
@@ -585,6 +591,7 @@ class _RecordGenerationWizardSheetState
           onOpenSettings: _openQuickSettings,
           selectedPresetId: _activeQuickPresetId,
           showWhenEmpty: true,
+          twoRowLayout: true,
           padding: const EdgeInsets.only(bottom: 10),
         ),
         const Divider(height: 1),
@@ -617,7 +624,9 @@ class _RecordGenerationWizardSheetState
         children: [
           InkWell(
             onTap: () {
-              if (!isSelected) {
+              if (isSelected) {
+                _deselectTemplate();
+              } else {
                 _onSelectTemplate(t);
               }
             },
@@ -1031,7 +1040,8 @@ class _RecordGenerationWizardSheetState
                     : '下一步',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              onPressed: (_currentStep == 2 && _selectedSlotKeys.isEmpty)
+              onPressed: (_selectedTemplate == null ||
+                      (_currentStep == 2 && _selectedSlotKeys.isEmpty))
                   ? null
                   : _nextStep,
             ),

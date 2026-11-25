@@ -12,7 +12,7 @@ const _uuid = Uuid();
 const String kChatQuickPresetsEnabledKey = 'chat_quick_presets_enabled';
 const String kRecentGenerationPresetsKey = 'recent_generation_presets';
 
-/// 一条可持久化的快捷生成套餐（既可作为「最近生成」记录，也可被用户 Pin 置顶）。
+/// 一条可持久化的快捷生成预设（置顶收藏项与最近生成记录相互独立持久化）。
 class QuickGenerationPreset {
   final String id;
   final String templateId;
@@ -95,7 +95,7 @@ class QuickGenerationPreset {
     );
   }
 
-  /// 是否与指定的配置组合语义等价（用于去重）。
+  /// 是否与指定的配置组合语义等价（用于去重与已置顶判定）。
   bool matchesConfig({
     required String templateId,
     required String? contentTemplateId,
@@ -118,6 +118,35 @@ class QuickGenerationPreset {
     return true;
   }
 
+  bool matchesPreset(QuickGenerationPreset other) => matchesConfig(
+        templateId: other.templateId,
+        contentTemplateId: other.contentTemplateId,
+        allMaterials: other.allMaterials,
+        selectAllSlots: other.selectAllSlots,
+        sortedSlotKeys: other.selectedSlotKeys,
+      );
+
+  /// 紧凑字段数标签（例如：`全6字段` 或 `3/6字段`），避免同模板不同字段看起来重复。
+  String fieldCountSummary({Template? liveTemplate}) {
+    final total = liveTemplate?.slots.length;
+    if (selectAllSlots) {
+      return (total != null && total > 0) ? '全$total字段' : '全字段';
+    }
+    final count = liveTemplate == null
+        ? selectedSlotKeys.length
+        : liveTemplate.slots.where((s) => selectedSlotKeys.contains(s.key)).length;
+    if (total != null && total > 0) {
+      return '$count/$total字段';
+    }
+    return '$count字段';
+  }
+
+  String _resolvedContentTemplateName(ContentTemplate? liveContentTemplate) {
+    if (contentTemplateId == null) return '无模板';
+    final name = liveContentTemplate?.name ?? contentTemplateName;
+    return (name == null || name.trim().isEmpty) ? '无模板' : name;
+  }
+
   String displayTitle({
     Template? liveTemplate,
     ContentTemplate? liveContentTemplate,
@@ -125,14 +154,31 @@ class QuickGenerationPreset {
     final alias = customTitle?.trim();
     if (alias != null && alias.isNotEmpty) return alias;
     final tName = liveTemplate?.name ?? templateName;
-    if (contentTemplateId == null) {
-      return '$tName · 无模板';
+    final resolvedCtName = _resolvedContentTemplateName(liveContentTemplate);
+    final fieldsPart = fieldCountSummary(liveTemplate: liveTemplate);
+    return '$tName · $resolvedCtName · $fieldsPart';
+  }
+
+  /// 胶囊第一行主文案：有自定义别名时用别名，否则展示文书类型名。
+  String capsuleTitle({Template? liveTemplate}) {
+    final alias = customTitle?.trim();
+    if (alias != null && alias.isNotEmpty) return alias;
+    return liveTemplate?.name ?? templateName;
+  }
+
+  /// 胶囊第二行副文案：内容模板与生成字段数量。
+  String capsuleSubtitle({
+    Template? liveTemplate,
+    ContentTemplate? liveContentTemplate,
+  }) {
+    final tName = liveTemplate?.name ?? templateName;
+    final resolvedCtName = _resolvedContentTemplateName(liveContentTemplate);
+    final fieldsPart = fieldCountSummary(liveTemplate: liveTemplate);
+    final alias = customTitle?.trim();
+    if (alias != null && alias.isNotEmpty) {
+      return '$tName · $resolvedCtName · $fieldsPart';
     }
-    final ctName = liveContentTemplate?.name ?? contentTemplateName;
-    if (ctName == null || ctName.trim().isEmpty) {
-      return '$tName · 无模板';
-    }
-    return '$tName · $ctName';
+    return '$resolvedCtName · $fieldsPart';
   }
 
   /// 将预设解析为当前库里真实存在的实体；若对应文书类型已被删则返回 null。
@@ -258,7 +304,10 @@ class ChatQuickPresetsEnabledNotifier extends StateNotifier<bool> {
   }
 }
 
-/// 持久化管理已 Pin 套餐与最近生成记录。
+/// 持久化管理已置顶项与最近生成记录：
+/// - 置顶区（`isPinned == true`）与最近区（`isPinned == false`）彼此独立；
+/// - 从最近区点收藏会在置顶区新增一份副本，不移出最近区；
+/// - 从置顶区删除仅移除置顶项，不影响最近区记录。
 final quickGenerationPresetsProvider =
     StateNotifierProvider<QuickGenerationPresetsNotifier, List<QuickGenerationPreset>>((ref) {
   return QuickGenerationPresetsNotifier(ref.read(settingsRepositoryProvider));
@@ -286,11 +335,11 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
 
   List<QuickGenerationPreset> _normalizeOrder(List<QuickGenerationPreset> list) {
     final pinned = list.where((p) => p.isPinned).toList();
-    final unpinned = list.where((p) => !p.isPinned).toList()
+    final recent = list.where((p) => !p.isPinned).toList()
       ..sort((a, b) => b.lastUsedAt.compareTo(a.lastUsedAt));
     return [
       ...pinned,
-      ...unpinned.take(maxRecentCount),
+      ...recent.take(maxRecentCount),
     ];
   }
 
@@ -300,7 +349,7 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
     await _repo.set(kRecentGenerationPresetsKey, QuickGenerationPreset.encodeList(normalized));
   }
 
-  /// 记录一次实际发起的文书生成配置（同组合去重并刷新时间戳，非 Pin 项保留最近 5 条）。
+  /// 记录一次实际发起的文书生成配置到「最近生成」（仅在最近区内按配置去重并保留最近 5 条，不动置顶区）。
   Future<void> recordUsage({
     required Template template,
     required ContentTemplate? contentTemplate,
@@ -314,7 +363,10 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
     final normalizedKeys = templateAllKeys.where(selectedSlotKeys.contains).toList();
     final now = DateTime.now();
 
-    final idx = state.indexWhere((p) => p.matchesConfig(
+    final pinned = state.where((p) => p.isPinned).toList();
+    final recent = state.where((p) => !p.isPinned).toList();
+
+    final idx = recent.indexWhere((p) => p.matchesConfig(
           templateId: template.id,
           contentTemplateId: contentTemplate?.id,
           allMaterials: allMaterials,
@@ -323,17 +375,14 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
         ));
 
     if (idx >= 0) {
-      final existing = state[idx];
-      final updated = existing.copyWith(
+      recent[idx] = recent[idx].copyWith(
         templateName: template.name,
         contentTemplateId: contentTemplate?.id,
         clearContentTemplate: contentTemplate == null,
         contentTemplateName: contentTemplate?.name,
         lastUsedAt: now,
       );
-      final next = List<QuickGenerationPreset>.from(state);
-      next[idx] = updated;
-      await _save(next);
+      await _save([...pinned, ...recent]);
       return;
     }
 
@@ -345,10 +394,39 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
       selectedSlotKeys: normalizedKeys,
       lastUsedAt: now,
     );
-    await _save([created, ...state]);
+    await _save([...pinned, created, ...recent]);
   }
 
-  /// 在设置页直接添加一个已 Pin 套餐（若已存在同配置则改为 Pin 并更新名称）。
+  /// 将「最近生成」中的某一条复制一份加入置顶区（保留原最近记录不删除）。
+  /// 若置顶区已存在等价配置则返回 false。
+  Future<bool> pinFromRecent(String recentId) async {
+    await _loadFuture;
+    final source = state.where((p) => p.id == recentId && !p.isPinned).firstOrNull;
+    if (source == null) return false;
+
+    final pinned = state.where((p) => p.isPinned).toList();
+    if (pinned.any((p) => p.matchesPreset(source))) {
+      return false;
+    }
+
+    final copy = QuickGenerationPreset(
+      id: _uuid.v4(),
+      templateId: source.templateId,
+      templateName: source.templateName,
+      contentTemplateId: source.contentTemplateId,
+      contentTemplateName: source.contentTemplateName,
+      allMaterials: source.allMaterials,
+      selectAllSlots: source.selectAllSlots,
+      selectedSlotKeys: List<String>.from(source.selectedSlotKeys),
+      customTitle: source.customTitle,
+      isPinned: true,
+      lastUsedAt: DateTime.now(),
+    );
+    await _save([...state, copy]);
+    return true;
+  }
+
+  /// 在设置页手动添加一个置顶项（若置顶区已存在同配置则更新名称）。
   Future<void> addPinnedPreset({
     required Template template,
     required ContentTemplate? contentTemplate,
@@ -360,7 +438,10 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
     final trimmedAlias = customTitle?.trim();
     final alias = (trimmedAlias == null || trimmedAlias.isEmpty) ? null : trimmedAlias;
 
-    final idx = state.indexWhere((p) => p.matchesConfig(
+    final pinned = state.where((p) => p.isPinned).toList();
+    final recent = state.where((p) => !p.isPinned).toList();
+
+    final idx = pinned.indexWhere((p) => p.matchesConfig(
           templateId: template.id,
           contentTemplateId: contentTemplate?.id,
           allMaterials: allMaterials,
@@ -369,14 +450,12 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
         ));
 
     if (idx >= 0) {
-      final next = List<QuickGenerationPreset>.from(state);
-      next[idx] = next[idx].copyWith(
-        isPinned: true,
+      pinned[idx] = pinned[idx].copyWith(
         customTitle: alias,
         clearCustomTitle: alias == null,
         lastUsedAt: DateTime.now(),
       );
-      await _save(next);
+      await _save([...pinned, ...recent]);
       return;
     }
 
@@ -389,16 +468,7 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
       customTitle: alias,
       isPinned: true,
     );
-    await _save([created, ...state]);
-  }
-
-  Future<void> togglePin(String id) async {
-    await _loadFuture;
-    final next = [
-      for (final p in state)
-        if (p.id == id) p.copyWith(isPinned: !p.isPinned) else p,
-    ];
-    await _save(next);
+    await _save([...pinned, created, ...recent]);
   }
 
   Future<void> renamePreset(String id, String? customTitle) async {
@@ -420,14 +490,14 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
   Future<void> movePinned(int index, int delta) async {
     await _loadFuture;
     final pinned = state.where((p) => p.isPinned).toList();
-    final unpinned = state.where((p) => !p.isPinned).toList();
+    final recent = state.where((p) => !p.isPinned).toList();
     final target = index + delta;
     if (index < 0 || index >= pinned.length || target < 0 || target >= pinned.length) {
       return;
     }
     final item = pinned.removeAt(index);
     pinned.insert(target, item);
-    await _save([...pinned, ...unpinned]);
+    await _save([...pinned, ...recent]);
   }
 
   Future<void> deletePreset(String id) async {
@@ -435,7 +505,7 @@ class QuickGenerationPresetsNotifier extends StateNotifier<List<QuickGenerationP
     await _save(state.where((p) => p.id != id).toList());
   }
 
-  Future<void> clearUnpinned() async {
+  Future<void> clearRecent() async {
     await _loadFuture;
     await _save(state.where((p) => p.isPinned).toList());
   }

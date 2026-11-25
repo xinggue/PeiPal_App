@@ -7,7 +7,7 @@ import '../../../providers/providers.dart';
 import '../../../providers/quick_generation_presets_provider.dart';
 import '../../widgets/common/app_toast.dart';
 
-/// 快捷生成预设与最近生成管理页面 (/settings/quick-generation)
+/// 文书快捷生成管理页面 (/settings/quick-generation)
 class QuickGenerationSettingsPage extends ConsumerWidget {
   const QuickGenerationSettingsPage({super.key});
 
@@ -80,11 +80,10 @@ class QuickGenerationSettingsPage extends ConsumerWidget {
           if (pinned.isEmpty)
             const _EmptyBox(text: '暂无置顶')
           else
-            _PresetGroupCard(
+            _PinnedGroupCard(
               items: pinned,
               templatesById: templatesById,
-              isPinnedGroup: true,
-              onRename: (p) => _showRenameDialog(context, ref, p),
+              onTapRow: (p) => _showRenameDialog(context, ref, p),
             ),
 
           const SizedBox(height: 18),
@@ -111,7 +110,7 @@ class QuickGenerationSettingsPage extends ConsumerWidget {
                   onPressed: () async {
                     await ref
                         .read(quickGenerationPresetsProvider.notifier)
-                        .clearUnpinned();
+                        .clearRecent();
                     if (context.mounted) {
                       showAppToast(context, '已清空最近生成记录');
                     }
@@ -123,13 +122,12 @@ class QuickGenerationSettingsPage extends ConsumerWidget {
           const SizedBox(height: 8),
 
           if (recent.isEmpty)
-            _EmptyBox(text: '暂无最近生成记录')
+            const _EmptyBox(text: '暂无最近生成记录')
           else
-            _PresetGroupCard(
+            _RecentGroupCard(
               items: recent,
+              pinned: pinned,
               templatesById: templatesById,
-              isPinnedGroup: false,
-              onRename: (p) => _showRenameDialog(context, ref, p),
             ),
         ],
       ),
@@ -333,17 +331,15 @@ class _EmptyBox extends StatelessWidget {
   }
 }
 
-class _PresetGroupCard extends ConsumerWidget {
+class _PinnedGroupCard extends ConsumerWidget {
   final List<QuickGenerationPreset> items;
   final Map<String, Template> templatesById;
-  final bool isPinnedGroup;
-  final ValueChanged<QuickGenerationPreset> onRename;
+  final ValueChanged<QuickGenerationPreset> onTapRow;
 
-  const _PresetGroupCard({
+  const _PinnedGroupCard({
     required this.items,
     required this.templatesById,
-    required this.isPinnedGroup,
-    required this.onRename,
+    required this.onTapRow,
   });
 
   @override
@@ -362,22 +358,18 @@ class _PresetGroupCard extends ConsumerWidget {
         children: [
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0) const Divider(height: 1),
-            _PresetRow(
+            _PinnedRow(
               preset: items[i],
               liveTemplate: templatesById[items[i].templateId],
-              isPinnedGroup: isPinnedGroup,
-              canMoveUp: isPinnedGroup && i > 0,
-              canMoveDown: isPinnedGroup && i < items.length - 1,
+              canMoveUp: i > 0,
+              canMoveDown: i < items.length - 1,
+              onTap: () => onTapRow(items[i]),
               onMoveUp: () => ref
                   .read(quickGenerationPresetsProvider.notifier)
                   .movePinned(i, -1),
               onMoveDown: () => ref
                   .read(quickGenerationPresetsProvider.notifier)
                   .movePinned(i, 1),
-              onTogglePin: () => ref
-                  .read(quickGenerationPresetsProvider.notifier)
-                  .togglePin(items[i].id),
-              onRename: () => onRename(items[i]),
               onDelete: () => ref
                   .read(quickGenerationPresetsProvider.notifier)
                   .deletePreset(items[i].id),
@@ -389,51 +381,163 @@ class _PresetGroupCard extends ConsumerWidget {
   }
 }
 
-class _PresetRow extends ConsumerWidget {
+class _RecentGroupCard extends ConsumerWidget {
+  final List<QuickGenerationPreset> items;
+  final List<QuickGenerationPreset> pinned;
+  final Map<String, Template> templatesById;
+
+  const _RecentGroupCard({
+    required this.items,
+    required this.pinned,
+    required this.templatesById,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const Divider(height: 1),
+            _RecentRow(
+              preset: items[i],
+              liveTemplate: templatesById[items[i].templateId],
+              alreadyPinned: pinned.any((p) => p.matchesPreset(items[i])),
+              onPin: () async {
+                final added = await ref
+                    .read(quickGenerationPresetsProvider.notifier)
+                    .pinFromRecent(items[i].id);
+                if (!context.mounted) return;
+                showAppToast(context, added ? '已添加到置顶管理' : '已在置顶管理中');
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PinnedRow extends ConsumerWidget {
   final QuickGenerationPreset preset;
   final Template? liveTemplate;
-  final bool isPinnedGroup;
   final bool canMoveUp;
   final bool canMoveDown;
+  final VoidCallback onTap;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
-  final VoidCallback onTogglePin;
-  final VoidCallback onRename;
   final VoidCallback onDelete;
 
-  const _PresetRow({
+  const _PinnedRow({
     required this.preset,
     required this.liveTemplate,
-    required this.isPinnedGroup,
     required this.canMoveUp,
     required this.canMoveDown,
+    required this.onTap,
     required this.onMoveUp,
     required this.onMoveDown,
-    required this.onTogglePin,
-    required this.onRename,
     required this.onDelete,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final cts = preset.contentTemplateId == null
-        ? const <ContentTemplate>[]
-        : (ref.watch(contentTemplatesProvider(preset.templateId)).valueOrNull ??
-            const <ContentTemplate>[]);
-    final liveCt = preset.contentTemplateId == null
-        ? null
-        : cts.where((c) => c.id == preset.contentTemplateId).firstOrNull;
-
+    final liveCt = _watchLiveContentTemplate(ref, preset);
     final title = preset.displayTitle(
       liveTemplate: liveTemplate,
       liveContentTemplate: liveCt,
     );
     final isStale = liveTemplate == null;
     final scopeLabel = preset.allMaterials ? '全部材料' : '仅新增内容';
-    final fieldsLabel = preset.selectAllSlots
-        ? '全部字段'
-        : '已选 ${preset.selectedSlotKeys.length} 个字段';
+    final fieldsLabel = preset.fieldCountSummary(liveTemplate: liveTemplate);
+
+    return InkWell(
+      onTap: isStale ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      color: isStale ? scheme.error : scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isStale ? '原文书类型已删除' : '$fieldsLabel · $scopeLabel',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isStale ? scheme.error : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+              visualDensity: VisualDensity.compact,
+              tooltip: '上移',
+              onPressed: canMoveUp ? onMoveUp : null,
+            ),
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+              visualDensity: VisualDensity.compact,
+              tooltip: '下移',
+              onPressed: canMoveDown ? onMoveDown : null,
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline, size: 19, color: scheme.error),
+              visualDensity: VisualDensity.compact,
+              tooltip: '删除',
+              onPressed: onDelete,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentRow extends ConsumerWidget {
+  final QuickGenerationPreset preset;
+  final Template? liveTemplate;
+  final bool alreadyPinned;
+  final VoidCallback onPin;
+
+  const _RecentRow({
+    required this.preset,
+    required this.liveTemplate,
+    required this.alreadyPinned,
+    required this.onPin,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final liveCt = _watchLiveContentTemplate(ref, preset);
+    final title = preset.displayTitle(
+      liveTemplate: liveTemplate,
+      liveContentTemplate: liveCt,
+    );
+    final isStale = liveTemplate == null;
+    final scopeLabel = preset.allMaterials ? '全部材料' : '仅新增内容';
+    final fieldsLabel = preset.fieldCountSummary(liveTemplate: liveTemplate);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
@@ -462,44 +566,30 @@ class _PresetRow extends ConsumerWidget {
               ],
             ),
           ),
-          if (canMoveUp)
-            IconButton(
-              icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-              visualDensity: VisualDensity.compact,
-              tooltip: '上移',
-              onPressed: onMoveUp,
-            ),
-          if (canMoveDown)
-            IconButton(
-              icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-              visualDensity: VisualDensity.compact,
-              tooltip: '下移',
-              onPressed: onMoveDown,
-            ),
           IconButton(
             icon: Icon(
-              preset.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+              alreadyPinned ? Icons.push_pin : Icons.push_pin_outlined,
               size: 19,
-              color: preset.isPinned ? scheme.primary : scheme.onSurfaceVariant,
+              color: alreadyPinned ? scheme.primary : scheme.onSurfaceVariant,
             ),
             visualDensity: VisualDensity.compact,
-            tooltip: preset.isPinned ? '取消置顶' : '置顶',
-            onPressed: onTogglePin,
-          ),
-          IconButton(
-            icon: Icon(Icons.edit_outlined, size: 18, color: scheme.onSurfaceVariant),
-            visualDensity: VisualDensity.compact,
-            tooltip: '重命名',
-            onPressed: onRename,
-          ),
-          IconButton(
-            icon: Icon(Icons.delete_outline, size: 19, color: scheme.error),
-            visualDensity: VisualDensity.compact,
-            tooltip: '删除',
-            onPressed: onDelete,
+            tooltip: alreadyPinned ? '已置顶' : '收藏并置顶',
+            onPressed: onPin,
           ),
         ],
       ),
     );
   }
+}
+
+ContentTemplate? _watchLiveContentTemplate(
+  WidgetRef ref,
+  QuickGenerationPreset preset,
+) {
+  if (preset.contentTemplateId == null) return null;
+  final cts = ref
+          .watch(contentTemplatesProvider(preset.templateId))
+          .valueOrNull ??
+      const <ContentTemplate>[];
+  return cts.where((c) => c.id == preset.contentTemplateId).firstOrNull;
 }
