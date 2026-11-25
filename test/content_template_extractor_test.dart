@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:peipal/data/services/api/extractor_config.dart';
 import 'package:peipal/data/services/content_template_extractor.dart';
 import 'package:peipal/domain/models/content_template.dart';
 import 'package:peipal/domain/models/template.dart';
@@ -136,6 +137,25 @@ void main() {
         () => ContentTemplateExtractor.parseResponse('抱歉我做不到', slots),
         throwsFormatException,
       );
+    });
+  });
+
+  group('ExtractorConfig defaults', () {
+    test('default refine and migrate prompts are domain-agnostic without medical terms', () {
+      const forbidden = ['临床', '住院号', '阴性症状', '体征', '入院记录', '首次病程记录', '出院记录', '病种', '诊断、手术'];
+      for (final term in forbidden) {
+        expect(ExtractorConfig.defaultRefinePromptTemplate, isNot(contains(term)));
+        expect(ExtractorConfig.defaultMigratePromptTemplate, isNot(contains(term)));
+      }
+    });
+
+    test('fromJson preserves user-edited prompts', () {
+      final cfg = ExtractorConfig.fromJson({
+        'refine_prompt_template': '自定义补充提示词 {field_list}',
+        'migrate_prompt_template': '自定义迁移提示词 {field_list}',
+      });
+      expect(cfg.refinePromptTemplate, '自定义补充提示词 {field_list}');
+      expect(cfg.migratePromptTemplate, '自定义迁移提示词 {field_list}');
     });
   });
 }

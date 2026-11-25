@@ -158,7 +158,7 @@ class _LlmPromptSettingsPageState
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '长按拖拽可改变各提示词模块在 System Prompt 中的先后排列顺序。\n点击模块可自由编辑措辞语句，右侧开关可控制是否启用。',
+                    '长按拖拽可调整模块顺序，点击可编辑措辞，右侧开关控制启用。\n静态规则固定在 System Prompt，阶段指引与字段规格自动追加至请求末尾以提升缓存命中率。',
                     style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).colorScheme.primary,

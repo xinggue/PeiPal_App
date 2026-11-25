@@ -6,6 +6,7 @@ import '../../../domain/models/catalog_mention.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/patient.dart';
 import '../../../domain/models/template.dart';
+import '../api/llm_prompt_config.dart';
 import '../processing_service.dart';
 
 class CompiledBatchPrompt {
@@ -22,14 +23,20 @@ class StagePromptCompiler {
   static final _dateFormat = DateFormat('yyyy-MM-dd HH:mm');
 
   /// Compiles system and user prompts for an execution batch.
+  ///
+  /// 顺序按“越静态越靠前、越动态越靠后”编排，最大化多阶段与重复生成时的前缀缓存命中率：
+  /// - System Prompt：仅包含跨阶段不变的静态块（角色定位、输出格式、全文规范等）；
+  /// - User Prompt：患者基础信息 → 既往文书 → 聊天与OCR/ASR材料 → 特别补充要求 → 当前生成时间 → 前置阶段已生成字段 → 本阶段专属指引与目标字段规格。
   static CompiledBatchPrompt compile({
     required GenerationPlan plan,
     required List<TemplateSlot> batchSlots,
     required Map<String, String> accumulatedOutputs,
     String? batchPrompt, // node or group custom prompt
     String? batchTitle,
+    DateTime? refTime,
   }) {
     final systemBuffer = StringBuffer();
+    final stageTaskBuffer = StringBuffer();
     final userBuffer = StringBuffer();
 
     // 1. Compile individual modular blocks content
@@ -107,7 +114,8 @@ class StagePromptCompiler {
       }
     }
 
-    // Assemble System Prompt strictly in the order and phrasing of enabled blocks!
+    // Assemble System Prompt (static blocks) and Stage Task tail (stage-scoped blocks)
+    // strictly following the order and enabled flags of configured blocks.
     final blocks = plan.promptConfig.effectiveSystemBlocks;
     for (final block in blocks) {
       if (!block.isEnabled) continue;
@@ -132,7 +140,7 @@ class StagePromptCompiler {
             var text = block.templateText
                 .replaceAll('{stage_title}', batchTitle ?? '当前批次')
                 .replaceAll('{stage_prompt}', stagePrompt);
-            if (text.trim().isNotEmpty) systemBuffer.writeln('$text\n');
+            if (text.trim().isNotEmpty) stageTaskBuffer.writeln('$text\n');
           }
           break;
 
@@ -140,7 +148,7 @@ class StagePromptCompiler {
           if (fieldSpecsBuffer.isNotEmpty) {
             var text = block.templateText
                 .replaceAll('{field_specs}', fieldSpecsBuffer.toString().trim());
-            if (text.trim().isNotEmpty) systemBuffer.writeln('$text\n');
+            if (text.trim().isNotEmpty) stageTaskBuffer.writeln('$text\n');
           }
           break;
 
@@ -156,29 +164,17 @@ class StagePromptCompiler {
 
         default:
           if (block.templateText.trim().isNotEmpty) {
-            systemBuffer.writeln('${block.templateText.trim()}\n');
+            final target = LlmPromptConfig.isStageScopedBlock(block.id)
+                ? stageTaskBuffer
+                : systemBuffer;
+            target.writeln('${block.templateText.trim()}\n');
           }
       }
     }
 
-    // ---------------- User Prompt ----------------
+    // ---------------- User Prompt (静态/共享素材在前 → 动态/阶段任务在后) ----------------
 
-    // 0. Generation Timestamp Baseline (锚定当前时间，便于推算病程/病期)
-    final refTime = plan.now ?? DateTime.now();
-    final timeStr = _dateFormat.format(refTime);
-    final weekdayStr = switch (refTime.weekday) {
-      1 => '星期一',
-      2 => '星期二',
-      3 => '星期三',
-      4 => '星期四',
-      5 => '星期五',
-      6 => '星期六',
-      7 => '星期日',
-      _ => '',
-    };
-    userBuffer.writeln('【当前生成时间】：$timeStr ($weekdayStr)\n');
-
-    // 1. Patient Baseline Profile
+    // 1. Patient Baseline Profile (会话内不变)
     userBuffer.writeln('【会话基础信息】：');
     userBuffer.write('名称: ${_maskName(plan.patient.name)}，性别: ${plan.patient.gender.label}');
     if (plan.patient.age != null) userBuffer.write('，年龄: ${plan.patient.age}岁');
@@ -191,7 +187,7 @@ class StagePromptCompiler {
     }
     userBuffer.writeln();
 
-    // 2. Historical Past Medical Records (历次已生成病历卡片，完整传入)
+    // 2. Historical Past Medical Records (历次已生成病历卡片，跨阶段不变且按时间只追加)
     if (plan.historicalRecords.isNotEmpty) {
       userBuffer.writeln('\n【既往已生成文书背景 (请保持前后连贯一致)】：');
       for (int i = 0; i < plan.historicalRecords.length; i++) {
@@ -202,15 +198,7 @@ class StagePromptCompiler {
       }
     }
 
-    // 3. Accumulated Prior Stage Outputs (前置阶段已生成的字段，保持因果一致)
-    if (accumulatedOutputs.isNotEmpty) {
-      userBuffer.writeln('\n【前置阶段已生成的文书字段 (当前阶段须以此为事实根据)】：');
-      for (final e in accumulatedOutputs.entries) {
-        userBuffer.writeln('${e.key}: ${e.value}');
-      }
-    }
-
-    // 4. Chat & Materials Stream (聊天记录、语音识别、图片OCR材料识别)
+    // 3. Chat & Materials Stream (聊天记录、语音识别、图片OCR材料：体量最大且跨阶段不变)
     userBuffer.writeln('\n【本次聊天记录与材料】：');
     if (plan.rawChatStream.isEmpty) {
       userBuffer.writeln('(暂无其他聊天记录，请根据上方基础信息与历史文书规范生成)');
@@ -230,21 +218,50 @@ class StagePromptCompiler {
             : (m.extractedText?.trim() ?? '');
 
         if (ocrContent.isNotEmpty) {
-          final prefix = m.type == MessageType.document ? '文件文档提取' : '材料OCR识别';
-          userBuffer.writeln('[$timeStr] [$prefix] $ocrContent');
+          final typeLabel = m.type == MessageType.document ? '文档提取' : '图片OCR';
+          userBuffer.writeln('[$timeStr] [用户消息][$typeLabel] $ocrContent');
         } else if (asrContent.isNotEmpty) {
-          userBuffer.writeln('[$timeStr] [语音转写] $asrContent');
+          userBuffer.writeln('[$timeStr] [用户消息][语音转写] $asrContent');
         } else if (textContent.isNotEmpty && m.type != MessageType.document) {
-          userBuffer.writeln('[$timeStr] [$senderLabel] $textContent');
+          userBuffer.writeln('[$timeStr] [$senderLabel][文字] $textContent');
         }
       }
     }
 
-    // 5. Special Clinical Instructions / Extra Requirements from Clinician
+    // 4. Special Clinical Instructions / Extra Requirements from Clinician (单次生成内跨阶段不变)
     if (plan.extraInstructions != null &&
         plan.extraInstructions!.trim().isNotEmpty) {
       userBuffer.writeln('\n【本次生成特别补充要求与指示 (最高优先级准则)】：');
       userBuffer.writeln(plan.extraInstructions!.trim());
+    }
+
+    // 5. Generation Timestamp Baseline (锚定本次生成时间，置于大段静态素材之后以避免隔分钟重跑导致素材前缀失效)
+    final effectiveTime = refTime ?? plan.now ?? DateTime.now();
+    final timeStr = _dateFormat.format(effectiveTime);
+    final weekdayStr = switch (effectiveTime.weekday) {
+      1 => '星期一',
+      2 => '星期二',
+      3 => '星期三',
+      4 => '星期四',
+      5 => '星期五',
+      6 => '星期六',
+      7 => '星期日',
+      _ => '',
+    };
+    userBuffer.writeln('\n【当前生成时间】：$timeStr ($weekdayStr)');
+
+    // 6. Accumulated Prior Stage Outputs (前置阶段已生成的字段，按阶段单调追加)
+    if (accumulatedOutputs.isNotEmpty) {
+      userBuffer.writeln('\n【前置阶段已生成的文书字段 (当前阶段须以此为事实根据)】：');
+      for (final e in accumulatedOutputs.entries) {
+        userBuffer.writeln('${e.key}: ${e.value}');
+      }
+    }
+
+    // 7. Stage-Scoped Instructions & Target Field Specifications (每阶段变化，置于最末尾)
+    final stageTaskText = stageTaskBuffer.toString().trim();
+    if (stageTaskText.isNotEmpty) {
+      userBuffer.writeln('\n$stageTaskText');
     }
 
     return CompiledBatchPrompt(

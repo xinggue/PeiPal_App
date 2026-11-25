@@ -47,6 +47,14 @@ class SystemPromptBlock {
 class LlmPromptConfig {
   final List<SystemPromptBlock> systemBlocks;
 
+  /// 随阶段动态变化的块：编译时自动置于本阶段请求末尾，以保持前序静态提示词与素材前缀稳定、提升缓存命中率。
+  static const Set<String> stageScopedBlockIds = {
+    'stageCustomPrompt',
+    'fieldSpecs',
+  };
+
+  static bool isStageScopedBlock(String id) => stageScopedBlockIds.contains(id);
+
   static List<SystemPromptBlock> get defaultSystemBlocks => const [
         SystemPromptBlock(
           id: 'role',
@@ -54,7 +62,15 @@ class LlmPromptConfig {
           description: '定义 AI 的身份与撰写文书的目的',
           templateText:
               '你是最优秀最聪明最努力基本功最扎实的实习新星，现在为你的上级担任严谨、专业的文书助手。你的职责是根据会话中的全部素材，为文书「{document_title}」撰写符合规范的字段内容。我们会尽可能地提供信息，包括先前有哪些文书和字段已经填写完毕，具体内容是什么；本次有哪些需要你填写的字段，它们各自的示范内容、填写要求等。如果偶尔这些信息未被提供，你可以信赖你的背景知识和基本功。\n'
-              '你接收到的素材主要来自于与上级的聊天记录，内容种类繁杂，包括但不限于：口语化表达的，长短不一的信息和指令；文书拍照后ocr产生的质量参差不齐的，可能有页面顺序错误以及错别字的大段文字识别内容；中英文混杂的，可能有截断或谐音错字的语音转文字内容。但作为经验老道、年富力强的你，这就是你的工作日常，相信你能够从容应对。',
+              '你接收到的素材主要来自于与上级的聊天记录，内容种类繁杂，包括但不限于：口语化表达的，长短不一的信息和指令；文书拍照后ocr产生的质量参差不齐的，可能有页面顺序错误以及错别字的大段文字识别内容；中英文混杂的，可能有截断或谐音错字的语音转文字内容。但作为经验老道、年富力强的你，这就是你的工作日常，相信你能够从容应对。\n'
+              '每条聊天记录按「[时间] [用户消息][消息类型] 内容」格式提供，其中消息类型包括文字、语音转写、图片OCR、文档提取，均代表上级发来的素材与指示。',
+        ),
+        SystemPromptBlock(
+          id: 'outputFormat',
+          label: '输出格式硬约束 (纯 JSON)',
+          description: '强制模型输出合规 JSON 对象，严禁 Markdown 围栏或废话',
+          templateText:
+              '【输出格式约束】：\n必须输出严格的纯 JSON 对象，格式为：\n{"字段键名": "生成的文书内容", ...}\n要求：\n1. 只填入指定的字段规格列表中的字段键名，严禁新增或幻想未经定义的键名。\n2. 带有可选范围的字段，必须从选项列表中选择或对齐。\n3. 不要在 JSON 外输出任何 markdown 解释、引言或非 JSON字符。',
         ),
         SystemPromptBlock(
           id: 'globalGuidance',
@@ -65,21 +81,14 @@ class LlmPromptConfig {
         SystemPromptBlock(
           id: 'stageCustomPrompt',
           label: '流程节点/分组工作指引',
-          description: '注入当前阶段在流程图中配置的专属工作指引',
+          description: '注入当前阶段在流程图中配置的专属工作指引（随阶段变化，自动置于请求末尾）',
           templateText: '【本阶段专属工作指引 ({stage_title})】：\n{stage_prompt}',
         ),
         SystemPromptBlock(
           id: 'fieldSpecs',
           label: '目标字段规格与要求',
-          description: '包含各字段名、类型、必填、选项范围、模板范文及单独要求',
+          description: '包含各字段名、类型、必填、选项范围、模板范文及单独要求（随阶段变化，自动置于请求末尾）',
           templateText: '【你当前需要生成的字段规格列表】：\n{field_specs}',
-        ),
-        SystemPromptBlock(
-          id: 'outputFormat',
-          label: '输出格式硬约束 (纯 JSON)',
-          description: '强制模型输出合规 JSON 对象，严禁 Markdown 围栏或废话',
-          templateText:
-              '【输出格式约束】：\n必须输出严格的纯 JSON 对象，格式为：\n{"字段键名": "生成的文书内容", ...}\n要求：\n1. 只填入上方规格列表中的字段键名，严禁新增或幻想未经定义的键名。\n2. 带有可选范围的字段，必须从选项列表中选择或对齐。\n3. 不要在 JSON 外输出任何 markdown 解释、引言或非 JSON字符。',
         ),
       ];
 
@@ -104,13 +113,24 @@ class LlmPromptConfig {
         [
           '你是一位严谨、专业的临床医生。\n你的职责是根据患者的全部临床素材，为电子病历「{document_title}」撰写符合规范的字段内容。',
           '你是一位严谨、专业的文书助手。\n你的职责是根据会话中的全部素材，为文书「{document_title}」撰写符合规范的字段内容。',
+          '你是最优秀最聪明最努力基本功最扎实的实习新星，现在为你的上级担任严谨、专业的文书助手。你的职责是根据会话中的全部素材，为文书「{document_title}」撰写符合规范的字段内容。我们会尽可能地提供信息，包括先前有哪些文书和字段已经填写完毕，具体内容是什么；本次有哪些需要你填写的字段，它们各自的示范内容、填写要求等。如果偶尔这些信息未被提供，你可以信赖你的背景知识和基本功。\n'
+              '你接收到的素材主要来自于与上级的聊天记录，内容种类繁杂，包括但不限于：口语化表达的，长短不一的信息和指令；文书拍照后ocr产生的质量参差不齐的，可能有页面顺序错误以及错别字的大段文字识别内容；中英文混杂的，可能有截断或谐音错字的语音转文字内容。但作为经验老道、年富力强的你，这就是你的工作日常，相信你能够从容应对。',
         ],
       ),
       'outputFormat': (
         '强制模型输出合规 JSON 对象，严禁 Markdown 围栏或废话',
         [
           '【输出格式约束】：\n必须输出严格的纯 JSON 对象，格式为：\n{"字段键名": "生成的病历内容", ...}\n要求：\n1. 只填入上方规格列表中的字段键名，严禁新增或幻想未经定义的键名。\n2. 带有可选范围的字段，必须从选项列表中选择或对齐。\n3. 不要在 JSON 外输出任何 markdown 解释、引言或非 JSON字符。',
+          '【输出格式约束】：\n必须输出严格的纯 JSON 对象，格式为：\n{"字段键名": "生成的文书内容", ...}\n要求：\n1. 只填入上方规格列表中的字段键名，严禁新增或幻想未经定义的键名。\n2. 带有可选范围的字段，必须从选项列表中选择或对齐。\n3. 不要在 JSON 外输出任何 markdown 解释、引言或非 JSON字符。',
         ],
+      ),
+      'stageCustomPrompt': (
+        '注入当前阶段在流程图中配置的专属工作指引',
+        [],
+      ),
+      'fieldSpecs': (
+        '包含各字段名、类型、必填、选项范围、模板范文及单独要求',
+        [],
       ),
     };
     final defaults = {for (final b in defaultSystemBlocks) b.id: b};

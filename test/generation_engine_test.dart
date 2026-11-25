@@ -145,7 +145,7 @@ void main() {
       expect(compiled.userPrompt, contains('名称: 欧**娜'));
       expect(compiled.userPrompt, isNot(contains('欧阳娜娜')));
       expect(compiled.userPrompt, contains('【本次聊天记录与材料】'));
-      expect(compiled.userPrompt, contains('[用户消息]'));
+      expect(compiled.userPrompt, contains('[用户消息][文字]'));
     });
 
     test('keeps two-character patient names unmasked', () {
@@ -205,21 +205,21 @@ void main() {
         batchPrompt: '请针对心内科体征推断',
       );
 
-      // 验证底层 Token 彻底被转为给 LLM 阅读的高可读标记
-      expect(compiled.systemPrompt, isNot(contains('\uFFFC')));
-      expect(compiled.systemPrompt, contains('[标准诊断词条: 心内科]'));
-      expect(compiled.systemPrompt, contains('[标准诊断词条: 门诊高频]'));
+      // 验证底层 Token 彻底被转为给 LLM 阅读的高可读标记（字段规格位于 userPrompt 末尾以保持静态前缀稳定）
+      expect(compiled.userPrompt, isNot(contains('\uFFFC')));
+      expect(compiled.userPrompt, contains('[标准诊断词条: 心内科]'));
+      expect(compiled.userPrompt, contains('[标准诊断词条: 门诊高频]'));
 
       // 验证各胶囊标签就近展开并列词条
-      expect(compiled.systemPrompt, contains('* [标准诊断词条: 心内科] 包含的规范名称及编码：'));
-      expect(compiled.systemPrompt, contains('- 冠心病 (I25.1)'));
-      expect(compiled.systemPrompt, contains('* [标准诊断词条: 门诊高频] 包含的规范名称及编码：'));
-      expect(compiled.systemPrompt, contains('- 高血压 (I10.x00)'));
+      expect(compiled.userPrompt, contains('* [标准诊断词条: 心内科] 包含的规范名称及编码：'));
+      expect(compiled.userPrompt, contains('- 冠心病 (I25.1)'));
+      expect(compiled.userPrompt, contains('* [标准诊断词条: 门诊高频] 包含的规范名称及编码：'));
+      expect(compiled.userPrompt, contains('- 高血压 (I10.x00)'));
 
       // 未被提及的标签词条绝不注入
-      expect(compiled.systemPrompt, isNot(contains('2型糖尿病')));
+      expect(compiled.userPrompt, isNot(contains('2型糖尿病')));
       expect(compiled.systemPrompt, contains('严谨书写'));
-      expect(compiled.systemPrompt, contains('请针对心内科体征推断'));
+      expect(compiled.userPrompt, contains('请针对心内科体征推断'));
       expect(compiled.userPrompt, contains('张三'));
       expect(compiled.userPrompt, contains('患者3天前出现胸骨后压榨性疼痛'));
       expect(compiled.userPrompt, contains('胸痛3天'));
@@ -262,10 +262,10 @@ void main() {
         accumulatedOutputs: {},
       );
 
-      expect(compiled.systemPrompt, contains('[标准手术词条: 微创介入]'));
-      expect(compiled.systemPrompt, contains('[标准诊断词条: 空标签测试]'));
-      expect(compiled.systemPrompt, contains('- 冠状动脉支架置入术 (36.06)'));
-      expect(compiled.systemPrompt, contains('(词库中暂无此标签词条)'));
+      expect(compiled.userPrompt, contains('[标准手术词条: 微创介入]'));
+      expect(compiled.userPrompt, contains('[标准诊断词条: 空标签测试]'));
+      expect(compiled.userPrompt, contains('- 冠状动脉支架置入术 (36.06)'));
+      expect(compiled.userPrompt, contains('(词库中暂无此标签词条)'));
     });
 
     test('does NOT inject catalog prompt if slot.catalogType is null, ignoring label heuristics', () {
@@ -294,7 +294,8 @@ void main() {
       );
 
       expect(compiled.systemPrompt, isNot(contains('【标准')));
-      expect(compiled.systemPrompt, isNot(contains('冠心病')));
+      expect(compiled.userPrompt, isNot(contains('【标准')));
+      expect(compiled.userPrompt, isNot(contains('冠心病')));
     });
 
     test('retains all past medical records in user prompt', () {
@@ -329,9 +330,9 @@ void main() {
 
       expect(compiled.userPrompt, contains('既往已生成文书背景'));
       expect(compiled.userPrompt, contains('既往出院小结内容'));
-      expect(compiled.userPrompt, contains('材料OCR识别'));
+      expect(compiled.userPrompt, contains('[用户消息][图片OCR]'));
       expect(compiled.userPrompt, contains('白细胞 12.5'));
-      expect(compiled.userPrompt, contains('语音转写'));
+      expect(compiled.userPrompt, contains('[用户消息][语音转写]'));
       expect(compiled.userPrompt, contains('昨日发热38.5度'));
     });
   });
@@ -914,27 +915,120 @@ I will output a standard concise 查体 with caveat. Since JSON only.{"查体":"
       );
     });
 
-    test('custom block order and disabled blocks drive the system prompt', () {
+    test('custom block order and disabled blocks drive static system and stage user tail', () {
       final byId = {for (final b in LlmPromptConfig.defaultSystemBlocks) b.id: b};
       final cfg = LlmPromptConfig(systemBlocks: [
+        byId['globalGuidance']!,
         byId['outputFormat']!,
         byId['role']!.copyWith(isEnabled: false),
         byId['fieldSpecs']!,
+        byId['stageCustomPrompt']!,
       ]);
       final plan = GenerationPlan(
         template: template,
+        contentTemplate: ContentTemplate(
+          structureTemplateId: template.id,
+          name: '规范',
+          globalGuidance: '全文规范内容',
+        ),
         patient: patient,
         rawChatStream: [],
         historicalRecords: [],
         promptConfig: cfg,
       );
-      final sys = StagePromptCompiler.compile(
+      final compiled = StagePromptCompiler.compile(
         plan: plan,
         batchSlots: [slotHpi],
         accumulatedOutputs: {},
-      ).systemPrompt;
-      expect(sys, isNot(contains('严谨、专业的文书助手')));
-      expect(sys.indexOf('输出格式约束'), lessThan(sys.indexOf('字段规格列表')));
+        batchPrompt: '阶段补充指引',
+      );
+      expect(compiled.systemPrompt, isNot(contains('严谨、专业的文书助手')));
+      expect(
+        compiled.systemPrompt.indexOf('全文撰写规范'),
+        lessThan(compiled.systemPrompt.indexOf('输出格式约束')),
+      );
+      expect(
+        compiled.userPrompt.indexOf('字段规格列表'),
+        lessThan(compiled.userPrompt.indexOf('本阶段专属工作指引')),
+      );
+    });
+
+    test('maximizes KV cache prefix stability across stages and timestamps', () {
+      final contentTemplate = ContentTemplate(
+        structureTemplateId: template.id,
+        name: '心内专科',
+        globalGuidance: '全局规范',
+      );
+      final plan = GenerationPlan(
+        template: template,
+        contentTemplate: contentTemplate,
+        patient: patient,
+        historicalRecords: [
+          Message.generatedRecord(
+            patientId: patient.id,
+            recordJson: '{"hpi":"既往病史"}',
+            templateId: template.id,
+          ),
+        ],
+        rawChatStream: [
+          Message.text(patientId: patient.id, content: '患者主诉胸痛三天'),
+        ],
+        extraInstructions: '突出心血管风险',
+        now: DateTime(2026, 10, 14, 16, 30),
+      );
+
+      final stage1 = StagePromptCompiler.compile(
+        plan: plan,
+        batchSlots: [slotHpi],
+        accumulatedOutputs: {},
+        batchPrompt: '第一阶段指引',
+        batchTitle: '现病史',
+      );
+      final stage2 = StagePromptCompiler.compile(
+        plan: plan,
+        batchSlots: [slotDiag],
+        accumulatedOutputs: {'hpi': '患者3天前胸痛'},
+        batchPrompt: '第二阶段指引',
+        batchTitle: '主要诊断',
+      );
+
+      // 1. System prompt is 100% byte-identical across stages
+      expect(stage1.systemPrompt, equals(stage2.systemPrompt));
+
+      // 2. Static materials + extra instructions + timestamp form a shared exact prefix in userPrompt
+      const marker = '【当前生成时间】：2026-10-14 16:30 (星期三)';
+      final s1Idx = stage1.userPrompt.indexOf(marker);
+      final s2Idx = stage2.userPrompt.indexOf(marker);
+      expect(s1Idx, greaterThan(0));
+      expect(s1Idx, equals(s2Idx));
+      expect(
+        stage1.userPrompt.substring(0, s1Idx + marker.length),
+        equals(stage2.userPrompt.substring(0, s2Idx + marker.length)),
+      );
+
+      // 3. Ordering inside userPrompt: static -> time -> prior outputs -> stage prompt -> field specs
+      final u2 = stage2.userPrompt;
+      expect(u2.indexOf('【会话基础信息】'), lessThan(u2.indexOf('【既往已生成文书背景')));
+      expect(u2.indexOf('【既往已生成文书背景'), lessThan(u2.indexOf('【本次聊天记录与材料】')));
+      expect(u2.indexOf('【本次聊天记录与材料】'), lessThan(u2.indexOf('【本次生成特别补充要求与指示')));
+      expect(u2.indexOf('【本次生成特别补充要求与指示'), lessThan(u2.indexOf('【当前生成时间】')));
+      expect(u2.indexOf('【当前生成时间】'), lessThan(u2.indexOf('【前置阶段已生成的文书字段')));
+      expect(u2.indexOf('【前置阶段已生成的文书字段'), lessThan(u2.indexOf('【本阶段专属工作指引')));
+      expect(u2.indexOf('【本阶段专属工作指引'), lessThan(u2.indexOf('【你当前需要生成的字段规格列表】')));
+
+      // 4. Even when re-running 5 minutes later, everything before 【当前生成时间】 is still identical
+      final laterStage1 = StagePromptCompiler.compile(
+        plan: plan,
+        batchSlots: [slotHpi],
+        accumulatedOutputs: {},
+        batchPrompt: '第一阶段指引',
+        batchTitle: '现病史',
+        refTime: DateTime(2026, 10, 14, 16, 35),
+      );
+      expect(
+        stage1.userPrompt.substring(0, s1Idx),
+        equals(laterStage1.userPrompt.substring(0, laterStage1.userPrompt.indexOf('【当前生成时间】'))),
+      );
     });
 
     test('BackgroundTask models and cancel logic operate cleanly', () {

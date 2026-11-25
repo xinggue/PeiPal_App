@@ -24,7 +24,7 @@ class PipelineGrid extends StatefulWidget {
 
   static const gridW = 240;
   static const gridH = 60;
-  static const pad = 14;
+  static const pad = 44;
   static const nodeW = 150.0;
   static const nodeH = 56.0;
   static const portD = 40.0; // port diameter ~75% of node height
@@ -618,7 +618,7 @@ class _NodeCardState extends State<_NodeCard> {
               ]))))),
             // Selection checkbox — rendered last so it's on top
             // Input port — centered vertically, larger hit area
-            Positioned(left:-portD/2,top:0,bottom:0,
+            Positioned(left:-(portD+14)/2,top:0,bottom:0,
               child:Center(child:GestureDetector(
                 behavior:HitTestBehavior.opaque,
                 onTap:widget.onIn,
@@ -629,7 +629,7 @@ class _NodeCardState extends State<_NodeCard> {
                 ),
               ))),
             // Output port
-            Positioned(right:-portD/2,top:0,bottom:0,
+            Positioned(right:-(portD+14)/2,top:0,bottom:0,
               child:Center(child:GestureDetector(
                 behavior:HitTestBehavior.opaque,
                 onTap:widget.onOut,
@@ -727,7 +727,7 @@ class _FolderCard extends StatelessWidget {
           ),
         )),
         // Input port — centered vertically
-        Positioned(left: -portD / 2, top: 0, bottom: 0,
+        Positioned(left: -(portD + 14) / 2, top: 0, bottom: 0,
           child: Center(child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onIn,
@@ -738,7 +738,7 @@ class _FolderCard extends StatelessWidget {
             ),
           ))),
         // Output port
-        Positioned(right: -portD / 2, top: 0, bottom: 0,
+        Positioned(right: -(portD + 14) / 2, top: 0, bottom: 0,
           child: Center(child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onOut,
@@ -778,20 +778,134 @@ class _FolderCard extends StatelessWidget {
 }
 
 class _EdgePainter extends CustomPainter {
-  final PipelineGraph graph;final List<PipelineNode> nodes;
-  final Offset Function(PipelineNode) posFn;final Rect Function(PipelineNode) rectFn;
-  _EdgePainter({required this.graph,required this.nodes,required this.posFn,required this.rectFn});
-  @override void paint(Canvas c, Size s) {
-    final p=Paint()..color=Colors.blueGrey[300]!..strokeWidth=2..style=PaintingStyle.stroke;
-    final m={for(final n in nodes)n.id:n};
-    for(final e in graph.edges){
-      final f=m[e.from],t=m[e.to];if(f==null||t==null)continue;
-      final fr=rectFn(f),tr=rectFn(t);
-      final start=Offset(fr.right,fr.center.dy),end=Offset(tr.left,tr.center.dy);
-      final mx=(start.dx+end.dx)/2;
-      c.drawPath(Path()..moveTo(start.dx,start.dy)..cubicTo(mx,start.dy,mx,end.dy,end.dx,end.dy),p);
-      c.drawPath(Path()..moveTo(end.dx,end.dy)..lineTo(end.dx-8,end.dy-5)..lineTo(end.dx-8,end.dy+5)..close(),Paint()..color=Colors.blueGrey[300]!..style=PaintingStyle.fill);
+  final PipelineGraph graph;
+  final List<PipelineNode> nodes;
+  final Offset Function(PipelineNode) posFn;
+  final Rect Function(PipelineNode) rectFn;
+
+  _EdgePainter({
+    required this.graph,
+    required this.nodes,
+    required this.posFn,
+    required this.rectFn,
+  });
+
+  static const double _arrowLen = 9.0;
+  static const double _arrowHalfW = 5.0;
+  static const double _stub = 18.0;
+  static const double _cornerRadius = 12.0;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final color = Colors.blueGrey[300]!;
+    final strokePaint = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final arrowPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    const portR = PipelineGrid.portD / 2;
+    final m = {for (final n in nodes) n.id: n};
+
+    for (final e in graph.edges) {
+      final f = m[e.from], t = m[e.to];
+      if (f == null || t == null) continue;
+
+      final fr = rectFn(f), tr = rectFn(t);
+      final start = Offset(fr.right + portR, fr.center.dy);
+      final end = Offset(tr.left - portR, tr.center.dy);
+      final lineEnd = Offset(end.dx - _arrowLen + 1.5, end.dy);
+
+      final path = Path();
+      final dx = lineEnd.dx - start.dx;
+
+      if (dx >= 24.0) {
+        final ctrl = (dx * 0.5).clamp(24.0, 120.0);
+        path
+          ..moveTo(start.dx, start.dy)
+          ..cubicTo(
+            start.dx + ctrl,
+            start.dy,
+            lineEnd.dx - ctrl,
+            lineEnd.dy,
+            lineEnd.dx,
+            lineEnd.dy,
+          );
+      } else {
+        final outX = start.dx + _stub;
+        final inX = end.dx - _stub;
+        final double midY;
+        if (tr.top >= fr.bottom - 2) {
+          midY = (fr.bottom + tr.top) / 2;
+        } else if (fr.top >= tr.bottom - 2) {
+          midY = (tr.bottom + fr.top) / 2;
+        } else {
+          midY = max(fr.bottom, tr.bottom) + 18.0;
+        }
+
+        _buildRoundedPolyline(path, [
+          start,
+          Offset(outX, start.dy),
+          Offset(outX, midY),
+          Offset(inX, midY),
+          Offset(inX, end.dy),
+          lineEnd,
+        ], _cornerRadius);
+      }
+
+      c.drawPath(path, strokePaint);
+
+      final arrow = Path()
+        ..moveTo(end.dx, end.dy)
+        ..lineTo(end.dx - _arrowLen, end.dy - _arrowHalfW)
+        ..lineTo(end.dx - _arrowLen, end.dy + _arrowHalfW)
+        ..close();
+      c.drawPath(arrow, arrowPaint);
     }
   }
-  @override bool shouldRepaint(covariant CustomPainter o)=>true;
+
+  static void _buildRoundedPolyline(
+    Path path,
+    List<Offset> points,
+    double radius,
+  ) {
+    if (points.isEmpty) return;
+    path.moveTo(points.first.dx, points.first.dy);
+    if (points.length == 2) {
+      path.lineTo(points.last.dx, points.last.dy);
+      return;
+    }
+
+    for (int i = 1; i < points.length - 1; i++) {
+      final prev = points[i - 1];
+      final curr = points[i];
+      final next = points[i + 1];
+
+      final v1 = curr - prev;
+      final v2 = next - curr;
+      final len1 = v1.distance;
+      final len2 = v2.distance;
+
+      if (len1 < 0.001 || len2 < 0.001) {
+        path.lineTo(curr.dx, curr.dy);
+        continue;
+      }
+
+      final r = min(radius, min(len1, len2) / 2);
+      final entry = curr - Offset(v1.dx / len1 * r, v1.dy / len1 * r);
+      final exit = curr + Offset(v2.dx / len2 * r, v2.dy / len2 * r);
+
+      path.lineTo(entry.dx, entry.dy);
+      path.quadraticBezierTo(curr.dx, curr.dy, exit.dx, exit.dy);
+    }
+
+    path.lineTo(points.last.dx, points.last.dy);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter o) => true;
 }

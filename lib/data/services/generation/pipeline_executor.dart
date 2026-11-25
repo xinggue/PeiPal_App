@@ -268,6 +268,7 @@ class PipelineExecutor {
     final batches = planBatches(plan);
     final accumulated = <String, String>{};
     final items = <DryRunStageItem>[];
+    final runTime = plan.now ?? DateTime.now();
 
     for (int i = 0; i < batches.length; i++) {
       final batch = batches[i];
@@ -277,6 +278,7 @@ class PipelineExecutor {
         accumulatedOutputs: accumulated,
         batchPrompt: batch.customPrompt,
         batchTitle: batch.title,
+        refTime: runTime,
       );
 
       items.add(DryRunStageItem(
@@ -315,6 +317,7 @@ class PipelineExecutor {
     final stopwatch = Stopwatch()..start();
     final batches = planBatches(plan);
     final totalStages = batches.length;
+    final runTime = plan.now ?? DateTime.now();
 
     final accumulatedOutputs = <String, String>{};
     final executedBatchTitles = <String>[];
@@ -360,6 +363,7 @@ class PipelineExecutor {
         accumulatedOutputs: accumulatedOutputs,
         batchPrompt: batch.customPrompt,
         batchTitle: batch.title,
+        refTime: runTime,
       );
 
       final jsonSchema = OutputSchemaBuilder.build(
