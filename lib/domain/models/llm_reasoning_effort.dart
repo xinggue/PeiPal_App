@@ -3,8 +3,8 @@ class LlmReasoningEffort {
   static const labels = {
     '': '服务商默认',
     'none': '关闭',
-    'low': '低（默认）',
-    'high': '高',
+    'low': '低',
+    'high': '高（默认）',
     'max': '最高',
   };
 
@@ -27,7 +27,7 @@ class LlmReasoningEffort {
 
   static String resolve(String providerId, String model, String? value) {
     final supported = options(providerId, model);
-    if (value == null) return supported.contains('low') ? 'low' : '';
+    if (value == null) return supported.contains('high') ? 'high' : '';
     return supported.contains(value) ? value : '';
   }
 }

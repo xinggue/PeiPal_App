@@ -5,12 +5,12 @@ import 'package:peipal/domain/models/llm_reasoning_effort.dart';
 void main() {
   group('LlmProviderConfig and Presets', () {
     test(
-      'unset effort defaults low while explicit provider defaults survive',
+      'unset effort defaults high while explicit provider defaults survive',
       () {
         for (final preset in LlmProviderPresets.builtIn.where(
           (p) => p.id == 'deepseek' || p.id == 'zhipu',
         )) {
-          expect(preset.reasoningEffort, 'low');
+          expect(preset.reasoningEffort, 'high');
           final explicitDefault = preset.copyWith(
             reasoningEfforts: {preset.selectedModel: ''},
           );
@@ -22,7 +22,7 @@ void main() {
             '',
           );
         }
-        expect(LlmReasoningEffort.resolve('zhipu', 'glm-5.2', null), 'low');
+        expect(LlmReasoningEffort.resolve('zhipu', 'glm-5.2', null), 'high');
         expect(LlmReasoningEffort.resolve('deepseek', 'unknown', null), '');
         expect(
           LlmReasoningEffort.resolve('custom', 'deepseek-flash', null),
@@ -69,7 +69,7 @@ void main() {
         expect(LlmReasoningEffort.resolve('zhipu', 'glm-5.3', 'none'), '');
         final legacy = Map<String, dynamic>.from(deepseek.toJson())
           ..remove('reasoningEfforts');
-        expect(LlmProviderConfig.fromJson(legacy).reasoningEffort, 'low');
+        expect(LlmProviderConfig.fromJson(legacy).reasoningEffort, 'high');
       },
     );
 
@@ -83,7 +83,7 @@ void main() {
         expect(deepseek.name, contains('DeepSeek'));
         expect(deepseek.baseUrl, 'https://api.deepseek.com');
         expect(deepseek.selectedModel, 'deepseek-flash');
-        expect(deepseek.reasoningEffort, 'low');
+        expect(deepseek.reasoningEffort, 'high');
 
         final mimo = presets.firstWhere((p) => p.id == 'mimo');
         expect(mimo.name, contains('小米'));
@@ -95,7 +95,7 @@ void main() {
         final zhipu = presets.firstWhere((p) => p.id == 'zhipu');
         expect(zhipu.name, contains('智谱'));
         expect(zhipu.selectedModel, 'glm-5.3-flashx');
-        expect(zhipu.reasoningEffort, 'low');
+        expect(zhipu.reasoningEffort, 'high');
 
         // 确保不包含零一万物
         expect(presets.any((p) => p.id == 'yi'), isFalse);

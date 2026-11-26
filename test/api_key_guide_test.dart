@@ -183,7 +183,7 @@ void main() {
             expect(doc.isEnabled, isTrue);
             if (provider == ApiKeyGuideProvider.deepseek) {
               expect(llm.selectedModel, 'deepseek-flash');
-              expect(llm.reasoningEffort, 'low');
+              expect(llm.reasoningEffort, 'high');
               expect(ocr.selectedModel, isEmpty);
               expect(asr.selectedModel, isEmpty);
               expect(ocr.protocol.name, 'deepseek');

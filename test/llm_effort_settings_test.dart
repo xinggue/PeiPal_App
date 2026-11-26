@@ -11,7 +11,7 @@ import 'package:peipal/providers/providers.dart';
 
 void main() {
   for (final id in ['deepseek', 'zhipu']) {
-    testWidgets('$id effort fits a narrow screen and defaults to low', (
+    testWidgets('$id effort fits a narrow screen and defaults to high', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(390, 844);
@@ -46,7 +46,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(container.read(llmConfigProvider).reasoningEffort, 'low');
+      expect(container.read(llmConfigProvider).reasoningEffort, 'high');
       final cardTitle = find.text(provider.name).last;
       await tester.ensureVisible(cardTitle);
       await tester.tap(cardTitle);
@@ -60,7 +60,7 @@ void main() {
       final bounds = tester.getRect(dropdown);
       expect(bounds.width, greaterThanOrEqualTo(300));
       expect(bounds.height, greaterThanOrEqualTo(56));
-      final selected = tester.getRect(find.text('低（默认）'));
+      final selected = tester.getRect(find.text('高（默认）'));
       expect(bounds.contains(selected.topLeft), isTrue);
       expect(bounds.contains(selected.bottomRight), isTrue);
       await tester.tap(dropdown);
@@ -109,7 +109,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('高级'));
       await tester.pumpAndSettle();
-      expect(container.read(llmConfigProvider).reasoningEffort, 'low');
+      expect(container.read(llmConfigProvider).reasoningEffort, 'high');
       await tester.tap(find.byType(DropdownButtonFormField<String>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('最高').last);

@@ -160,7 +160,7 @@ class QuickAiSetupService {
           selectedModel: llmPreset.selectedModel,
           isEnabled: true,
           reasoningEfforts: isDeepSeek
-              ? {...baseLlm.reasoningEfforts, llmPreset.selectedModel: 'low'}
+              ? {...baseLlm.reasoningEfforts, llmPreset.selectedModel: 'high'}
               : baseLlm.reasoningEfforts,
         ),
       );
