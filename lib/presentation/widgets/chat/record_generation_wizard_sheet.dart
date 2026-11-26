@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/services/task/task_center.dart';
+import '../../../domain/models/catalog_mention.dart';
 import '../../../domain/models/content_template.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/template.dart';
@@ -833,48 +834,243 @@ class _RecordGenerationWizardSheetState
           ...contentTmpls.map((ct) {
             final isSelected =
                 !_useNoContentTemplate && _selectedContentTemplate?.id == ct.id;
+            final sections = isSelected
+                ? _collectContentTemplateSections(ct, _selectedTemplate!)
+                : const <_TemplatePreviewSection>[];
+            final scheme = theme.colorScheme;
+
             return Card(
               elevation: 0,
               margin: const EdgeInsets.only(bottom: 8),
+              clipBehavior: Clip.antiAlias,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(
                   color: isSelected
-                      ? theme.colorScheme.primary
+                      ? scheme.primary
                       : Colors.grey.withValues(alpha: 0.25),
                   width: isSelected ? 1.6 : 1,
                 ),
               ),
               color: isSelected
-                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-                  : theme.colorScheme.surface,
-              child: ListTile(
-                leading: Icon(
-                  Icons.description_outlined,
-                  color: isSelected ? theme.colorScheme.primary : Colors.teal,
-                ),
-                title: Text(
-                  ct.name,
-                  style: TextStyle(
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                  ? scheme.primaryContainer.withValues(alpha: 0.22)
+                  : scheme.surface,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ListTile(
+                    leading: Icon(
+                      Icons.description_outlined,
+                      color: isSelected ? scheme.primary : Colors.teal,
+                    ),
+                    title: Text(
+                      ct.name,
+                      style: TextStyle(
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (sections.isNotEmpty) ...[
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () =>
+                                      _showContentTemplateDetailDialog(
+                                    ct,
+                                    sections,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.open_in_new_rounded,
+                                    size: 13,
+                                  ),
+                                  label: const Text(
+                                    '查看全文',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              Icon(
+                                Icons.check_circle_rounded,
+                                color: scheme.primary,
+                              ),
+                            ],
+                          )
+                        : const Icon(
+                            Icons.radio_button_unchecked,
+                            color: Colors.grey,
+                          ),
+                    onTap: () {
+                      setState(() {
+                        if (isSelected) {
+                          _selectedContentTemplate = null;
+                          _useNoContentTemplate = false;
+                        } else {
+                          _useNoContentTemplate = false;
+                          _selectedContentTemplate = ct;
+                        }
+                        _activeQuickPresetId = null;
+                      });
+                    },
                   ),
-                ),
-                trailing: isSelected
-                    ? Icon(Icons.check_circle_rounded,
-                        color: theme.colorScheme.primary)
-                    : const Icon(Icons.radio_button_unchecked,
-                        color: Colors.grey),
-                onTap: () {
-                  setState(() {
-                    _useNoContentTemplate = false;
-                    _selectedContentTemplate = ct;
-                    _activeQuickPresetId = null;
-                  });
-                },
+                  if (isSelected) ...[
+                    const Divider(height: 1),
+                    if (sections.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 9, 14, 10),
+                        child: Text(
+                          '该模板暂未填写规范或范例',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      )
+                    else
+                      _ContentTemplatePreviewBox(sections: sections),
+                  ],
+                ],
               ),
             );
           }),
       ],
+    );
+  }
+
+  List<_TemplatePreviewSection> _collectContentTemplateSections(
+    ContentTemplate ct,
+    Template structure,
+  ) {
+    final sections = <_TemplatePreviewSection>[];
+
+    final sortedSlots = structure.sortedSlots;
+    final orderedSlots = [
+      ...sortedSlots.where((s) => _selectedSlotKeys.contains(s.key)),
+      ...sortedSlots.where((s) => !_selectedSlotKeys.contains(s.key)),
+    ];
+
+    for (final slot in orderedSlots) {
+      final content = ct.slots[slot.key];
+      if (content == null || content.isEmpty) continue;
+      final guidance = CatalogMentionHelper.toDisplayText(content.guidance).trim();
+      final examples = content.examples
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      final legacyTags = content.catalogTags
+          .map((t) => t.trim())
+          .where((t) => t.isNotEmpty && !guidance.contains('@$t'))
+          .map((t) => '@$t')
+          .toList();
+      final resolvedGuidance = [
+        if (guidance.isNotEmpty) guidance,
+        if (legacyTags.isNotEmpty) legacyTags.join(' '),
+      ].join(' ');
+
+      if (resolvedGuidance.isEmpty && examples.isEmpty) continue;
+      sections.add(_TemplatePreviewSection(
+        title: slot.label.isNotEmpty ? slot.label : slot.key,
+        guidance: resolvedGuidance,
+        examples: examples,
+      ));
+    }
+
+    final global = CatalogMentionHelper.toDisplayText(ct.globalGuidance).trim();
+    if (global.isNotEmpty) {
+      sections.add(_TemplatePreviewSection(
+        title: '整体规范',
+        guidance: global,
+      ));
+    }
+
+    final fullEx = ct.fullExample.trim();
+    if (fullEx.isNotEmpty) {
+      sections.add(_TemplatePreviewSection(
+        title: '整份示范',
+        examples: [fullEx],
+      ));
+    }
+
+    return sections;
+  }
+
+  void _showContentTemplateDetailDialog(
+    ContentTemplate ct,
+    List<_TemplatePreviewSection> sections,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          ct.name,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.62,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < sections.length; i++) ...[
+                  if (i > 0) const Divider(height: 18),
+                  Text(
+                    sections[i].title,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  for (var eIdx = 0;
+                      eIdx < sections[i].examples.length;
+                      eIdx++) ...[
+                    const SizedBox(height: 6),
+                    _IndentedTemplateLine(
+                      text: sections[i].examples.length > 1
+                          ? '示例文本 ${eIdx + 1}：${sections[i].examples[eIdx]}'
+                          : '示例文本：${sections[i].examples[eIdx]}',
+                      isExample: true,
+                      selectable: true,
+                      fontSize: 12.5,
+                    ),
+                  ],
+                  if (sections[i].guidance.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _IndentedTemplateLine(
+                      text: '撰写要求：${sections[i].guidance}',
+                      isExample: false,
+                      selectable: true,
+                      fontSize: 12.5,
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1157,6 +1353,154 @@ class _OverviewRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TemplatePreviewSection {
+  final String title;
+  final String guidance;
+  final List<String> examples;
+
+  const _TemplatePreviewSection({
+    required this.title,
+    this.guidance = '',
+    this.examples = const [],
+  });
+}
+
+class _ContentTemplatePreviewBox extends StatefulWidget {
+  final List<_TemplatePreviewSection> sections;
+
+  const _ContentTemplatePreviewBox({
+    required this.sections,
+  });
+
+  @override
+  State<_ContentTemplatePreviewBox> createState() =>
+      _ContentTemplatePreviewBoxState();
+}
+
+class _ContentTemplatePreviewBoxState
+    extends State<_ContentTemplatePreviewBox> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final sections = widget.sections;
+    final previewMaxHeight =
+        (MediaQuery.sizeOf(context).height * 0.32).clamp(210.0, 290.0);
+
+    return Container(
+      color: scheme.surface.withValues(alpha: 0.65),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: previewMaxHeight),
+        child: Scrollbar(
+          controller: _scrollController,
+          thumbVisibility: sections.length > 2,
+          child: ListView.separated(
+            controller: _scrollController,
+            shrinkWrap: true,
+            primary: false,
+            physics: const ClampingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(13, 10, 13, 11),
+            itemCount: sections.length,
+            separatorBuilder: (_, _) => Divider(
+              height: 14,
+              color: scheme.outlineVariant.withValues(alpha: 0.35),
+            ),
+            itemBuilder: (_, idx) {
+              final sec = sections[idx];
+              final firstExample =
+                  sec.examples.isNotEmpty ? sec.examples.first : '';
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    sec.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  if (firstExample.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    _IndentedTemplateLine(
+                      text: '示例文本：$firstExample',
+                      isExample: true,
+                      maxLines: 3,
+                    ),
+                  ],
+                  if (sec.guidance.isNotEmpty) ...[
+                    const SizedBox(height: 3.5),
+                    _IndentedTemplateLine(
+                      text: '撰写要求：${sec.guidance}',
+                      isExample: false,
+                      maxLines: 3,
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IndentedTemplateLine extends StatelessWidget {
+  final String text;
+  final bool isExample;
+  final int? maxLines;
+  final bool selectable;
+  final double fontSize;
+
+  const _IndentedTemplateLine({
+    required this.text,
+    required this.isExample,
+    this.maxLines,
+    this.selectable = false,
+    this.fontSize = 11,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final lineColor = isExample
+        ? Colors.teal.withValues(alpha: 0.55)
+        : scheme.outlineVariant.withValues(alpha: 0.9);
+    final style = TextStyle(
+      fontSize: fontSize,
+      height: 1.42,
+      color: scheme.onSurfaceVariant,
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.only(left: 8),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: lineColor, width: 2)),
+      ),
+      child: selectable
+          ? SelectableText(text, style: style)
+          : Text(
+              text,
+              maxLines: maxLines,
+              overflow: maxLines == null ? null : TextOverflow.ellipsis,
+              style: style,
+            ),
     );
   }
 }

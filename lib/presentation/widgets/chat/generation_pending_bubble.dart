@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/services/task/task_center.dart';
+import '../../../providers/storefront_compliance_provider.dart';
 import '../../pages/chat/generation_run_page.dart';
+import 'copy_and_launch_ai_button.dart';
 import 'manual_prompt_preview_dialog.dart';
 
 /// 渲染在聊天流中的生成中卡片：
@@ -323,6 +325,9 @@ class _GenerationPendingBubbleState
 
   /// 手动模式卡片：点击可查看完整对话内容，支持贴回答案
   Widget _buildManualContent(BuildContext context, String templateName) {
+    final isRestricted = ref.watch(isChinaAiRestrictedProvider);
+    final promptText = widget.task.manualPrompt ?? '';
+
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: _viewPromptDialog,
@@ -404,6 +409,14 @@ class _GenerationPendingBubbleState
               ),
             ],
           ),
+          if (isRestricted && promptText.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            CopyAndLaunchAiButton(
+              promptText: promptText,
+              compact: true,
+              fullWidth: true,
+            ),
+          ],
         ],
       ),
     );

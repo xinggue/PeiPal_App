@@ -495,4 +495,131 @@ void main() {
       expect(find.text('生成要求'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    '向导第 2 步选中内容模板后展开固定上限纵向预览并支持查看全文弹窗',
+    (tester) async {
+      tester.view.physicalSize = const Size(420, 860);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final richCt = ContentTemplate(
+        id: 'ct_rich',
+        structureTemplateId: 't1',
+        name: '内分泌专科规范',
+        globalGuidance: '客观简洁记录病程，禁止杜撰实验室指标。',
+        fullExample: '主诉：口渴多饮3年。\n现病史：规范控糖后复诊。',
+        slots: {
+          'cc': const SlotContent(
+            guidance: '简明扼要写主要不适及持续时间',
+            examples: ['口渴、多饮、多尿3年，加重1周'],
+          ),
+          'hpi': const SlotContent(
+            guidance: '按起病诱因、诊治经过顺序描述',
+            examples: ['3年前体检发现空腹血糖升高...', '第二条示范病史'],
+          ),
+          'dx': const SlotContent(
+            guidance: '优先匹配 \uFFFC[CATALOG:diagnosis:内分泌]\uFFFC 词库标准诊断名',
+            examples: ['2型糖尿病'],
+          ),
+        },
+      );
+      final emptyCt = ContentTemplate(
+        id: 'ct_empty',
+        structureTemplateId: 't1',
+        name: '空白内容模板',
+      );
+
+      final repo = MockSettingsRepo();
+      final container = ProviderContainer(
+        overrides: [
+          settingsRepositoryProvider.overrideWithValue(repo),
+          templateRepositoryProvider.overrideWithValue(_FakeTemplateRepo([t1])),
+          contentTemplateRepositoryProvider.overrideWithValue(
+            _FakeContentTemplateRepo({'t1': [richCt, emptyCt]}),
+          ),
+          messageRepositoryProvider.overrideWithValue(_FakeMessageRepo(const [])),
+          templatesProvider.overrideWith((_) => Stream.value([t1])),
+          contentTemplatesProvider('t1')
+              .overrideWith((_) => Stream.value([richCt, emptyCt])),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RecordGenerationWizardSheet(patientId: 'p1'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 第 1 步选「门诊病历」并进入第 2 步
+      await tester.tap(find.text('门诊病历'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('下一步'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('第 2 / 3 步'), findsOneWidget);
+      expect(find.text('内容预览'), findsNothing);
+      expect(find.text('2条范例'), findsNothing);
+      expect(find.text('查看全文'), findsOneWidget);
+      expect(find.text('空白内容模板'), findsOneWidget);
+
+      // 「查看全文」并入模板名称同一行，不单独占行
+      final tplTitleY = tester.getCenter(find.text('内分泌专科规范')).dy;
+      final fullTextBtnY = tester.getCenter(find.text('查看全文')).dy;
+      expect((tplTitleY - fullTextBtnY).abs(), lessThan(4));
+
+      // 示例文本在前、撰写要求在后，字体大小与灰阶一致，词库标记转换干净
+      final exFinder = find.text('示例文本：口渴、多饮、多尿3年，加重1周');
+      final gdFinder = find.text('撰写要求：简明扼要写主要不适及持续时间');
+      expect(exFinder, findsOneWidget);
+      expect(gdFinder, findsOneWidget);
+      expect(tester.getTopLeft(exFinder).dy, lessThan(tester.getTopLeft(gdFinder).dy));
+      final exStyle = tester.widget<Text>(exFinder).style!;
+      final gdStyle = tester.widget<Text>(gdFinder).style!;
+      expect(exStyle.fontSize, gdStyle.fontSize);
+      expect(exStyle.color, gdStyle.color);
+      expect(tester.widget<Text>(exFinder).maxLines, 3);
+      expect(tester.widget<Text>(gdFinder).maxLines, 3);
+      expect(find.textContaining('\uFFFC'), findsNothing);
+
+      // 约 1/3 屏高纵向预览区内向下滚动可看到其余字段与整体规范
+      await tester.drag(gdFinder, const Offset(0, -160));
+      await tester.pumpAndSettle();
+      expect(find.text('撰写要求：优先匹配 @内分泌诊断 词库标准诊断名'), findsOneWidget);
+
+      // 点击「查看全文」弹出全文弹窗
+      await tester.tap(find.text('查看全文'));
+      await tester.pumpAndSettle();
+      expect(find.text('示例文本 2：第二条示范病史'), findsOneWidget);
+      expect(find.text('关闭'), findsOneWidget);
+
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 再次点击已选中的「内分泌专科规范」可取消选择并收起展开预览
+      await tester.tap(find.text('内分泌专科规范'));
+      await tester.pumpAndSettle();
+      expect(find.text('查看全文'), findsNothing);
+      expect(find.text('撰写要求：优先匹配 @内分泌诊断 词库标准诊断名'), findsNothing);
+
+      // 重新点选后恢复展开
+      await tester.tap(find.text('内分泌专科规范'));
+      await tester.pumpAndSettle();
+      expect(find.text('查看全文'), findsOneWidget);
+
+      // 切换为空白内容模板，提示无内容且收起预览区
+      await tester.tap(find.text('空白内容模板'));
+      await tester.pumpAndSettle();
+      expect(find.text('该模板暂未填写规范或范例'), findsOneWidget);
+      expect(find.text('查看全文'), findsNothing);
+    },
+  );
 }
